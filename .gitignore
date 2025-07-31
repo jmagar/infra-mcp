@@ -1,0 +1,212 @@
+# =============================================================================
+# SECURITY & CREDENTIALS
+# =============================================================================
+
+# Environment files with secrets
+.env
+.env.local
+.env.production
+.env.staging
+*.env
+
+# SSH Keys
+*.pem
+*.key
+id_rsa*
+id_ed25519*
+id_ecdsa*
+id_dsa*
+
+# =============================================================================
+# LOGS & RUNTIME DATA
+# =============================================================================
+
+# Log files and directories
+logs/
+.taskmaster/
+*.log
+*.log.*
+log/
+
+# Runtime data
+pids
+*.pid
+*.seed
+*.pid.lock
+
+# =============================================================================
+# PYTHON
+# =============================================================================
+
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# C extensions
+*.so
+
+# Distribution / packaging
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+share/python-wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+MANIFEST
+
+# PyInstaller
+*.manifest
+*.spec
+
+# Installer logs
+pip-log.txt
+pip-delete-this-directory.txt
+
+# Unit test / coverage reports
+htmlcov/
+.tox/
+.nox/
+.coverage
+.coverage.*
+.cache
+nosetests.xml
+coverage.xml
+*.cover
+*.py,cover
+.hypothesis/
+.pytest_cache/
+cover/
+
+# Virtual environments
+.env
+.venv
+env/
+venv/
+ENV/
+env.bak/
+venv.bak/
+
+# UV (Python package manager)
+.uv/
+uv.lock
+
+# =============================================================================
+# DATABASE & DOCKER
+# =============================================================================
+
+# Database files
+*.db
+*.sqlite
+*.sqlite3
+
+# Docker
+.dockerignore
+docker-compose.override.yml
+.docker/
+
+# =============================================================================
+# DEVELOPMENT & IDE
+# =============================================================================
+
+# IDEs and editors
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS generated files
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+
+# Temporary files
+*.tmp
+*.temp
+tmp/
+temp/
+
+# =============================================================================
+# PROJECT SPECIFIC
+# =============================================================================
+
+# Configuration overrides
+config/local/
+config/*.local.*
+
+# Backup files
+*.bak
+*.backup
+
+# SSL certificates
+*.crt
+*.csr
+*.pem
+*.key
+*.p12
+*.pfx
+
+# Data directories
+data/
+backups/
+exports/
+
+# =============================================================================
+# NODE.JS (Future frontend)
+# =============================================================================
+
+# Dependencies
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+lerna-debug.log*
+
+# Build outputs
+.next/
+out/
+build/
+dist/
+
+# =============================================================================
+# MISC
+# =============================================================================
+
+# Ignore everything in logs directory but keep the directory
+logs/*
+!logs/.gitkeep
+
+# Logs
+logs
+dev-debug.log
+# Dependency directories
+# Environment variables
+# Editor directories and files
+.idea
+.vscode
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?
+# OS specific
+
+# Task files
+# tasks.json
+# tasks/ 

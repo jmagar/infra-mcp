@@ -1,0 +1,43 @@
+
+services:
+  postgres:
+    image: timescale/timescaledb:latest-pg15
+    container_name: infrastructor-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB}
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      TIMESCALEDB_TELEMETRY: off
+      TS_TUNE_MEMORY: ${TS_TUNE_MEMORY}
+      TS_TUNE_NUM_CPUS: ${TS_TUNE_NUM_CPUS}
+      TS_TUNE_MAX_CONNS: ${TS_TUNE_MAX_CONNS}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./init-scripts:/docker-entrypoint-initdb.d:ro
+      - ./logs/postgres:/var/log/postgresql
+    ports:
+      - "${POSTGRES_PORT:-9100}:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+    networks:
+      - infrastructor-network
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+volumes:
+  postgres_data:
+    driver: local
+    name: infrastructor-postgres-data
+
+networks:
+  infrastructor-network:
+    driver: bridge
+    name: infrastructor-network

@@ -1,0 +1,1078 @@
+"""
+System Monitoring MCP Tools
+
+This module implements MCP tools for system performance monitoring,
+resource usage analysis, and health checking across infrastructure devices.
+"""
+
+import logging
+import re
+import json
+from datetime import datetime, timezone
+from typing import Dict, List, Optional, Any
+
+from apps.backend.src.utils.ssh_client import get_ssh_client, SSHConnectionInfo
+from apps.backend.src.core.exceptions import (
+    DeviceNotFoundError, SSHConnectionError, SystemMonitoringError
+)
+
+logger = logging.getLogger(__name__)
+
+
+async def get_system_info(
+    device: str,
+    include_processes: bool = False,
+    timeout: int = 60
+) -> Dict[str, Any]:
+    """
+    Get comprehensive system performance metrics from a device.
+    
+    This tool connects to a device via SSH and collects detailed system
+    performance metrics including CPU usage, memory utilization, disk I/O,
+    network statistics, and optionally top processes.
+    
+    Args:
+        device: Device hostname or IP address
+        include_processes: Include top processes information (default: False)
+        timeout: Command timeout in seconds (default: 60)
+        
+    Returns:
+        Dict containing:
+        - cpu_metrics: CPU usage, load averages, core count
+        - memory_metrics: RAM and swap usage statistics
+        - disk_metrics: Disk usage and I/O statistics
+        - network_metrics: Network interface statistics
+        - system_info: Kernel, uptime, and system information
+        - processes: Top processes (if requested)
+        - timestamp: Collection timestamp
+        
+    Raises:
+        DeviceNotFoundError: If device cannot be reached
+        SystemMonitoringError: If metric collection fails
+        SSHConnectionError: If SSH connection fails
+    """
+    logger.info(f"Collecting system metrics from device: {device}")
+    
+    try:
+        # Create SSH connection info
+        connection_info = SSHConnectionInfo(
+            host=device,
+            command_timeout=timeout
+        )
+        
+        # Get SSH client
+        ssh_client = get_ssh_client()
+        
+        # Initialize metric containers
+        cpu_metrics = {}
+        memory_metrics = {}
+        disk_metrics = {}
+        network_metrics = {}
+        system_info = {}
+        processes = []
+        
+        # Collect CPU metrics
+        try:
+            # CPU usage from /proc/stat
+            cpu_result = await ssh_client.execute_command(
+                connection_info,
+                "cat /proc/stat | head -1",
+                timeout=10
+            )
+            if cpu_result.return_code == 0:
+                cpu_line = cpu_result.stdout.strip()
+                cpu_values = cpu_line.split()[1:]  # Skip 'cpu' label
+                if len(cpu_values) >= 7:
+                    user, nice, system, idle, iowait, irq, softirq = map(int, cpu_values[:7])
+                    total = sum([user, nice, system, idle, iowait, irq, softirq])
+                    
+                    cpu_metrics.update({
+                        "user_percent": round((user / total) * 100, 2),
+                        "system_percent": round((system / total) * 100, 2),
+                        "idle_percent": round((idle / total) * 100, 2),
+                        "iowait_percent": round((iowait / total) * 100, 2),
+                        "usage_percent": round(((total - idle) / total) * 100, 2)
+                    })
+            
+            # Load averages
+            load_result = await ssh_client.execute_command(
+                connection_info,
+                "cat /proc/loadavg",
+                timeout=10
+            )
+            if load_result.return_code == 0:
+                load_values = load_result.stdout.strip().split()
+                if len(load_values) >= 3:
+                    cpu_metrics.update({
+                        "load_1min": float(load_values[0]),
+                        "load_5min": float(load_values[1]),
+                        "load_15min": float(load_values[2])
+                    })
+            
+            # CPU count
+            cpu_count_result = await ssh_client.execute_command(
+                connection_info,
+                "nproc",
+                timeout=10
+            )
+            if cpu_count_result.return_code == 0:
+                cpu_metrics["core_count"] = int(cpu_count_result.stdout.strip())
+            
+        except Exception as e:
+            logger.warning(f"Failed to collect CPU metrics: {e}")
+            cpu_metrics["error"] = str(e)
+        
+        # Collect memory metrics
+        try:
+            mem_result = await ssh_client.execute_command(
+                connection_info,
+                "cat /proc/meminfo",
+                timeout=10
+            )
+            if mem_result.return_code == 0:
+                mem_info = {}
+                for line in mem_result.stdout.strip().split('\n'):
+                    if ':' in line:
+                        key, value = line.split(':', 1)
+                        # Extract numeric value (remove 'kB' unit)
+                        value_match = re.search(r'(\d+)', value.strip())
+                        if value_match:
+                            mem_info[key.strip()] = int(value_match.group(1))
+                
+                if 'MemTotal' in mem_info and 'MemAvailable' in mem_info:
+                    total_kb = mem_info['MemTotal']
+                    available_kb = mem_info['MemAvailable']
+                    used_kb = total_kb - available_kb
+                    
+                    memory_metrics.update({
+                        "total_mb": round(total_kb / 1024, 2),
+                        "used_mb": round(used_kb / 1024, 2),
+                        "available_mb": round(available_kb / 1024, 2),
+                        "usage_percent": round((used_kb / total_kb) * 100, 2),
+                        "cached_mb": round(mem_info.get('Cached', 0) / 1024, 2),
+                        "buffers_mb": round(mem_info.get('Buffers', 0) / 1024, 2)
+                    })
+                
+                # Swap information
+                if 'SwapTotal' in mem_info:
+                    swap_total_kb = mem_info['SwapTotal']
+                    swap_free_kb = mem_info.get('SwapFree', 0)
+                    swap_used_kb = swap_total_kb - swap_free_kb
+                    
+                    memory_metrics.update({
+                        "swap_total_mb": round(swap_total_kb / 1024, 2),
+                        "swap_used_mb": round(swap_used_kb / 1024, 2),
+                        "swap_usage_percent": round((swap_used_kb / swap_total_kb) * 100, 2) if swap_total_kb > 0 else 0
+                    })
+                    
+        except Exception as e:
+            logger.warning(f"Failed to collect memory metrics: {e}")
+            memory_metrics["error"] = str(e)
+        
+        # Collect disk metrics
+        try:
+            # Disk usage for all mounted filesystems
+            df_result = await ssh_client.execute_command(
+                connection_info,
+                "df -h --output=source,size,used,avail,pcent,target | grep -E '^/dev/'",
+                timeout=15
+            )
+            if df_result.return_code == 0:
+                filesystems = []
+                for line in df_result.stdout.strip().split('\n'):
+                    if line.strip():
+                        parts = line.split()
+                        if len(parts) >= 6:
+                            filesystem = {
+                                "device": parts[0],
+                                "size": parts[1],
+                                "used": parts[2],
+                                "available": parts[3],
+                                "usage_percent": int(parts[4].rstrip('%')),
+                                "mount_point": parts[5]
+                            }
+                            filesystems.append(filesystem)
+                disk_metrics["filesystems"] = filesystems
+            
+            # Disk I/O statistics
+            iostat_result = await ssh_client.execute_command(
+                connection_info,
+                "cat /proc/diskstats",
+                timeout=10
+            )
+            if iostat_result.return_code == 0:
+                disk_io = []
+                for line in iostat_result.stdout.strip().split('\n'):
+                    parts = line.split()
+                    if len(parts) >= 14 and not parts[2].startswith('loop'):
+                        device_name = parts[2]
+                        reads_completed = int(parts[3])
+                        reads_merged = int(parts[4])
+                        sectors_read = int(parts[5])
+                        writes_completed = int(parts[7])
+                        writes_merged = int(parts[8])
+                        sectors_written = int(parts[9])
+                        
+                        disk_io.append({
+                            "device": device_name,
+                            "reads_completed": reads_completed,
+                            "reads_merged": reads_merged,
+                            "sectors_read": sectors_read,
+                            "writes_completed": writes_completed,
+                            "writes_merged": writes_merged,
+                            "sectors_written": sectors_written
+                        })
+                disk_metrics["io_stats"] = disk_io
+                
+        except Exception as e:
+            logger.warning(f"Failed to collect disk metrics: {e}")
+            disk_metrics["error"] = str(e)
+        
+        # Collect network metrics
+        try:
+            net_result = await ssh_client.execute_command(
+                connection_info,
+                "cat /proc/net/dev",
+                timeout=10
+            )
+            if net_result.return_code == 0:
+                interfaces = []
+                lines = net_result.stdout.strip().split('\n')[2:]  # Skip header lines
+                for line in lines:
+                    if ':' in line:
+                        interface_name, stats = line.split(':', 1)
+                        interface_name = interface_name.strip()
+                        stats = stats.split()
+                        
+                        if len(stats) >= 16:
+                            interface_stats = {
+                                "interface": interface_name,
+                                "rx_bytes": int(stats[0]),
+                                "rx_packets": int(stats[1]),
+                                "rx_errors": int(stats[2]),
+                                "rx_dropped": int(stats[3]),
+                                "tx_bytes": int(stats[8]),
+                                "tx_packets": int(stats[9]),
+                                "tx_errors": int(stats[10]),
+                                "tx_dropped": int(stats[11])
+                            }
+                            interfaces.append(interface_stats)
+                network_metrics["interfaces"] = interfaces
+                
+        except Exception as e:
+            logger.warning(f"Failed to collect network metrics: {e}")
+            network_metrics["error"] = str(e)
+        
+        # Collect system information
+        try:
+            # Kernel and system info
+            uname_result = await ssh_client.execute_command(
+                connection_info,
+                "uname -a",
+                timeout=10
+            )
+            if uname_result.return_code == 0:
+                system_info["kernel"] = uname_result.stdout.strip()
+            
+            # Uptime
+            uptime_result = await ssh_client.execute_command(
+                connection_info,
+                "cat /proc/uptime",
+                timeout=10
+            )
+            if uptime_result.return_code == 0:
+                uptime_seconds = float(uptime_result.stdout.split()[0])
+                days = int(uptime_seconds // 86400)
+                hours = int((uptime_seconds % 86400) // 3600)
+                minutes = int((uptime_seconds % 3600) // 60)
+                system_info["uptime"] = {
+                    "seconds_total": uptime_seconds,
+                    "days": days,
+                    "hours": hours,
+                    "minutes": minutes,
+                    "formatted": f"{days}d {hours}h {minutes}m"
+                }
+            
+            # Boot time
+            boot_time_result = await ssh_client.execute_command(
+                connection_info,
+                "stat -c %Y /proc/1",
+                timeout=10
+            )
+            if boot_time_result.return_code == 0:
+                boot_timestamp = int(boot_time_result.stdout.strip())
+                boot_time = datetime.fromtimestamp(boot_timestamp, tz=timezone.utc)
+                system_info["boot_time"] = boot_time.isoformat()
+                
+        except Exception as e:
+            logger.warning(f"Failed to collect system info: {e}")
+            system_info["error"] = str(e)
+        
+        # Collect top processes if requested
+        if include_processes:
+            try:
+                top_result = await ssh_client.execute_command(
+                    connection_info,
+                    "ps aux --sort=-%cpu | head -11",  # Top 10 processes + header
+                    timeout=15
+                )
+                if top_result.return_code == 0:
+                    lines = top_result.stdout.strip().split('\n')[1:]  # Skip header
+                    for line in lines:
+                        parts = line.split(None, 10)  # Split into max 11 parts
+                        if len(parts) >= 11:
+                            process = {
+                                "user": parts[0],
+                                "pid": int(parts[1]),
+                                "cpu_percent": float(parts[2]),
+                                "memory_percent": float(parts[3]),
+                                "vsz_kb": int(parts[4]),
+                                "rss_kb": int(parts[5]),
+                                "tty": parts[6],
+                                "stat": parts[7],
+                                "start": parts[8],
+                                "time": parts[9],
+                                "command": parts[10]
+                            }
+                            processes.append(process)
+                            
+            except Exception as e:
+                logger.warning(f"Failed to collect process info: {e}")
+                processes = [{"error": str(e)}]
+        
+        # Prepare response
+        response = {
+            "cpu_metrics": cpu_metrics,
+            "memory_metrics": memory_metrics,
+            "disk_metrics": disk_metrics,
+            "network_metrics": network_metrics,
+            "system_info": system_info,
+            "processes": processes if include_processes else None,
+            "device_info": {
+                "hostname": device,
+                "connection_successful": True
+            },
+            "collection_info": {
+                "timestamp": datetime.now(timezone.utc).isoformat(),
+                "include_processes": include_processes,
+                "timeout_seconds": timeout
+            }
+        }
+        
+        logger.info(f"Collected system metrics from {device}")
+        return response
+        
+    except Exception as e:
+        logger.error(f"Error collecting system metrics from {device}: {e}")
+        raise SystemMonitoringError(
+            message=f"Failed to collect system metrics: {str(e)}",
+            device=device,
+            operation="get_system_info",
+            details={"error": str(e)}
+        )
+
+
+async def get_drive_health(
+    device: str,
+    drive: Optional[str] = None,
+    timeout: int = 60
+) -> Dict[str, Any]:
+    """
+    Get S.M.A.R.T. drive health information and disk status.
+    
+    This tool connects to a device via SSH and retrieves S.M.A.R.T. health
+    data for storage drives, including temperature, error counts, and
+    overall health status. Supports both specific drive queries and all drives.
+    
+    Args:
+        device: Device hostname or IP address
+        drive: Specific drive to check (e.g., '/dev/sda') or None for all
+        timeout: Command timeout in seconds (default: 60)
+        
+    Returns:
+        Dict containing:
+        - drives: List of drive health information
+        - smart_available: Whether S.M.A.R.T. tools are available
+        - summary: Overall drive health summary
+        - device_info: Device connection information
+        - timestamp: Check timestamp
+        
+    Raises:
+        DeviceNotFoundError: If device cannot be reached
+        SystemMonitoringError: If drive health check fails
+        SSHConnectionError: If SSH connection fails
+    """
+    logger.info(f"Checking drive health on device: {device}")
+    
+    try:
+        # Create SSH connection info
+        connection_info = SSHConnectionInfo(
+            host=device,
+            command_timeout=timeout
+        )
+        
+        # Get SSH client
+        ssh_client = get_ssh_client()
+        
+        # Check if smartctl is available
+        smart_available = False
+        smartctl_result = await ssh_client.execute_command(
+            connection_info,
+            "which smartctl",
+            timeout=10
+        )
+        smart_available = smartctl_result.return_code == 0
+        
+        drives_info = []
+        
+        if drive:
+            # Check specific drive
+            drives_to_check = [drive]
+        else:
+            # Find all available drives
+            drives_to_check = []
+            
+            # List block devices
+            lsblk_result = await ssh_client.execute_command(
+                connection_info,
+                "lsblk -d -n -o NAME,TYPE | grep disk",
+                timeout=15
+            )
+            if lsblk_result.return_code == 0:
+                for line in lsblk_result.stdout.strip().split('\n'):
+                    if line.strip():
+                        parts = line.split()
+                        if len(parts) >= 2 and parts[1] == 'disk':
+                            drive_name = f"/dev/{parts[0]}"
+                            drives_to_check.append(drive_name)
+        
+        # Check each drive
+        for drive_path in drives_to_check:
+            drive_info = {
+                "device": drive_path,
+                "health_status": "unknown",
+                "smart_available": smart_available,
+                "temperature": None,
+                "power_on_hours": None,
+                "power_cycle_count": None,
+                "reallocated_sectors": None,
+                "pending_sectors": None,
+                "uncorrectable_errors": None,
+                "smart_attributes": {},
+                "errors": []
+            }
+            
+            try:
+                # Get basic drive info
+                drive_info_result = await ssh_client.execute_command(
+                    connection_info,
+                    f"lsblk {drive_path} -o NAME,SIZE,MODEL,SERIAL -n",
+                    timeout=10
+                )
+                if drive_info_result.return_code == 0:
+                    info_parts = drive_info_result.stdout.strip().split(None, 3)
+                    if len(info_parts) >= 2:
+                        drive_info["size"] = info_parts[1]
+                        if len(info_parts) >= 3:
+                            drive_info["model"] = info_parts[2]
+                        if len(info_parts) >= 4:
+                            drive_info["serial"] = info_parts[3]
+                
+                # Get S.M.A.R.T. information if available
+                if smart_available:
+                    try:
+                        # Get overall health status
+                        health_result = await ssh_client.execute_command(
+                            connection_info,
+                            f"smartctl -H {drive_path}",
+                            timeout=15
+                        )
+                        if health_result.return_code == 0:
+                            health_output = health_result.stdout.lower()
+                            if "passed" in health_output:
+                                drive_info["health_status"] = "healthy"
+                            elif "failed" in health_output:
+                                drive_info["health_status"] = "failed"
+                            else:
+                                drive_info["health_status"] = "unknown"
+                        
+                        # Get detailed S.M.A.R.T. attributes
+                        smart_result = await ssh_client.execute_command(
+                            connection_info,
+                            f"smartctl -A {drive_path}",
+                            timeout=20
+                        )
+                        if smart_result.return_code == 0:
+                            smart_attributes = {}
+                            
+                            # Parse S.M.A.R.T. attributes table
+                            lines = smart_result.stdout.split('\n')
+                            in_attributes = False
+                            
+                            for line in lines:
+                                if 'ID#' in line and 'ATTRIBUTE_NAME' in line:
+                                    in_attributes = True
+                                    continue
+                                
+                                if in_attributes and line.strip():
+                                    parts = line.split()
+                                    if len(parts) >= 10:
+                                        attr_id = parts[0]
+                                        attr_name = parts[1]
+                                        raw_value = parts[9]
+                                        
+                                        smart_attributes[attr_name] = {
+                                            "id": attr_id,
+                                            "raw_value": raw_value,
+                                            "normalized_value": parts[3] if len(parts) > 3 else None
+                                        }
+                                        
+                                        # Extract key metrics
+                                        if attr_name == "Temperature_Celsius":
+                                            try:
+                                                temp_match = re.search(r'(\d+)', raw_value)
+                                                if temp_match:
+                                                    drive_info["temperature"] = int(temp_match.group(1))
+                                            except:
+                                                pass
+                                        elif attr_name == "Power_On_Hours":
+                                            try:
+                                                drive_info["power_on_hours"] = int(raw_value)
+                                            except:
+                                                pass
+                                        elif attr_name == "Power_Cycle_Count":
+                                            try:
+                                                drive_info["power_cycle_count"] = int(raw_value)
+                                            except:
+                                                pass
+                                        elif attr_name == "Reallocated_Sector_Ct":
+                                            try:
+                                                drive_info["reallocated_sectors"] = int(raw_value)
+                                            except:
+                                                pass
+                                        elif attr_name == "Current_Pending_Sector":
+                                            try:
+                                                drive_info["pending_sectors"] = int(raw_value)
+                                            except:
+                                                pass
+                                        elif attr_name == "Offline_Uncorrectable":
+                                            try:
+                                                drive_info["uncorrectable_errors"] = int(raw_value)
+                                            except:
+                                                pass
+                            
+                            drive_info["smart_attributes"] = smart_attributes
+                            
+                    except Exception as e:
+                        drive_info["errors"].append(f"S.M.A.R.T. query failed: {str(e)}")
+                        logger.warning(f"S.M.A.R.T. query failed for {drive_path}: {e}")
+                
+                # Get filesystem information
+                try:
+                    fs_result = await ssh_client.execute_command(
+                        connection_info,
+                        f"lsblk {drive_path} -o FSTYPE,MOUNTPOINT -n",
+                        timeout=10
+                    )
+                    if fs_result.return_code == 0:
+                        fs_lines = fs_result.stdout.strip().split('\n')
+                        filesystems = []
+                        for fs_line in fs_lines:
+                            fs_parts = fs_line.split(None, 1)
+                            if len(fs_parts) >= 1 and fs_parts[0]:
+                                fs_info = {"type": fs_parts[0]}
+                                if len(fs_parts) >= 2:
+                                    fs_info["mount_point"] = fs_parts[1]
+                                filesystems.append(fs_info)
+                        drive_info["filesystems"] = filesystems
+                        
+                except Exception as e:
+                    drive_info["errors"].append(f"Filesystem info failed: {str(e)}")
+                
+            except Exception as e:
+                drive_info["errors"].append(f"Drive check failed: {str(e)}")
+                logger.warning(f"Drive check failed for {drive_path}: {e}")
+            
+            drives_info.append(drive_info)
+        
+        # Generate summary
+        total_drives = len(drives_info)
+        healthy_drives = sum(1 for d in drives_info if d["health_status"] == "healthy")
+        failed_drives = sum(1 for d in drives_info if d["health_status"] == "failed")
+        unknown_drives = sum(1 for d in drives_info if d["health_status"] == "unknown")
+        
+        summary = {
+            "total_drives": total_drives,
+            "healthy_drives": healthy_drives,
+            "failed_drives": failed_drives,
+            "unknown_drives": unknown_drives,
+            "overall_status": "healthy" if failed_drives == 0 and healthy_drives > 0 else ("failed" if failed_drives > 0 else "unknown"),
+            "smart_capable_drives": sum(1 for d in drives_info if d["smart_available"]),
+            "average_temperature": None
+        }
+        
+        # Calculate average temperature
+        temps = [d["temperature"] for d in drives_info if d["temperature"] is not None]
+        if temps:
+            summary["average_temperature"] = round(sum(temps) / len(temps), 1)
+        
+        # Prepare response
+        response = {
+            "drives": drives_info,
+            "smart_available": smart_available,
+            "summary": summary,
+            "device_info": {
+                "hostname": device,
+                "connection_successful": True,
+                "smartctl_installed": smart_available
+            },
+            "query_info": {
+                "specific_drive": drive,
+                "drives_checked": len(drives_to_check),
+                "timestamp": datetime.now(timezone.utc).isoformat()
+            }
+        }
+        
+        logger.info(
+            f"Checked {total_drives} drives on {device} "
+            f"(Healthy: {healthy_drives}, Failed: {failed_drives}, Unknown: {unknown_drives})"
+        )
+        
+        return response
+        
+    except Exception as e:
+        logger.error(f"Error checking drive health on {device}: {e}")
+        raise SystemMonitoringError(
+            message=f"Failed to check drive health: {str(e)}",
+            device=device,
+            operation="get_drive_health",
+            details={"error": str(e), "drive": drive}
+        )
+
+
+async def get_system_logs(
+    device: str,
+    service: Optional[str] = None,
+    since: Optional[str] = None,
+    lines: int = 100,
+    timeout: int = 60
+) -> Dict[str, Any]:
+    """
+    Get system logs from journald or traditional syslog.
+    
+    This tool connects to a device via SSH and retrieves system logs
+    using journalctl (systemd) or traditional log files. Supports filtering
+    by service, time range, and line limits.
+    
+    Args:
+        device: Device hostname or IP address
+        service: Specific service to get logs for (e.g., 'docker', 'nginx')
+        since: Get logs since timestamp/duration (e.g., '2h', '1d', '2023-01-01 10:00:00')
+        lines: Number of log lines to retrieve (default: 100)
+        timeout: Command timeout in seconds (default: 60)
+        
+    Returns:
+        Dict containing:
+        - logs: List of log entries with timestamps and content
+        - log_source: Source of logs (journald or syslog)
+        - service_info: Service-specific information
+        - log_metadata: Log retrieval metadata and statistics
+        - device_info: Device connection information
+        - timestamp: Query timestamp
+        
+    Raises:
+        DeviceNotFoundError: If device cannot be reached
+        SystemMonitoringError: If log retrieval fails
+        SSHConnectionError: If SSH connection fails
+    """
+    logger.info(f"Retrieving system logs from device: {device}")
+    
+    try:
+        # Create SSH connection info
+        connection_info = SSHConnectionInfo(
+            host=device,
+            command_timeout=timeout
+        )
+        
+        # Get SSH client
+        ssh_client = get_ssh_client()
+        
+        # Skip journalctl and use syslog directly to avoid timestamp parsing issues
+        journald_available = False  # Force use of traditional syslog
+        
+        log_entries = []
+        log_source = "unknown"
+        service_info = {}
+        
+        if journald_available:
+            log_source = "journald"
+            
+            # Build journalctl command
+            cmd_parts = ["journalctl", "--no-pager", "--output=json"]
+            
+            if service:
+                cmd_parts.extend(["-u", service])
+                
+            if since:
+                cmd_parts.extend(["--since", f'"{since}"'])
+                
+            if lines:
+                cmd_parts.extend(["-n", str(lines)])
+            
+            journalctl_cmd = " ".join(cmd_parts)
+            
+            try:
+                logs_result = await ssh_client.execute_command(
+                    connection_info,
+                    journalctl_cmd,
+                    timeout=timeout
+                )
+                
+                if logs_result.return_code == 0:
+                    # Parse JSON output from journalctl
+                    for line in logs_result.stdout.strip().split('\n'):
+                        if line.strip():
+                            try:
+                                log_entry = json.loads(line)
+                                
+                                # Extract relevant fields
+                                entry = {
+                                    "timestamp": log_entry.get("__REALTIME_TIMESTAMP"),
+                                    "hostname": log_entry.get("_HOSTNAME", device),
+                                    "service": log_entry.get("_SYSTEMD_UNIT", log_entry.get("SYSLOG_IDENTIFIER", "unknown")),
+                                    "pid": log_entry.get("_PID"),
+                                    "priority": log_entry.get("PRIORITY"),
+                                    "message": log_entry.get("MESSAGE", ""),
+                                    "boot_id": log_entry.get("_BOOT_ID")
+                                }
+                                
+                                # Convert timestamp to ISO format
+                                if entry["timestamp"]:
+                                    try:
+                                        # Systemd timestamp is in microseconds
+                                        timestamp_seconds = int(entry["timestamp"]) / 1000000
+                                        dt = datetime.fromtimestamp(timestamp_seconds, tz=timezone.utc)
+                                        entry["timestamp"] = dt.isoformat()
+                                    except:
+                                        pass
+                                
+                                # Determine log level from priority
+                                priority = entry.get("priority")
+                                if priority is not None:
+                                    try:
+                                        priority_int = int(priority)
+                                        if priority_int <= 3:
+                                            entry["level"] = "error"
+                                        elif priority_int <= 4:
+                                            entry["level"] = "warning"
+                                        elif priority_int <= 6:
+                                            entry["level"] = "info"
+                                        else:
+                                            entry["level"] = "debug"
+                                    except:
+                                        entry["level"] = "unknown"
+                                else:
+                                    entry["level"] = "unknown"
+                                
+                                log_entries.append(entry)
+                                
+                            except json.JSONDecodeError:
+                                # Handle non-JSON lines
+                                log_entries.append({
+                                    "timestamp": None,
+                                    "hostname": device,
+                                    "service": "unknown",
+                                    "message": line.strip(),
+                                    "level": "unknown",
+                                    "raw_line": True
+                                })
+                
+                # Get service information if specific service requested
+                if service and logs_result.return_code == 0:
+                    try:
+                        service_status_result = await ssh_client.execute_command(
+                            connection_info,
+                            f"systemctl status {service} --no-pager",
+                            timeout=15
+                        )
+                        if service_status_result.return_code == 0:
+                            status_lines = service_status_result.stdout.strip().split('\n')
+                            for line in status_lines:
+                                if 'Active:' in line:
+                                    service_info["status"] = line.split('Active:', 1)[1].strip()
+                                elif 'Main PID:' in line:
+                                    service_info["main_pid"] = line.split('Main PID:', 1)[1].strip()
+                                elif 'Memory:' in line:
+                                    service_info["memory_usage"] = line.split('Memory:', 1)[1].strip()
+                    except Exception as e:
+                        service_info["error"] = f"Failed to get service status: {str(e)}"
+                        
+            except Exception as e:
+                logger.warning(f"Journalctl failed: {e}")
+                # Fall back to traditional syslog
+                journald_available = False
+        
+        # Fall back to traditional syslog if journald not available or failed
+        if not journald_available or not log_entries:
+            log_source = "syslog"
+            
+            # Try common syslog locations
+            syslog_paths = ["/var/log/syslog", "/var/log/messages"]
+            
+            for syslog_path in syslog_paths:
+                try:
+                    # Check if log file exists
+                    test_result = await ssh_client.execute_command(
+                        connection_info,
+                        f"test -f {syslog_path}",
+                        timeout=5
+                    )
+                    
+                    if test_result.return_code == 0:
+                        # Build tail command
+                        cmd_parts = ["tail", "-n", str(lines), syslog_path]
+                        
+                        if service:
+                            # Filter by service using grep
+                            cmd_parts = ["tail", "-n", str(lines * 5), syslog_path, "|", "grep", service, "|", "tail", "-n", str(lines)]
+                        
+                        tail_cmd = " ".join(cmd_parts)
+                        
+                        logs_result = await ssh_client.execute_command(
+                            connection_info,
+                            tail_cmd,
+                            timeout=timeout
+                        )
+                        
+                        if logs_result.return_code == 0:
+                            # Parse traditional syslog format
+                            for line in logs_result.stdout.strip().split('\n'):
+                                if line.strip():
+                                    # Try to parse syslog format: timestamp hostname service[pid]: message
+                                    log_match = re.match(
+                                        r'^(\w{3}\s+\d{1,2}\s+\d{2}:\d{2}:\d{2})\s+(\S+)\s+([^:\[\]]+)(?:\[(\d+)\])?\s*:\s*(.*)$',
+                                        line
+                                    )
+                                    
+                                    if log_match:
+                                        timestamp_str, hostname, service_name, pid, message = log_match.groups()
+                                        
+                                        # Parse timestamp (add current year as syslog doesn't include it)
+                                        try:
+                                            current_year = datetime.now().year
+                                            full_timestamp = f"{current_year} {timestamp_str}"
+                                            dt = datetime.strptime(full_timestamp, "%Y %b %d %H:%M:%S")
+                                            dt = dt.replace(tzinfo=timezone.utc)
+                                            iso_timestamp = dt.isoformat()
+                                        except:
+                                            iso_timestamp = timestamp_str
+                                        
+                                        # Determine log level from message content
+                                        message_lower = message.lower()
+                                        if any(word in message_lower for word in ['error', 'err', 'fail', 'fatal']):
+                                            level = "error"
+                                        elif any(word in message_lower for word in ['warn', 'warning']):
+                                            level = "warning"
+                                        elif any(word in message_lower for word in ['info', 'notice']):
+                                            level = "info"
+                                        else:
+                                            level = "debug"
+                                        
+                                        entry = {
+                                            "timestamp": iso_timestamp,
+                                            "hostname": hostname,
+                                            "service": service_name,
+                                            "pid": int(pid) if pid else None,
+                                            "message": message.strip(),
+                                            "level": level,
+                                            "source_file": syslog_path
+                                        }
+                                        log_entries.append(entry)
+                                    else:
+                                        # Handle unparseable lines
+                                        log_entries.append({
+                                            "timestamp": None,
+                                            "hostname": device,
+                                            "service": "unknown",
+                                            "message": line.strip(),
+                                            "level": "unknown",
+                                            "raw_line": True,
+                                            "source_file": syslog_path
+                                        })
+                            break  # Exit loop if we successfully got logs
+                            
+                except Exception as e:
+                    logger.debug(f"Failed to read {syslog_path}: {e}")
+                    continue
+        
+        # Calculate log statistics
+        total_entries = len(log_entries)
+        level_counts = {}
+        service_counts = {}
+        
+        for entry in log_entries:
+            level = entry.get("level", "unknown")
+            level_counts[level] = level_counts.get(level, 0) + 1
+            
+            service = entry.get("service", "unknown")
+            service_counts[service] = service_counts.get(service, 0) + 1
+        
+        # Find time range
+        timestamped_entries = [e for e in log_entries if e.get("timestamp") and not e.get("raw_line")]
+        first_timestamp = None
+        last_timestamp = None
+        
+        if timestamped_entries:
+            try:
+                timestamps = [
+                    datetime.fromisoformat(e["timestamp"]) 
+                    for e in timestamped_entries
+                    if e["timestamp"]
+                ]
+                if timestamps:
+                    first_timestamp = min(timestamps).isoformat()
+                    last_timestamp = max(timestamps).isoformat()
+            except Exception as e:
+                logger.debug(f"Failed to calculate time range: {e}")
+        
+        # Prepare response
+        response = {
+            "logs": log_entries,
+            "log_source": log_source,
+            "service_info": service_info,
+            "log_metadata": {
+                "total_entries": total_entries,
+                "level_counts": level_counts,
+                "service_counts": service_counts,
+                "first_timestamp": first_timestamp,
+                "last_timestamp": last_timestamp,
+                "has_timestamps": len(timestamped_entries) > 0
+            },
+            "device_info": {
+                "hostname": device,
+                "connection_successful": True,
+                "journald_available": journald_available
+            },
+            "query_info": {
+                "service_filter": service,
+                "since_filter": since,
+                "lines_requested": lines,
+                "timestamp": datetime.now(timezone.utc).isoformat()
+            }
+        }
+        
+        logger.info(
+            f"Retrieved {total_entries} log entries from {device} "
+            f"(Source: {log_source}, Levels: {level_counts})"
+        )
+        
+        return response
+        
+    except Exception as e:
+        logger.error(f"Error retrieving system logs from {device}: {e}")
+        raise SystemMonitoringError(
+            message=f"Failed to retrieve system logs: {str(e)}",
+            device=device,
+            operation="get_system_logs",
+            details={
+                "error": str(e),
+                "service": service,
+                "since": since,
+                "lines": lines
+            }
+        )
+
+
+# Tool registration metadata for MCP server
+SYSTEM_MONITORING_TOOLS = {
+    "get_system_info": {
+        "name": "get_system_info",
+        "description": "Get comprehensive system performance metrics from a device",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "device": {
+                    "type": "string",
+                    "description": "Device hostname or IP address"
+                },
+                "include_processes": {
+                    "type": "boolean",
+                    "description": "Include top processes information",
+                    "default": False
+                },
+                "timeout": {
+                    "type": "integer",
+                    "description": "Command timeout in seconds",
+                    "default": 60,
+                    "minimum": 10,
+                    "maximum": 300
+                }
+            },
+            "required": ["device"]
+        },
+        "function": get_system_info
+    },
+    "get_drive_health": {
+        "name": "get_drive_health",
+        "description": "Get S.M.A.R.T. drive health information and disk status",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "device": {
+                    "type": "string",
+                    "description": "Device hostname or IP address"
+                },
+                "drive": {
+                    "type": "string",
+                    "description": "Specific drive to check (e.g., '/dev/sda') or omit for all drives"
+                },
+                "timeout": {
+                    "type": "integer",
+                    "description": "Command timeout in seconds",
+                    "default": 60,
+                    "minimum": 10,
+                    "maximum": 300
+                }
+            },
+            "required": ["device"]
+        },
+        "function": get_drive_health
+    },
+    "get_system_logs": {
+        "name": "get_system_logs",
+        "description": "Get system logs from journald or traditional syslog",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "device": {
+                    "type": "string",
+                    "description": "Device hostname or IP address"
+                },
+                "service": {
+                    "type": "string",
+                    "description": "Specific service to get logs for (e.g., 'docker', 'nginx')"
+                },
+                "since": {
+                    "type": "string",
+                    "description": "Get logs since timestamp/duration (e.g., '2h', '1d', '2023-01-01 10:00:00')"
+                },
+                "lines": {
+                    "type": "integer",
+                    "description": "Number of log lines to retrieve",
+                    "default": 100,
+                    "minimum": 1,
+                    "maximum": 10000
+                },
+                "timeout": {
+                    "type": "integer",
+                    "description": "Command timeout in seconds",
+                    "default": 60,
+                    "minimum": 10,
+                    "maximum": 300
+                }
+            },
+            "required": ["device"]
+        },
+        "function": get_system_logs
+    }
+}
