@@ -61,19 +61,37 @@ async def get_proxy_config_resource(uri: str) -> Dict[str, Any]:
             # All SWAG configs are on "squirts" - the reverse proxy host
             swag_device = "squirts"
             
+            # Handle special template requests
+            if service_name == "subdomain-template":
+                return await _get_template_resource(swag_device, "_template.subdomain.conf.sample", format_type, include_parsed)
+            elif service_name == "subfolder-template":
+                return await _get_template_resource(swag_device, "_template.subfolder.conf.sample", format_type, include_parsed)
+            
             return await _get_service_config_resource(swag_device, service_name, force_refresh, include_parsed, format_type)
         
-        # Pattern 2: swag://device/directory
-        elif device and path == 'directory':
+        # Pattern 2: swag://configs - Directory listing of all active configs
+        elif device == 'configs' and not path:
+            swag_device = "squirts"
             config_dir = query_params.get('dir', ['/mnt/appdata/swag/nginx/proxy-confs'])[0]
-            return await _get_directory_listing_resource(device, config_dir)
+            return await _get_directory_listing_resource(swag_device, config_dir)
         
-        # Pattern 3: swag://device/summary
-        elif device and path == 'summary':
-            return await _get_proxy_summary_resource(device)
+        # Pattern 3: swag://summary - Summary statistics  
+        elif device == 'summary' and not path:
+            swag_device = "squirts"
+            return await _get_proxy_summary_resource(swag_device)
+        
+        # Pattern 4: swag://samples/filename
+        elif device == 'samples' and path:
+            swag_device = "squirts"
+            return await _get_sample_resource(swag_device, path, format_type, include_parsed)
+        
+        # Pattern 5: swag://samples (directory listing of samples)
+        elif device == 'samples' and not path:
+            swag_device = "squirts"
+            return await _get_samples_directory_resource(swag_device)
         
         else:
-            raise ValueError(f"Unknown SWAG URI format: {uri}. Use swag://service_name or swag://device/directory")
+            raise ValueError(f"Unknown SWAG URI format: {uri}. Use swag://service_name, swag://configs, swag://summary, or swag://samples/")
         
     except Exception as e:
         logger.error(f"Error getting proxy config resource {uri}: {e}")
@@ -82,6 +100,338 @@ async def get_proxy_config_resource(uri: str) -> Dict[str, Any]:
             'uri': uri,
             'timestamp': datetime.now(timezone.utc).isoformat(),
             'resource_type': 'error'
+        }
+
+
+async def _get_template_resource(
+    device: str,
+    template_filename: str,
+    format_type: str = 'raw',
+    include_parsed: bool = True
+) -> Dict[str, Any]:
+    """Get SWAG template configuration file"""
+    
+    try:
+        # SWAG template files are in the same directory as configs
+        template_path = f"/mnt/appdata/swag/nginx/proxy-confs/{template_filename}"
+        
+        # Get real-time file info and content
+        file_info = await _get_real_time_file_info(device, template_path)
+        
+        if not file_info.get('exists', False):
+            return {
+                'error': f'SWAG template file not found: {template_filename}',
+                'template_filename': template_filename,
+                'device': device,
+                'file_path': template_path,
+                'timestamp': datetime.now(timezone.utc).isoformat(),
+                'resource_type': 'template_not_found'
+            }
+        
+        # Get content
+        content = await _get_real_time_file_content(device, template_path)
+        
+        if content is None:
+            return {
+                'error': 'Failed to read SWAG template file',
+                'template_filename': template_filename,
+                'device': device,
+                'file_path': template_path,
+                'file_info': file_info,
+                'timestamp': datetime.now(timezone.utc).isoformat(),
+                'resource_type': 'template_read_error'
+            }
+        
+        # Determine template type
+        template_type = 'subdomain' if 'subdomain' in template_filename else 'subfolder'
+        
+        resource_data = {
+            'uri': f"swag://{template_type}-template",
+            'template_type': template_type,
+            'template_filename': template_filename,
+            'device': device,
+            'file_path': template_path,
+            'file_info': file_info,
+            'content_length': len(content),
+            'timestamp': datetime.now(timezone.utc).isoformat(),
+            'resource_type': 'swag_template',
+            'format': format_type
+        }
+        
+        # Format content based on requested format
+        if format_type == 'raw':
+            resource_data['content'] = content
+            resource_data['mime_type'] = 'text/plain'
+            
+        elif format_type == 'json':
+            if include_parsed:
+                parser = NginxConfigParser()
+                parsed_config = parser.parse_config_content(content, template_path)
+                resource_data['parsed_config'] = parsed_config
+            
+            resource_data['raw_content'] = content
+            resource_data['mime_type'] = 'application/json'
+            
+        elif format_type == 'yaml':
+            if include_parsed:
+                parser = NginxConfigParser()
+                parsed_config = parser.parse_config_content(content, template_path)
+                resource_data['parsed_config'] = parsed_config
+            
+            resource_data['raw_content'] = content
+            resource_data['mime_type'] = 'application/yaml'
+        
+        # Always include parsed config if requested
+        if include_parsed and format_type == 'raw':
+            parser = NginxConfigParser()
+            parsed_config = parser.parse_config_content(content, template_path)
+            resource_data['parsed_config'] = parsed_config
+        
+        return resource_data
+        
+    except Exception as e:
+        logger.error(f"Error getting SWAG template {template_filename}: {e}")
+        return {
+            'error': str(e),
+            'template_filename': template_filename,
+            'device': device,
+            'timestamp': datetime.now(timezone.utc).isoformat(),
+            'resource_type': 'template_error'
+        }
+
+
+async def _get_sample_resource(
+    device: str,
+    sample_filename: str,
+    format_type: str = 'raw',
+    include_parsed: bool = True
+) -> Dict[str, Any]:
+    """Get individual SWAG sample configuration file"""
+    
+    try:
+        # If full filename provided, use it directly
+        if sample_filename.endswith('.sample'):
+            sample_path = f"/mnt/appdata/swag/nginx/proxy-confs/{sample_filename}"
+            file_info = await _get_real_time_file_info(device, sample_path)
+        else:
+            # Service name provided - find best matching sample file
+            # Try in order of preference: subdomain, subfolder, then any match
+            search_patterns = [
+                f"{sample_filename}.subdomain.conf.sample",
+                f"{sample_filename}.subfolder.conf.sample", 
+                f"{sample_filename}.*.conf.sample"
+            ]
+            
+            sample_path = None
+            file_info = None
+            actual_filename = None
+            
+            for pattern in search_patterns[:2]:  # Try exact patterns first
+                test_path = f"/mnt/appdata/swag/nginx/proxy-confs/{pattern}"
+                test_info = await _get_real_time_file_info(device, test_path)
+                if test_info.get('exists', False):
+                    sample_path = test_path
+                    file_info = test_info
+                    actual_filename = pattern
+                    break
+            
+            # If no exact match, search with wildcards
+            if not sample_path:
+                ls_command = f"""
+                find /mnt/appdata/swag/nginx/proxy-confs -name '{sample_filename}.*.conf.sample' -type f | head -1
+                """
+                from apps.backend.src.utils.ssh_client import execute_remote_command
+                output = await execute_remote_command(device, ls_command, timeout=10)
+                
+                if output.strip():
+                    sample_path = output.strip()
+                    file_info = await _get_real_time_file_info(device, sample_path)
+                    actual_filename = Path(sample_path).name
+            
+            # Update sample_filename to the actual found filename
+            if actual_filename:
+                sample_filename = actual_filename
+        
+        if not file_info or not file_info.get('exists', False):
+            # Provide helpful error with search patterns attempted
+            search_info = []
+            if not sample_filename.endswith('.sample'):
+                search_info = [
+                    f"{sample_filename}.subdomain.conf.sample",
+                    f"{sample_filename}.subfolder.conf.sample"
+                ]
+            
+            return {
+                'error': f'SWAG sample file not found: {sample_filename}',
+                'sample_filename': sample_filename,
+                'device': device,
+                'file_path': sample_path,
+                'searched_patterns': search_info if search_info else [sample_filename],
+                'timestamp': datetime.now(timezone.utc).isoformat(),
+                'resource_type': 'sample_not_found'
+            }
+        
+        # Get content
+        content = await _get_real_time_file_content(device, sample_path)
+        
+        if content is None:
+            return {
+                'error': 'Failed to read SWAG sample file',
+                'sample_filename': sample_filename,
+                'device': device,
+                'file_path': sample_path,
+                'file_info': file_info,
+                'timestamp': datetime.now(timezone.utc).isoformat(),
+                'resource_type': 'sample_read_error'
+            }
+        
+        # Parse sample info from filename
+        path = Path(sample_path)
+        base_name = path.stem  # removes .sample
+        
+        # Determine sample type and service name
+        if base_name.startswith('_'):
+            sample_type = 'template'
+            service_name = base_name
+        elif '.subdomain' in base_name:
+            sample_type = 'subdomain'
+            service_name = base_name.replace('.subdomain', '')
+        elif '.subfolder' in base_name:
+            sample_type = 'subfolder'
+            service_name = base_name.replace('.subfolder', '')
+        else:
+            sample_type = 'unknown'
+            service_name = base_name
+        
+        resource_data = {
+            'uri': f"swag://samples/{sample_filename}",
+            'sample_filename': sample_filename,
+            'sample_type': sample_type,
+            'service_name': service_name,
+            'device': device,
+            'file_path': sample_path,
+            'file_info': file_info,
+            'content_length': len(content),
+            'timestamp': datetime.now(timezone.utc).isoformat(),
+            'resource_type': 'swag_sample',
+            'format': format_type
+        }
+        
+        # Format content based on requested format
+        if format_type == 'raw':
+            resource_data['content'] = content
+            resource_data['mime_type'] = 'text/plain'
+            
+        elif format_type == 'json':
+            if include_parsed:
+                parser = NginxConfigParser()
+                parsed_config = parser.parse_config_content(content, sample_path)
+                resource_data['parsed_config'] = parsed_config
+            
+            resource_data['raw_content'] = content
+            resource_data['mime_type'] = 'application/json'
+            
+        elif format_type == 'yaml':
+            if include_parsed:
+                parser = NginxConfigParser()
+                parsed_config = parser.parse_config_content(content, sample_path)
+                resource_data['parsed_config'] = parsed_config
+            
+            resource_data['raw_content'] = content
+            resource_data['mime_type'] = 'application/yaml'
+        
+        # Always include parsed config if requested
+        if include_parsed and format_type == 'raw':
+            parser = NginxConfigParser()
+            parsed_config = parser.parse_config_content(content, sample_path)
+            resource_data['parsed_config'] = parsed_config
+        
+        return resource_data
+        
+    except Exception as e:
+        logger.error(f"Error getting SWAG sample {sample_filename}: {e}")
+        return {
+            'error': str(e),
+            'sample_filename': sample_filename,
+            'device': device,
+            'timestamp': datetime.now(timezone.utc).isoformat(),
+            'resource_type': 'sample_error'
+        }
+
+
+async def _get_samples_directory_resource(device: str) -> Dict[str, Any]:
+    """Get directory listing of all SWAG sample files"""
+    
+    try:
+        # Execute directory listing for sample files only
+        ls_command = f"""
+        find /mnt/appdata/swag/nginx/proxy-confs -name '*.sample' -type f -exec stat -c '%n|%s|%Y|%A' {{}} \\; 2>/dev/null | sort
+        """
+        
+        output = await execute_remote_command(device, ls_command, timeout=30)
+        
+        samples = []
+        for line in output.strip().split('\n'):
+            if '|' in line:
+                parts = line.split('|')
+                if len(parts) >= 4:
+                    file_path = parts[0]
+                    file_size = int(parts[1])
+                    mtime = int(parts[2])
+                    permissions = parts[3]
+                    
+                    path = Path(file_path)
+                    filename = path.name
+                    base_name = path.stem  # removes .sample
+                    
+                    # Determine sample type and service name
+                    if base_name.startswith('_'):
+                        sample_type = 'template'
+                        service_name = base_name
+                        display_name = base_name.replace('_template.', '').replace('.conf', '').title() + ' Template'
+                    elif '.subdomain' in base_name:
+                        sample_type = 'subdomain'
+                        service_name = base_name.replace('.subdomain', '')
+                        display_name = f"{service_name.title()} Subdomain Sample"
+                    elif '.subfolder' in base_name:
+                        sample_type = 'subfolder'
+                        service_name = base_name.replace('.subfolder', '')
+                        display_name = f"{service_name.title()} Subfolder Sample"
+                    else:
+                        sample_type = 'unknown'
+                        service_name = base_name
+                        display_name = f"{service_name.title()} Sample"
+                    
+                    samples.append({
+                        'filename': filename,
+                        'display_name': display_name,
+                        'sample_type': sample_type,
+                        'service_name': service_name,
+                        'file_path': file_path,
+                        'file_size': file_size,
+                        'last_modified': datetime.fromtimestamp(mtime, tz=timezone.utc).isoformat(),
+                        'permissions': permissions,
+                        'readable': 'r' in permissions,
+                        'resource_uri': f"swag://samples/{filename}"
+                    })
+        
+        return {
+            'uri': 'swag://samples/',
+            'device': device,
+            'samples_directory': '/mnt/appdata/swag/nginx/proxy-confs',
+            'total_samples': len(samples),
+            'samples': samples,
+            'timestamp': datetime.now(timezone.utc).isoformat(),
+            'resource_type': 'swag_samples_directory'
+        }
+        
+    except Exception as e:
+        logger.error(f"Error getting samples directory for {device}: {e}")
+        return {
+            'error': str(e),
+            'device': device,
+            'timestamp': datetime.now(timezone.utc).isoformat(),
+            'resource_type': 'samples_directory_error'
         }
 
 
@@ -112,24 +462,22 @@ async def _get_service_config_resource(
         file_info = await _get_real_time_file_info(device, file_path)
         
         if not file_info.get('exists', False):
-            # Try alternative naming patterns
-            alternative_paths = [
-                f"/mnt/appdata/swag/nginx/proxy-confs/{service_name}.{service_name}.conf",
-                f"/mnt/appdata/swag/nginx/proxy-confs/{service_name}.conf"
-            ]
+            # Try SWAG subfolder pattern if subdomain pattern doesn't exist
+            subfolder_path = f"/mnt/appdata/swag/nginx/proxy-confs/{service_name}.subfolder.conf"
+            subfolder_info = await _get_real_time_file_info(device, subfolder_path)
             
-            for alt_path in alternative_paths:
-                alt_info = await _get_real_time_file_info(device, alt_path)
-                if alt_info.get('exists', False):
-                    file_path = alt_path
-                    file_info = alt_info
-                    break
+            if subfolder_info.get('exists', False):
+                file_path = subfolder_path
+                file_info = subfolder_info
             else:
                 return {
-                    'error': f'Configuration file not found for service {service_name}',
+                    'error': f'SWAG configuration file not found for service {service_name}',
                     'service_name': service_name,
                     'device': device,
-                    'searched_paths': [file_path] + alternative_paths,
+                    'searched_paths': [
+                        f"/mnt/appdata/swag/nginx/proxy-confs/{service_name}.subdomain.conf",
+                        f"/mnt/appdata/swag/nginx/proxy-confs/{service_name}.subfolder.conf"
+                    ],
                     'timestamp': datetime.now(timezone.utc).isoformat(),
                     'resource_type': 'service_not_found'
                 }
@@ -573,6 +921,91 @@ async def list_proxy_config_resources(device: Optional[str] = None) -> List[Dict
     resources = []
     
     try:
+        # Add SWAG template resources (always available)
+        resources.extend([
+            {
+                'uri': 'swag://subdomain-template',
+                'name': 'SWAG Subdomain Template',
+                'description': 'Template configuration for subdomain-based reverse proxy (_template.subdomain.conf.sample)',
+                'mime_type': 'text/plain'
+            },
+            {
+                'uri': 'swag://subfolder-template', 
+                'name': 'SWAG Subfolder Template',
+                'description': 'Template configuration for subfolder-based reverse proxy (_template.subfolder.conf.sample)',
+                'mime_type': 'text/plain'
+            },
+            {
+                'uri': 'swag://samples/',
+                'name': 'SWAG Samples Directory',
+                'description': 'Directory listing of all SWAG sample configuration files',
+                'mime_type': 'application/json'
+            },
+            {
+                'uri': 'swag://configs',
+                'name': 'SWAG Configs Directory', 
+                'description': 'Directory listing of all active SWAG configuration files',
+                'mime_type': 'application/json'
+            },
+            {
+                'uri': 'swag://summary',
+                'name': 'SWAG Summary',
+                'description': 'Summary statistics and overview of all SWAG configurations',
+                'mime_type': 'application/json'
+            }
+        ])
+        
+        # Add individual sample file resources by discovering them
+        try:
+            swag_device = "squirts"
+            samples_data = await _get_samples_directory_resource(swag_device)
+            if 'samples' in samples_data:
+                for sample in samples_data['samples']:
+                    resources.append({
+                        'uri': sample['resource_uri'],
+                        'name': sample['display_name'],
+                        'description': f"SWAG sample configuration for {sample['service_name']} ({sample['sample_type']})",
+                        'mime_type': 'text/plain'
+                    })
+        except Exception as e:
+            logger.error(f"Error discovering sample files: {e}")
+        
+        # Add individual active service configuration resources by discovering them
+        try:
+            swag_device = "squirts"
+            # Discover all active .subdomain.conf and .subfolder.conf files
+            ls_command = """
+            find /mnt/appdata/swag/nginx/proxy-confs -name '*.subdomain.conf' -o -name '*.subfolder.conf' | grep -v '\.sample$' | sort
+            """
+            
+            from apps.backend.src.utils.ssh_client import execute_remote_command
+            output = await execute_remote_command(swag_device, ls_command, timeout=30)
+            
+            for line in output.strip().split('\n'):
+                if line and '.conf' in line:
+                    path = Path(line)
+                    filename = path.stem  # removes .conf
+                    
+                    # Extract service name and type
+                    if '.subdomain' in filename:
+                        service_name = filename.replace('.subdomain', '')
+                        config_type = 'subdomain'
+                    elif '.subfolder' in filename:
+                        service_name = filename.replace('.subfolder', '')  
+                        config_type = 'subfolder'
+                    else:
+                        continue  # Skip if not matching expected pattern
+                    
+                    resources.append({
+                        'uri': f'swag://{service_name}',
+                        'name': f'{service_name.title()} Service',
+                        'description': f'SWAG {config_type} configuration for {service_name} service',
+                        'mime_type': 'text/plain'
+                    })
+                    
+        except Exception as e:
+            logger.error(f"Error discovering active service configs: {e}")
+        
         # Static resources available for all devices
         if device:
             devices = [device]
