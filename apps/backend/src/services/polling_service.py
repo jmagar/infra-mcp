@@ -31,7 +31,11 @@ class PollingService:
         self.settings = get_settings()
         self.polling_tasks: Dict[UUID, asyncio.Task] = {}
         self.is_running = False
-        self.poll_interval = self.settings.polling.poll_interval_seconds if hasattr(self.settings, 'polling') else 300  # 5 minutes default
+        # Set polling interval - default to 5 minutes if not configured
+        if hasattr(self.settings, 'polling') and hasattr(self.settings.polling, 'poll_interval_seconds'):
+            self.poll_interval = self.settings.polling.poll_interval_seconds
+        else:
+            self.poll_interval = 300  # 5 minutes default
 
     async def start_polling(self) -> None:
         """Start the background polling service"""

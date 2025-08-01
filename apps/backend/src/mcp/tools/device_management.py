@@ -29,14 +29,14 @@ logger = logging.getLogger(__name__)
 async def add_device(
     hostname: str,
     device_type: str = "server",
-    description: Optional[str] = None,
-    location: Optional[str] = None,
+    description: str | None = None,
+    location: str | None = None,
     monitoring_enabled: bool = True,
-    ip_address: Optional[str] = None,
-    ssh_port: Optional[int] = None,
-    ssh_username: Optional[str] = None,
-    tags: Optional[Dict[str, str]] = None
-) -> Dict[str, Any]:
+    ip_address: str | None = None,
+    ssh_port: int | None = None,
+    ssh_username: str | None = None,
+    tags: dict[str, str] | None = None
+) -> dict[str, Any]:
     """
     Add a new device to the infrastructure registry.
     
@@ -142,7 +142,7 @@ async def add_device(
                 try:
                     error_data = response.json()
                     error_message = error_data.get("detail", f"HTTP {response.status_code}")
-                except:
+                except Exception as json_error:
                     error_message = f"HTTP {response.status_code}: {response.text}"
                 
                 raise DatabaseOperationError(
@@ -164,7 +164,7 @@ async def add_device(
                 "hostname": hostname,
                 "error": str(e)
             }
-        )
+        ) from e
     except Exception as e:
         logger.error(f"Error adding device {hostname}: {e}")
         raise

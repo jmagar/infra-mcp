@@ -30,6 +30,7 @@ from apps.backend.src.core.config import get_settings
 from apps.backend.src.core.database import init_database, close_database, get_async_session, check_database_health
 from apps.backend.src.utils.ssh_client import cleanup_ssh_client
 from apps.backend.src.schemas.common import HealthCheckResponse
+from apps.backend.src.services.polling_service import PollingService
 from apps.backend.src.core.exceptions import (
     InfrastructureException, DatabaseConnectionError, DatabaseOperationError,
     SSHConnectionError, SSHCommandError, SSHTimeoutError, DeviceNotFoundError,
@@ -50,6 +51,9 @@ logger = logging.getLogger(__name__)
 # Global settings
 settings = get_settings()
 
+# Global polling service instance
+polling_service = None
+
 # Rate limiter configuration
 limiter = Limiter(
     key_func=get_remote_address,
@@ -63,6 +67,7 @@ security = HTTPBearer(auto_error=False)
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Application lifespan manager for startup and shutdown tasks"""
+    global polling_service
     logger.info("Starting Infrastructure Management API Server...")
     
     # Startup tasks
@@ -70,6 +75,15 @@ async def lifespan(app: FastAPI):
         # Initialize database
         await init_database()
         logger.info("Database initialized successfully")
+        
+        # Initialize and start polling service
+        # Create a dedicated session for the polling service
+        from apps.backend.src.core.database import get_async_session
+        async for db_session in get_async_session():
+            polling_service = PollingService(db_session)
+            await polling_service.start_polling()
+            logger.info("Polling service started successfully")
+            break
         
         # Log configuration
         logger.info(f"Environment: {settings.environment}")
@@ -85,6 +99,11 @@ async def lifespan(app: FastAPI):
     finally:
         # Shutdown tasks
         logger.info("Shutting down Infrastructure Management API Server...")
+        
+        # Stop polling service
+        if polling_service:
+            await polling_service.stop_polling()
+            logger.info("Polling service stopped")
         
         # Cleanup SSH connections
         await cleanup_ssh_client()

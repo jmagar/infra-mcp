@@ -18,6 +18,9 @@ from fastmcp import FastMCP
 # Add the project root to Python path
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
+# Import device management functions
+from apps.backend.src.mcp.tools.device_management import add_device as device_add_device
+
 # Configure logging
 logging.basicConfig(
     level=logging.INFO,
@@ -230,58 +233,29 @@ async def list_devices() -> Dict[str, Any]:
 async def add_device(
     hostname: str,
     device_type: str = "server",
-    description: Optional[str] = None,
-    location: Optional[str] = None,
+    description: str | None = None,
+    location: str | None = None,
     monitoring_enabled: bool = True,
-    ip_address: Optional[str] = None,
-    ssh_port: Optional[int] = None,
-    ssh_username: Optional[str] = None,
-    tags: Optional[Dict[str, str]] = None
-) -> Dict[str, Any]:
+    ip_address: str | None = None,
+    ssh_port: int | None = None,
+    ssh_username: str | None = None,
+    tags: dict[str, str] | None = None
+) -> dict[str, Any]:
     """Add a new device to the infrastructure registry"""
-    try:
-        # Prepare device data
-        device_data = {
-            "hostname": hostname,
-            "device_type": device_type,
-            "monitoring_enabled": monitoring_enabled
-        }
-        
-        # Add optional fields
-        if description:
-            device_data["description"] = description
-        if location:
-            device_data["location"] = location
-        if ip_address:
-            device_data["ip_address"] = ip_address
-        if ssh_port:
-            device_data["ssh_port"] = ssh_port
-        if ssh_username:
-            device_data["ssh_username"] = ssh_username
-        if tags:
-            device_data["tags"] = tags
-        
-        response = await api_client.client.post("/devices", json=device_data)
-        response.raise_for_status()
-        
-        result = response.json()
-        return {
-            "device_info": result,
-            "status": "created",
-            "message": f"Device '{hostname}' added successfully to infrastructure registry"
-        }
-        
-    except httpx.HTTPError as e:
-        logger.error(f"HTTP error adding device {hostname}: {e}")
-        if e.response.status_code == 409:
-            raise Exception(f"Device with hostname '{hostname}' already exists")
-        raise Exception(f"Failed to add device: {str(e)}")
-    except Exception as e:
-        logger.error(f"Error adding device {hostname}: {e}")
-        raise Exception(f"Failed to add device: {str(e)}")
+    return await device_add_device(
+        hostname=hostname,
+        device_type=device_type,
+        description=description,
+        location=location,
+        monitoring_enabled=monitoring_enabled,
+        ip_address=ip_address,
+        ssh_port=ssh_port,
+        ssh_username=ssh_username,
+        tags=tags
+    )
 
 
-async def remove_device(hostname: str) -> Dict[str, Any]:
+async def remove_device(hostname: str) -> dict[str, Any]:
     """Remove a device from the infrastructure registry"""
     try:
         response = await api_client.client.delete(f"/devices/{hostname}")
@@ -298,11 +272,69 @@ async def remove_device(hostname: str) -> Dict[str, Any]:
     except httpx.HTTPError as e:
         logger.error(f"HTTP error removing device {hostname}: {e}")
         if e.response.status_code == 404:
-            raise Exception(f"Device with hostname '{hostname}' not found")
-        raise Exception(f"Failed to remove device: {str(e)}")
+            raise Exception(f"Device with hostname '{hostname}' not found") from e
+        raise Exception(f"Failed to remove device: {str(e)}") from e
     except Exception as e:
         logger.error(f"Error removing device {hostname}: {e}")
-        raise Exception(f"Failed to remove device: {str(e)}")
+        raise Exception(f"Failed to remove device: {str(e)}") from e
+
+
+async def edit_device(
+    hostname: str,
+    device_type: Optional[str] = None,
+    description: Optional[str] = None,
+    location: Optional[str] = None,
+    monitoring_enabled: Optional[bool] = None,
+    ip_address: Optional[str] = None,
+    ssh_port: Optional[int] = None,
+    ssh_username: Optional[str] = None,
+    tags: Optional[Dict[str, str]] = None
+) -> Dict[str, Any]:
+    """Edit/update details of an existing device in the infrastructure registry"""
+    try:
+        # Prepare update data (only include fields that are provided)
+        update_data = {}
+        
+        if device_type is not None:
+            update_data["device_type"] = device_type
+        if description is not None:
+            update_data["description"] = description
+        if location is not None:
+            update_data["location"] = location
+        if monitoring_enabled is not None:
+            update_data["monitoring_enabled"] = monitoring_enabled
+        if ip_address is not None:
+            update_data["ip_address"] = ip_address
+        if ssh_port is not None:
+            update_data["ssh_port"] = ssh_port
+        if ssh_username is not None:
+            update_data["ssh_username"] = ssh_username
+        if tags is not None:
+            update_data["tags"] = tags
+        
+        if not update_data:
+            raise Exception("No fields provided to update")
+        
+        response = await api_client.client.put(f"/devices/{hostname}", json=update_data)
+        response.raise_for_status()
+        
+        result = response.json()
+        return {
+            "hostname": hostname,
+            "status": "updated",
+            "message": f"Device '{hostname}' updated successfully in infrastructure registry",
+            "updated_fields": list(update_data.keys()),
+            "device_info": result
+        }
+        
+    except httpx.HTTPError as e:
+        logger.error(f"HTTP error updating device {hostname}: {e}")
+        if e.response.status_code == 404:
+            raise Exception(f"Device with hostname '{hostname}' not found")
+        raise Exception(f"Failed to update device: {str(e)}")
+    except Exception as e:
+        logger.error(f"Error updating device {hostname}: {e}")
+        raise Exception(f"Failed to update device: {str(e)}")
 
 
 def create_mcp_server():
@@ -367,7 +399,12 @@ def create_mcp_server():
         description="Remove a device from the infrastructure registry"
     )(remove_device)
     
-    logger.info(f"MCP server created with 9 HTTP client tools")
+    server.tool(
+        name="edit_device",
+        description="Edit/update details of an existing device in the infrastructure registry"
+    )(edit_device)
+    
+    logger.info("MCP server created with 10 HTTP client tools")
     return server
 
 

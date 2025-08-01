@@ -26,7 +26,7 @@ from apps.backend.src.schemas.device import (
 from apps.backend.src.schemas.common import OperationResult, PaginationParams, DeviceStatus
 from ..services.device_service import DeviceService
 from apps.backend.src.api.common import get_current_user
-from apps.backend.src.mcp.tools.system_monitoring import get_system_info, get_drive_health
+from apps.backend.src.mcp.tools.system_monitoring import get_system_info, get_drive_health, get_system_logs
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -218,15 +218,14 @@ async def get_device_logs_by_hostname(
     lines: int = Query(100, ge=1, le=1000, description="Number of log lines to return"),
     timeout: int = Query(60, description="SSH timeout in seconds"),
     current_user=Depends(get_current_user)
-):
+) -> dict:
     """Get system logs from journald or traditional syslog"""
     try:
-        from apps.backend.src.mcp.tools.system_monitoring import get_system_logs
         return await get_system_logs(hostname, service, since, lines, timeout)
     except SSHCommandError as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail=str(e)) from e
     except SSHConnectionError as e:
-        raise HTTPException(status_code=503, detail=str(e))
+        raise HTTPException(status_code=503, detail=str(e)) from e
     except Exception as e:
         logger.error(f"Error getting system logs for {hostname}: {e}")
-        raise HTTPException(status_code=500, detail="Failed to get system logs.")
+        raise HTTPException(status_code=500, detail="Failed to get system logs.") from e
