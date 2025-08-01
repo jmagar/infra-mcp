@@ -9,6 +9,8 @@ The core SSH-based monitoring tools work directly with hostnames and don't requi
 """
 
 import logging
+import time
+import uuid
 from typing import List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Path
@@ -113,9 +115,6 @@ async def delete_device_by_hostname(
     service: DeviceService = Depends(get_device_service),
     current_user=Depends(get_current_user)
 ):
-    import time
-    import uuid
-    
     start_time = time.time()
     operation_id = str(uuid.uuid4())
     

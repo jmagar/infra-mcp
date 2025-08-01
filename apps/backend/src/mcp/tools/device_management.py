@@ -7,8 +7,8 @@ monitoring status checks, and device information retrieval.
 
 import logging
 import time
-from datetime import datetime, timezone
-from typing import Dict, List, Optional, Any
+from datetime import datetime
+from typing import Any
 # UUID import removed - now using hostname-only approach
 
 from sqlalchemy import select, func
@@ -125,7 +125,7 @@ async def add_device(
                         "Use other MCP tools to manage containers, check system metrics, etc.",
                         "Update device configuration via update_device tool if needed"
                     ],
-                    "timestamp": datetime.now(timezone.utc).isoformat()
+                    "timestamp": datetime.now(datetime.UTC).isoformat()
                 }
                 
             elif response.status_code == 409:
@@ -171,11 +171,11 @@ async def add_device(
 
 
 async def list_devices(
-    device_type: Optional[str] = None,
-    status: Optional[str] = None,
-    monitoring_enabled: Optional[bool] = None,
-    location: Optional[str] = None,
-    search: Optional[str] = None,
+    device_type: str | None = None,
+    status: str | None = None,
+    monitoring_enabled: bool | None = None,
+    location: str | None = None,
+    search: str | None = None,
     limit: int = 50,
     offset: int = 0
 ) -> Dict[str, Any]:
@@ -298,7 +298,7 @@ async def list_devices(
                     "monitoring_enabled": sum(1 for d in device_list if d["monitoring_enabled"])
                 },
                 "query_info": {
-                    "timestamp": datetime.now(timezone.utc).isoformat(),
+                    "timestamp": datetime.now(datetime.UTC).isoformat(),
                     "execution_time_ms": 0  # Database queries are typically fast
                 }
             }
@@ -404,7 +404,7 @@ async def get_device_info(
                 "ssh_accessible": False,
                 "response_time_ms": None,
                 "error_message": None,
-                "last_test": datetime.now(timezone.utc).isoformat()
+                "last_test": datetime.now(datetime.UTC).isoformat()
             }
             
             # System info (only available if connected)
@@ -464,11 +464,11 @@ async def get_device_info(
                             "uptime": uptime_result.stdout.strip() if uptime_result.return_code == 0 else None,
                             "disk_usage": df_result.stdout.strip() if df_result.return_code == 0 else None,
                             "memory_usage": free_result.stdout.strip() if free_result.return_code == 0 else None,
-                            "timestamp": datetime.now(timezone.utc).isoformat()
+                            "timestamp": datetime.now(datetime.UTC).isoformat()
                         }
                         
                         # Update device last_seen in database
-                        device_record.last_seen = datetime.now(timezone.utc)
+                        device_record.last_seen = datetime.now(datetime.UTC)
                         device_record.status = DeviceStatus.online
                         await db.commit()
                         
@@ -594,7 +594,7 @@ async def get_device_summary(
                 "health_score": 0,
                 "issues": [],
                 "warnings": [],
-                "last_assessment": datetime.now(timezone.utc).isoformat()
+                "last_assessment": datetime.now(datetime.UTC).isoformat()
             }
             
             # Initialize connectivity status
@@ -673,7 +673,7 @@ async def get_device_summary(
                             )
                             if cpu_result.return_code == 0 and cpu_result.stdout.strip():
                                 system_summary["cpu_usage_percent"] = float(cpu_result.stdout.strip())
-                        except:
+                        except Exception:
                             pass
                         
                         # Memory usage
@@ -685,7 +685,7 @@ async def get_device_summary(
                             )
                             if mem_result.return_code == 0 and mem_result.stdout.strip():
                                 system_summary["memory_usage_percent"] = float(mem_result.stdout.strip())
-                        except:
+                        except Exception:
                             pass
                         
                         # Disk usage for root filesystem
@@ -697,7 +697,7 @@ async def get_device_summary(
                             )
                             if disk_result.return_code == 0 and disk_result.stdout.strip():
                                 system_summary["disk_usage_percent"] = int(disk_result.stdout.strip())
-                        except:
+                        except Exception:
                             pass
                         
                         # Load average
@@ -709,7 +709,7 @@ async def get_device_summary(
                             )
                             if load_result.return_code == 0 and load_result.stdout.strip():
                                 system_summary["load_average"] = float(load_result.stdout.strip())
-                        except:
+                        except Exception:
                             pass
                         
                         # Uptime
@@ -719,7 +719,7 @@ async def get_device_summary(
                             )
                             if uptime_result.return_code == 0:
                                 connectivity_status["uptime"] = uptime_result.stdout.strip()
-                        except:
+                        except Exception:
                             pass
                         
                         # Process count
@@ -729,7 +729,7 @@ async def get_device_summary(
                             )
                             if proc_result.return_code == 0 and proc_result.stdout.strip():
                                 system_summary["processes_count"] = int(proc_result.stdout.strip()) - 1  # Subtract header
-                        except:
+                        except Exception:
                             pass
                         
                         # Docker status
@@ -766,11 +766,11 @@ async def get_device_summary(
                                 )
                                 if images_result.return_code == 0 and images_result.stdout.strip():
                                     docker_summary["images_count"] = int(images_result.stdout.strip())
-                        except:
+                        except Exception:
                             pass
                         
                         # Update device status
-                        device_record.last_seen = datetime.now(timezone.utc)
+                        device_record.last_seen = datetime.now(datetime.UTC)
                         device_record.status = DeviceStatus.online
                         await db.commit()
                         
@@ -849,7 +849,7 @@ async def get_device_summary(
                 "query_info": {
                     "queried_identifier": device,
                     "monitoring_enabled": device_record.monitoring_enabled,
-                    "timestamp": datetime.now(timezone.utc).isoformat()
+                    "timestamp": datetime.now(datetime.UTC).isoformat()
                 }
             }
             

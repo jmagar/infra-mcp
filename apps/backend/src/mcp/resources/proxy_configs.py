@@ -6,6 +6,7 @@ with real-time file access and database integration.
 """
 
 import logging
+import re
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional, Any
@@ -21,6 +22,22 @@ from apps.backend.src.models.proxy_config import ProxyConfig
 from sqlalchemy import select, and_
 
 logger = logging.getLogger(__name__)
+
+
+def _validate_service_name(service_name: str) -> bool:
+    """Validate service name contains only allowed characters for shell safety."""
+    if not service_name:
+        return False
+    # Allow alphanumeric, hyphens, underscores, and dots
+    return bool(re.match(r'^[a-zA-Z0-9._-]+$', service_name))
+
+
+def _validate_file_path(file_path: str) -> bool:
+    """Validate file path contains only allowed characters for shell safety."""
+    if not file_path:
+        return False
+    # Allow standard path characters, no shell metacharacters
+    return bool(re.match(r'^[a-zA-Z0-9._/-]+$', file_path))
 
 
 
@@ -236,6 +253,10 @@ async def _get_sample_resource(
             
             # If no exact match, search with wildcards
             if not sample_path:
+                # Validate sample_filename for shell safety
+                if not _validate_service_name(sample_filename):
+                    raise ValueError(f"Invalid sample filename: {sample_filename}")
+                
                 ls_command = f"""
                 find /mnt/appdata/swag/nginx/proxy-confs -name '{sample_filename}.*.conf.sample' -type f | head -1
                 """
@@ -364,8 +385,8 @@ async def _get_samples_directory_resource(device: str) -> dict[str, Any]:
     
     try:
         # Execute directory listing for sample files only
-        ls_command = f"""
-        find /mnt/appdata/swag/nginx/proxy-confs -name '*.sample' -type f -exec stat -c '%n|%s|%Y|%A' {{}} \\; 2>/dev/null | sort
+        ls_command = """
+        find /mnt/appdata/swag/nginx/proxy-confs -name '*.sample' -type f -exec stat -c '%n|%s|%Y|%A' {} \\; 2>/dev/null | sort
         """
         
         result = await execute_ssh_command_simple(device, ls_command, timeout=30)
@@ -765,6 +786,10 @@ async def _get_directory_listing_resource(device: str, config_dir: str) -> dict[
     """Get directory listing resource with file metadata"""
     
     try:
+        # Validate config_dir for shell safety
+        if not _validate_file_path(config_dir):
+            raise ValueError(f"Invalid config directory path: {config_dir}")
+        
         # Execute directory listing with file details
         ls_command = f"""
         find {config_dir} -name '*.conf' -type f -exec stat -c '%n|%s|%Y|%A' {{}} \\; 2>/dev/null | sort
@@ -976,7 +1001,7 @@ async def list_proxy_config_resources(device: str | None = None) -> list[dict[st
             swag_device = "squirts"
             # Discover all active .subdomain.conf and .subfolder.conf files
             ls_command = """
-            find /mnt/appdata/swag/nginx/proxy-confs -name '*.subdomain.conf' -o -name '*.subfolder.conf' | grep -v '\.sample$' | sort
+            find /mnt/appdata/swag/nginx/proxy-confs -name '*.subdomain.conf' -o -name '*.subfolder.conf' | grep -v '\\.sample$' | sort
             """
             
             from apps.backend.src.utils.ssh_client import execute_ssh_command_simple

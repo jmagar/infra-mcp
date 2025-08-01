@@ -1,429 +1,258 @@
-# Infrastructor
+#  Infrastructor 🏗️
 
-> **Infrastructure Management MCP Server with FastAPI Integration**  
-> A comprehensive system for monitoring and managing Linux devices via SSH with LLM-friendly APIs
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+[![Python Version](https://img.shields.io/badge/python-3.11+-blue.svg)](https://www.python.org/downloads/)
+[![Framework](https://img.shields.io/badge/Framework-FastAPI-green.svg)](https://fastapi.tiangolo.com/)
+[![MCP](https://img.shields.io/badge/MCP-FastMCP-orange.svg)](https://pypi.org/project/fastmcp/)
 
-## 🚀 Features
+**A comprehensive, API-driven infrastructure management and monitoring platform.**
 
-### Core Infrastructure Management
-- **Comprehensive Device Analysis**: Automated capability detection (Docker, ZFS, hardware, OS, virtualization)
-- **SWAG Reverse Proxy Management**: Real-time configuration sync, template management, and service discovery
-- **Enhanced Drive Monitoring**: SMART data collection, filesystem detection, I/O statistics, temperature monitoring
-- **Container Management**: Docker discovery, log streaming, service dependency mapping
-- **System Monitoring**: CPU, memory, disk usage, network statistics with time-series storage
-- **ZFS Integration**: Pool health, snapshot management, scrub monitoring
+`infrastructor` provides a powerful and flexible solution for managing and monitoring your entire infrastructure, from bare-metal servers to Docker containers. It combines a robust FastAPI backend with a flexible `fastmcp` server, giving you the power to manage your infrastructure through a REST API or a command-line interface.
 
-### Architecture
-- **Separated API Design**: Independent FastAPI REST API + MCP server for optimal performance
-- **Real-time Synchronization**: Database storage with live file system access for fresh data
-- **SSH-based Communication**: Secure device management over SSH with proper key authentication
-- **TimescaleDB Integration**: Efficient time-series metrics storage with automatic retention
-- **MCP Resources**: Direct file access via `swag://`, `infra://` URI schemes for LLM integration
+## ✨ Features
 
-## 📋 Requirements
+*   **Comprehensive Monitoring:** Keep a close eye on all aspects of your infrastructure, including system metrics, drive health, container performance, and ZFS status.
+*   **Container Management:** Easily manage your Docker containers with tools for listing, inspecting, and retrieving logs.
+*   **Device Management:** Register and manage all of your infrastructure devices in a central location.
+*   **Proxy Configuration Management:** Seamlessly manage your SWAG reverse proxy configurations.
+*   **Time-Series Database:** `infrastructor` uses TimescaleDB to store and analyze time-series data, providing powerful insights into your infrastructure's performance over time.
+*   **Dual-Interface:** Interact with your infrastructure through a powerful REST API or a flexible `fastmcp` command-line interface.
 
-- **Python**: 3.11+
-- **Database**: PostgreSQL 15+ with TimescaleDB extension
-- **Access**: SSH key access to monitored devices
-- **Package Manager**: UV (recommended) or pip
-- **Optional**: Docker for containerized database
+## 🏛️ Architecture
 
-## 🏗️ Architecture
+`infrastructor` uses a dual-server architecture:
 
-### System Overview
+*   **FastAPI REST API:** A robust backend that provides a RESTful interface for managing and monitoring your infrastructure.
+*   **`fastmcp` Server:** A flexible command-line interface that acts as a client to the REST API, providing a powerful and scriptable way to interact with your infrastructure.
 
-```mermaid
-graph TB
-    subgraph "API Layer"
-        A[FastAPI REST API<br/>Port 9101] --> B[/api/devices]
-        A --> C[/api/containers] 
-        A --> D[/api/proxy]
-        A --> E[/health]
-    end
-    
-    subgraph "MCP Layer"
-        F[MCP Server<br/>HTTP 9102] --> G[17 Infrastructure Tools]
-        F --> H[SWAG Resources swag://]
-        F --> I[Device Resources infra://]
-    end
-    
-    subgraph "Data Layer"
-        J[PostgreSQL + TimescaleDB<br/>Port 9100] --> K[Device Registry]
-        J --> L[Proxy Configurations]
-        J --> M[System Metrics]
-        J --> N[Change History]
-    end
-    
-    subgraph "Infrastructure"
-        O[Device 1: SSH] --> P[Docker Containers]
-        O --> Q[System Metrics]
-        O --> R[SWAG Configs]
-        S[Device 2: SSH] --> T[ZFS Pools]
-        S --> U[Hardware Info]
-        S --> V[Log Files]
-    end
-    
-    A --> J
-    F --> A
-    A --> O
-    A --> S
+This architecture ensures that all operations, whether initiated from the API or the MCP, go through the same centralized logic, providing a consistent and reliable management experience.
+
+```
++-----------------+      +-----------------+      +-----------------+
+|                 |      |                 |      |                 |
+|   FastAPI REST  |<---->|   `fastmcp`     |<---->|   User          |
+|   API Server    |      |   Server        |      |                 |
+|                 |      |                 |      |                 |
++-----------------+      +-----------------+      +-----------------+
+        ^                      ^
+        |                      |
+        v                      v
++-----------------------------------------------------------------+
+|                                                                 |
+|   TimescaleDB (PostgreSQL)                                      |
+|                                                                 |
++-----------------------------------------------------------------+
 ```
 
-### Port Allocation
-- **PostgreSQL**: 9100 (Docker container)
-- **FastAPI REST API**: 9101 (HTTP endpoints)
-- **MCP Server**: 9102 (HTTP transport for Claude Code)
-- **Development Scripts**: `./dev.sh` manages all services
+## 🚀 Getting Started
 
-## 🚀 Quick Start
+1.  **Clone the repository:**
+    ```bash
+    git clone https://github.com/jmagar/infrastructor.git
+    cd infrastructor
+    ```
+2.  **Set up the environment:**
+    *   Copy `.env.example` to `.env` and fill in the required values.
+3.  **Start the database:**
+    ```bash
+    docker-compose up -d
+    ```
+4.  **Install the dependencies:**
+    ```bash
+    pip install -e .[dev]
+    ```
+5.  **Run the database migrations:**
+    ```bash
+    alembic upgrade head
+    ```
+6.  **Start the servers:**
+    ```bash
+    ./dev.sh start
+    ```
 
-### 1. Environment Setup
+## usage
+
+The `dev.sh` script is the primary way to manage the development environment.
+
+*   **Start the servers:**
+    ```bash
+    ./dev.sh start
+    ```
+*   **Stop the servers:**
+    ```bash
+    ./dev.sh stop
+    ```
+*   **Restart the servers:**
+    ```bash
+    ./dev.sh restart
+    ```
+*   **View the logs:**
+    ```bash
+    ./dev.sh logs
+    ```
+
+## 📖 API Endpoints
+
+The REST API provides a comprehensive set of endpoints for managing your infrastructure.
+
+### Common
+
+*   `GET /status`: Get the status of the API.
+*   `GET /system-info`: Get information about the API server.
+*   `GET /test-error`: Test the error handling system.
+
+### Containers
+
+*   `GET /containers/{hostname}`: List containers on a device.
+*   `GET /containers/{hostname}/{container_name}`: Get information about a container.
+*   `GET /containers/{hostname}/{container_name}/logs`: Get logs from a container.
+
+### Devices
+
+*   `POST /devices`: Create a new device.
+*   `GET /devices`: List all devices.
+*   `GET /devices/{hostname}`: Get a device by hostname.
+*   `PUT /devices/{hostname}`: Update a device.
+*   `DELETE /devices/{hostname}`: Delete a device.
+*   `GET /devices/{hostname}/status`: Get the status of a device.
+*   `GET /devices/{hostname}/summary`: Get a summary of a device.
+*   `GET /devices/{hostname}/metrics`: Get metrics for a device.
+*   `GET /devices/{hostname}/drives`: Get drive health for a device.
+*   `GET /devices/{hostname}/drives/stats`: Get drive stats for a device.
+*   `GET /devices/{hostname}/logs`: Get system logs for a device.
+
+### Proxy
+
+*   `GET /proxies/configs`: List all proxy configurations.
+*   `GET /proxies/configs/{service_name}`: Get a proxy configuration.
+*   `GET /proxies/configs/{service_name}/content`: Get the content of a proxy configuration.
+*   `POST /proxies/scan`: Scan for new proxy configurations.
+*   `POST /proxies/configs/{service_name}/sync`: Sync a proxy configuration.
+*   `GET /proxies/summary`: Get a summary of the proxy configurations.
+*   `GET /proxies/templates/{template_type}`: Get a proxy configuration template.
+*   `GET /proxies/samples`: List all proxy configuration samples.
+*   `GET /proxies/samples/{sample_name}`: Get a proxy configuration sample.
+
+## 🛠️ MCP Tools
+
+The `fastmcp` server provides a powerful command-line interface for interacting with your infrastructure.
+
+### Container Management
+
+*   `list_containers`: List Docker containers on a specific device.
+    *   `device` (str): The device to list containers on.
+    *   `status` (str, optional): Filter by container status.
+    *   `all_containers` (bool, optional): Include stopped containers.
+    *   `timeout` (int, optional): The SSH timeout in seconds.
+    *   `limit` (int, optional): The maximum number of containers to return.
+    *   `offset` (int, optional): The number of containers to skip.
+*   `get_container_info`: Get detailed information about a specific Docker container.
+    *   `device` (str): The device the container is on.
+    *   `container_name` (str): The name of the container.
+    *   `timeout` (int, optional): The SSH timeout in seconds.
+*   `get_container_logs`: Get logs from a specific Docker container.
+    *   `device` (str): The device the container is on.
+    *   `container_name` (str): The name of the container.
+    *   `since` (str, optional): Show logs since a specific time.
+    *   `tail` (int, optional): The number of lines to show from the end of the logs.
+    *   `timeout` (int, optional): The SSH timeout in seconds.
+
+### System Monitoring
+
+*   `get_drive_health`: Get S.M.A.R.T. drive health information and disk status.
+    *   `device` (str): The device to get drive health from.
+    *   `drive` (str, optional): The drive to get health information for.
+    *   `timeout` (int, optional): The SSH timeout in seconds.
+*   `get_drives_stats`: Get drive usage statistics, I/O performance, and utilization metrics.
+    *   `device` (str): The device to get drive stats from.
+    *   `drive` (str, optional): The drive to get stats for.
+    *   `timeout` (int, optional): The SSH timeout in seconds.
+*   `get_system_logs`: Get system logs from journald or traditional syslog.
+    *   `device` (str): The device to get system logs from.
+    *   `service` (str, optional): The service to get logs for.
+    *   `since` (str, optional): Show logs since a specific time.
+    *   `lines` (int, optional): The number of lines to return.
+    *   `timeout` (int, optional): The SSH timeout in seconds.
+
+### Device Management
+
+*   `list_devices`: List all registered infrastructure devices.
+*   `add_device`: Add a new device to the infrastructure registry.
+    *   `hostname` (str): The hostname of the device.
+    *   `device_type` (str, optional): The type of the device.
+    *   `description` (str, optional): A description of the device.
+    *   `location` (str, optional): The location of the device.
+    *   `monitoring_enabled` (bool, optional): Whether monitoring is enabled for the device.
+    *   `ip_address` (str, optional): The IP address of the device.
+    *   `ssh_port` (int, optional): The SSH port of the device.
+    *   `ssh_username` (str, optional): The SSH username for the device.
+    *   `tags` (dict, optional): A dictionary of tags for the device.
+*   `remove_device`: Remove a device from the infrastructure registry.
+    *   `hostname` (str): The hostname of the device to remove.
+*   `edit_device`: Edit/update details of an existing device in the infrastructure registry.
+    *   `hostname` (str): The hostname of the device to edit.
+    *   `device_type` (str, optional): The new device type.
+    *   `description` (str, optional): The new description.
+    *   `location` (str, optional): The new location.
+    *   `monitoring_enabled` (bool, optional): The new monitoring status.
+    *   `ip_address` (str, optional): The new IP address.
+    *   `ssh_port` (int, optional): The new SSH port.
+    *   `ssh_username` (str, optional): The new SSH username.
+    *   `tags` (dict, optional): The new tags.
+
+### Proxy Configuration Management
+
+*   `list_proxy_configs`: List SWAG reverse proxy configurations with real-time sync check.
+*   `get_proxy_config`: Get specific proxy configuration with real-time file content.
+*   `scan_proxy_configs`: Scan proxy configuration directory for fresh configs and sync to database.
+*   `sync_proxy_config`: Sync specific proxy configuration with file system.
+*   `get_proxy_config_summary`: Get summary statistics for proxy configurations.
+
+### Comprehensive Device Info
+
+*   `get_device_info`: Get comprehensive device information including capabilities analysis and system metrics.
+
+## 🗄️ Database Schema
+
+`infrastructor` uses a TimescaleDB database to store time-series data for infrastructure monitoring. The schema is designed to be flexible and extensible, and it includes tables for:
+
+*   **`devices`:** A registry of all infrastructure devices.
+*   **`system_metrics`:** Time-series data for system-level metrics (CPU, memory, disk, etc.).
+*   **`drive_health`:** Time-series data for S.M.A.R.T. drive health.
+*   **`container_snapshots`:** Time-series data for Docker container metrics.
+*   **`zfs_status`:** Time-series data for ZFS pool and dataset status.
+*   **`zfs_snapshots`:** Tracking of ZFS snapshots.
+*   **`network_interfaces`:** Time-series data for network interface metrics.
+*   **`docker_networks`:** Tracking of Docker networks.
+*   **`backup_status`:** Tracking of backup jobs.
+*   **`system_updates`:** Tracking of system updates.
+*   **`vm_status`:** Time-series data for virtual machine metrics.
+*   **`system_logs`:** Aggregation of system logs.
+
+The schema also makes extensive use of TimescaleDB's features, including:
+
+*   **Hypertables:** For efficient storage and querying of time-series data.
+*   **Compression Policies:** To automatically compress old data and save storage space.
+*   **Continuous Aggregates:** To pre-calculate hourly and daily summaries of the time-series data for faster querying.
+
+## 👨‍💻 Development
+
+`infrastructor` uses a modern set of development tools and practices to ensure code quality and maintainability.
+
+*   **Linting and Formatting:** `ruff` is used for linting and formatting the code.
+*   **Type Checking:** `mypy` is used for static type checking.
+*   **Testing:** `pytest` is used for testing the code.
+
+To run the tests, use the following command:
 
 ```bash
-# Clone repository
-git clone https://github.com/jmagar/infra-mcp.git
-cd infrastructor
-
-# Install UV package manager
-curl -LsSf https://astral.sh/uv/install.sh | sh
-
-# Install dependencies
-uv sync
-
-# Configure environment
-cp .env.example .env
-# Edit .env with your settings (database, API keys, etc.)
+pytest
 ```
-
-### 2. Database Setup
-
-```bash
-# Start PostgreSQL with TimescaleDB
-docker compose up postgres -d
-
-# Run database migrations
-uv run alembic upgrade head
-
-# Verify database health
-curl http://localhost:9101/health
-```
-
-### 3. Development Server
-
-```bash
-# Start both API and MCP servers
-./dev.sh start
-
-# View logs from both servers
-./dev.sh logs
-
-# Stop all servers
-./dev.sh stop
-```
-
-The development script manages:
-- **FastAPI server** on port 9101 with auto-reload
-- **MCP server** on port 9102 for Claude Code integration
-- **Log rotation** with size management
-- **Health monitoring** with startup verification
-
-## 📁 Project Structure
-
-```
-infrastructor/
-├── apps/backend/src/           # FastAPI application
-│   ├── main.py                 # FastAPI app entry point
-│   ├── api/                    # REST API endpoints
-│   │   ├── devices.py          # Device management endpoints
-│   │   ├── containers.py       # Container operations
-│   │   ├── proxy.py            # SWAG proxy configuration
-│   │   └── common.py           # Health checks, utilities
-│   ├── mcp/                    # MCP server implementation
-│   │   ├── server.py           # Main MCP server
-│   │   ├── tools/              # 17 MCP tools
-│   │   │   ├── device_analysis.py      # Comprehensive device analysis
-│   │   │   ├── device_management.py    # Device registry operations
-│   │   │   ├── container_management.py # Docker operations
-│   │   │   ├── system_monitoring.py    # System metrics & drive stats
-│   │   │   ├── proxy_management.py     # SWAG configuration tools
-│   │   │   └── metrics_collection.py   # Historical data collection
-│   │   └── resources/          # MCP resources (swag://, infra://)
-│   │       └── proxy_configs.py        # Direct file access resources
-│   ├── models/                 # Database models (SQLAlchemy)
-│   ├── schemas/                # API schemas (Pydantic)
-│   ├── services/               # Business logic
-│   ├── core/                   # Configuration, database setup
-│   └── utils/                  # SSH client, nginx parser
-├── alembic/                    # Database migrations
-├── init-scripts/               # TimescaleDB setup scripts
-├── logs/                       # Application logs (auto-managed)
-├── dev.sh                      # Development server management
-├── docker-compose.yaml         # PostgreSQL setup
-└── docs/                       # Documentation
-    ├── PRD.md                  # Product requirements
-    └── MONOREPO.md             # Development guidelines
-```
-
-## 🔧 Configuration
-
-### Environment Variables (.env)
-
-```bash
-# Database Configuration
-POSTGRES_HOST=localhost
-POSTGRES_PORT=9100
-POSTGRES_DB=infrastructor
-POSTGRES_USER=infrastructor
-POSTGRES_PASSWORD=your_secure_password
-
-# API Authentication
-API_KEY=your-api-key-for-authentication
-
-# Server Configuration
-MCP_HOST=localhost
-MCP_PORT=9102
-DEBUG=true
-ENVIRONMENT=development
-
-# SSH Configuration (uses ~/.ssh/config by default)
-SSH_CONNECTION_TIMEOUT=30
-SSH_COMMAND_TIMEOUT=60
-```
-
-### Device Registration
-
-**Automatic Discovery** (Recommended):
-```bash
-# Auto-register devices from your infrastructure
-curl -X POST http://localhost:9101/api/devices \
-  -H "Authorization: Bearer your-api-key-for-authentication" \
-  -H "Content-Type: application/json" \
-  -d '{
-    "hostname": "server1",
-    "device_type": "server",
-    "monitoring_enabled": true
-  }'
-```
-
-**Device Analysis** (New Feature):
-```bash
-# Run comprehensive capability analysis
-curl -X POST http://localhost:9101/api/devices/server1/analyze \
-  -H "Authorization: Bearer your-api-key-for-authentication"
-```
-
-## 🛠️ API Interfaces
-
-### 1. REST API (Port 9101)
-
-**Core Endpoints:**
-```bash
-# Device Management
-GET  /api/devices                    # List all devices
-POST /api/devices                    # Register new device  
-GET  /api/devices/{hostname}         # Get device details
-POST /api/devices/{hostname}/analyze # Run device analysis
-
-# Container Operations
-GET  /api/containers/{device}               # List containers
-GET  /api/containers/{device}/{name}       # Container details
-GET  /api/containers/{device}/{name}/logs  # Container logs
-
-# System Monitoring  
-GET  /api/devices/{device}/metrics     # System metrics
-GET  /api/devices/{device}/drives      # Drive health (SMART data)
-GET  /api/devices/{device}/drives/stats # Enhanced drive statistics
-
-# SWAG Proxy Management (New)
-GET  /api/proxy/configs                     # List proxy configurations
-GET  /api/proxy/configs/{service}          # Get specific config
-GET  /api/proxy/templates/{type}           # Get templates (subdomain/subfolder)
-GET  /api/proxy/samples                     # List sample configurations
-POST /api/proxy/scan                       # Scan and sync configurations
-
-# Health & Status
-GET  /health                          # Application health check
-```
-
-**Enhanced Features:**
-- **SMART Drive Data**: Power-on hours, temperature, wear leveling
-- **Filesystem Detection**: ext4, xfs, btrfs, zfs, ntfs, vfat, exfat
-- **Real-time Sync**: Live file system access with database caching
-- **Comprehensive Analysis**: Hardware, OS, virtualization, service detection
-
-### 2. MCP Interface (Port 9102)
-
-**Claude Code Integration:**
-```json
-{
-  "mcpServers": {
-    "infra": {
-      "command": "python",
-      "args": ["apps/backend/src/mcp/server.py"],
-      "cwd": "/path/to/infrastructor"
-    }
-  }
-}
-```
-
-**Available Tools (17 total):**
-
-**Device Management (4 tools):**
-- `list_devices` - Device registry with filtering
-- `add_device` - Register new devices  
-- `edit_device` - Update device configuration
-- `analyze_device` - **NEW**: Comprehensive capability analysis
-
-**Container Management (3 tools):**
-- `list_containers` - Docker container discovery
-- `get_container_info` - Detailed container inspection
-- `get_container_logs` - Log streaming with filtering
-
-**System Monitoring (3 tools):**
-- `get_system_info` - CPU, memory, disk, network metrics
-- `get_drive_health` - SMART data and drive health
-- `get_drives_stats` - **Enhanced**: I/O statistics, filesystem types
-- `get_system_logs` - System log access and filtering
-
-**SWAG Proxy Management (5 tools):**
-- `list_proxy_configs` - Configuration discovery with sync status
-- `get_proxy_config` - Real-time configuration content  
-- `scan_proxy_configs` - Directory scanning and database sync
-- `sync_proxy_config` - Individual configuration synchronization
-- `get_proxy_config_summary` - Statistics and health overview
-
-**MCP Resources:**
-- `swag://configs` - List all SWAG configurations
-- `swag://{service}` - Direct access to service configurations  
-- `swag://templates/{type}` - Configuration templates
-- `swag://samples/{name}` - Sample configurations
-- `infra://devices` - Device registry overview
-- `infra://{device}/status` - Real-time device status
-
-## 📊 Development
-
-### Development Workflow
-
-```bash
-# Start development environment
-./dev.sh start
-
-# Monitor logs in real-time  
-./dev.sh logs
-
-# Restart after code changes
-./dev.sh restart
-
-# Stop all services
-./dev.sh stop
-```
-
-### Code Quality
-
-```bash
-# Type checking
-uv run mypy apps/backend/src/
-
-# Linting and formatting
-uv run ruff check apps/backend/src/
-uv run ruff format apps/backend/src/
-```
-
-### Database Operations
-
-```bash
-# Create migration
-uv run alembic revision --autogenerate -m "Description"
-
-# Apply migrations
-uv run alembic upgrade head
-
-# Check migration status
-uv run alembic current
-```
-
-### Testing
-
-```bash
-# Run comprehensive device analysis
-curl -X POST "http://localhost:9101/api/devices/your-device/analyze" \
-  -H "Authorization: Bearer your-api-key-for-authentication"
-
-# Test SWAG configuration sync
-curl -X POST "http://localhost:9101/api/proxy/scan?device=squirts" \
-  -H "Authorization: Bearer your-api-key-for-authentication"
-```
-
-## 🔐 Security
-
-- **SSH Key Authentication**: Uses existing SSH configuration and keys
-- **API Key Authentication**: Bearer token authentication for REST endpoints
-- **Secure Communication**: All device communication over SSH
-- **No Credential Storage**: Credentials managed via SSH agent and environment variables
-- **Permission Handling**: Graceful fallback when elevated permissions unavailable
-
-## 🗺️ Roadmap
-
-### ✅ Completed Features (Phase 1-2)
-- [x] **Core MCP Server**: 17 tools with HTTP transport
-- [x] **Device Registry**: CRUD operations with automatic discovery
-- [x] **Container Management**: Docker integration with log streaming
-- [x] **Enhanced Drive Monitoring**: SMART data, filesystem detection, I/O stats
-- [x] **SWAG Proxy Management**: Real-time sync, templates, sample configurations
-- [x] **Device Analysis Tool**: Comprehensive capability detection
-- [x] **Database Integration**: TimescaleDB with efficient time-series storage
-- [x] **Development Tools**: Automated server management with `./dev.sh`
-
-### 🚧 Current Development (Phase 3)
-- [ ] **System Log Integration**: Centralized log access and searching
-- [ ] **Historical Metrics**: Long-term trend analysis and alerting
-- [ ] **Performance Optimization**: Connection pooling and caching strategies
-- [ ] **Enhanced Error Handling**: Retry logic and graceful degradation
-
-### 📅 Planned Features (Phase 4-5)
-- [ ] **Web Dashboard**: React-based monitoring interface
-- [ ] **WebSocket Streaming**: Real-time data feeds for dashboards
-- [ ] **Advanced Analytics**: Service dependency mapping and health scoring
-- [ ] **Backup Integration**: Automated backup verification and management
-- [ ] **Mobile Support**: Progressive web app with responsive design
-
-## 📚 Documentation
-
-- **[docs/PRD.md](docs/PRD.md)** - Product Requirements Document with technical architecture
-- **[docs/MONOREPO.md](docs/MONOREPO.md)** - Project structure and development patterns  
-- **[CLAUDE.md](CLAUDE.md)** - Development guide and Claude Code integration
-- **API Documentation** - OpenAPI docs available at `/docs` when server is running
 
 ## 🤝 Contributing
 
-1. **Fork** the repository
-2. **Create** a feature branch (`git checkout -b feat/amazing-feature`)
-3. **Develop** following the existing patterns in `MONOREPO.md`
-4. **Test** using the development tools (`./dev.sh`)
-5. **Commit** with descriptive messages
-6. **Push** and create a Pull Request
-
-### Development Guidelines
-- Follow the monorepo structure with clear separation of concerns
-- Write comprehensive tests for new MCP tools
-- Use proper type hints and error handling
-- Document new features with examples
-- Test against real infrastructure devices
+Contributions are welcome! Please feel free to submit a pull request or open an issue.
 
 ## 📄 License
 
-This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
-
-## 🙏 Acknowledgments
-
-- **[FastAPI](https://fastapi.tiangolo.com/)** - Modern web framework for APIs
-- **[FastMCP](https://github.com/jlowin/fastmcp)** - Model Context Protocol server integration  
-- **[TimescaleDB](https://www.timescale.com/)** - Time-series database for metrics
-- **[UV](https://github.com/astral-sh/uv)** - Fast Python package manager
-- **[Claude Code](https://claude.ai/code)** - AI-powered development assistance
-
----
-
-**Status**: 🚀 **Production Ready** | **Version**: 2.0.0 | **Python**: 3.11+ | **MCP Tools**: 17
-
-**Quick Start**: `./dev.sh start` → **API**: http://localhost:9101/docs → **Health**: http://localhost:9101/health
+`infrastructor` is licensed under the MIT License. See the `LICENSE` file for more information.

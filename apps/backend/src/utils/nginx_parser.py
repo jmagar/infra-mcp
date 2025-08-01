@@ -7,7 +7,7 @@ from SWAG reverse proxy setups.
 
 import re
 import logging
-from typing import Dict, List, Optional, Any, Tuple
+from typing import Optional, Any
 from pathlib import Path
 import hashlib
 
@@ -42,7 +42,7 @@ class NginxConfigParser:
             'if': re.compile(r'if\s*\([^)]+\)\s*\{'),
         }
     
-    def parse_config_file(self, file_path: str) -> Dict[str, Any]:
+    def parse_config_file(self, file_path: str) -> dict[str, Any]:
         """
         Parse a complete nginx configuration file
         
@@ -53,7 +53,7 @@ class NginxConfigParser:
             Dict containing parsed configuration data
         """
         try:
-            with open(file_path, 'r', encoding='utf-8') as f:
+            with open(file_path, encoding='utf-8') as f:
                 content = f.read()
             
             return self.parse_config_content(content, file_path)
@@ -66,7 +66,7 @@ class NginxConfigParser:
                 'parsed': False
             }
     
-    def parse_config_content(self, content: str, file_path: Optional[str] = None) -> Dict[str, Any]:
+    def parse_config_content(self, content: str, file_path: Optional[str] = None) -> dict[str, Any]:
         """
         Parse nginx configuration content
         
@@ -133,12 +133,11 @@ class NginxConfigParser:
         
         return result
     
-    def _parse_directives(self, content: str, result: Dict[str, Any]) -> None:
+    def _parse_directives(self, content: str, result: dict[str, Any]) -> None:
         """Parse standard nginx directives"""
         for directive, pattern in self.directive_patterns.items():
             matches = pattern.findall(content)
-            if matches:
-                if directive == 'server_name':
+            if matches and directive == 'server_name':
                     # Handle multiple server names
                     server_names = []
                     for match in matches:
@@ -167,7 +166,7 @@ class NginxConfigParser:
                 else:
                     result['raw_directives'][directive] = matches
     
-    def _parse_listen_directive(self, listen_value: str) -> Dict[str, Any]:
+    def _parse_listen_directive(self, listen_value: str) -> dict[str, Any]:
         """Parse a listen directive value"""
         result = {'ports': [], 'ssl': False, 'http2': False, 'ipv6': False}
         
@@ -193,14 +192,11 @@ class NginxConfigParser:
         
         # Default ports if none specified
         if not result['ports']:
-            if result['ssl']:
-                result['ports'] = [443]
-            else:
-                result['ports'] = [80]
+            result['ports'] = [443] if result['ssl'] else [80]
         
         return result
     
-    def _parse_server_blocks(self, content: str) -> List[Dict[str, Any]]:
+    def _parse_server_blocks(self, content: str) -> list[dict[str, Any]]:
         """Parse server blocks from nginx config"""
         servers = []
         
@@ -227,7 +223,7 @@ class NginxConfigParser:
         
         return servers
     
-    def _parse_location_blocks(self, content: str) -> List[Dict[str, Any]]:
+    def _parse_location_blocks(self, content: str) -> list[dict[str, Any]]:
         """Parse location blocks from nginx config"""
         locations = []
         
@@ -252,7 +248,7 @@ class NginxConfigParser:
         
         return locations
     
-    def _parse_upstream_blocks(self, content: str) -> List[Dict[str, Any]]:
+    def _parse_upstream_blocks(self, content: str) -> list[dict[str, Any]]:
         """Parse upstream blocks from nginx config"""
         upstreams = []
         
@@ -315,7 +311,7 @@ class NginxConfigParser:
         
         return blocks
     
-    def _extract_comments(self, content: str) -> List[Dict[str, Any]]:
+    def _extract_comments(self, content: str) -> list[dict[str, Any]]:
         """Extract comments from nginx config"""
         comments = []
         lines = content.split('\n')
@@ -331,7 +327,7 @@ class NginxConfigParser:
         
         return comments
     
-    def _extract_service_info_from_path(self, file_path: str) -> Dict[str, str]:
+    def _extract_service_info_from_path(self, file_path: str) -> dict[str, str]:
         """Extract service information from SWAG config file path"""
         path = Path(file_path)
         filename = path.stem  # Remove .conf extension
@@ -352,7 +348,7 @@ class NginxConfigParser:
             'config_filename': path.name
         }
     
-    def _post_process_results(self, result: Dict[str, Any]) -> None:
+    def _post_process_results(self, result: dict[str, Any]) -> None:
         """Post-process parsing results for consistency"""
         # Ensure SSL detection is comprehensive
         if not result['ssl_enabled']:
@@ -386,7 +382,7 @@ class NginxConfigParser:
         """Calculate SHA256 hash of config content"""
         return hashlib.sha256(content.encode('utf-8')).hexdigest()
     
-    def validate_config_syntax(self, content: str) -> Dict[str, Any]:
+    def validate_config_syntax(self, content: str) -> dict[str, Any]:
         """
         Perform basic syntax validation on nginx config
         
@@ -437,7 +433,7 @@ class NginxConfigParser:
         
         return validation
     
-    def extract_service_dependencies(self, content: str) -> List[Dict[str, str]]:
+    def extract_service_dependencies(self, content: str) -> list[dict[str, str]]:
         """
         Extract service dependencies from proxy_pass and upstream directives
         
@@ -489,7 +485,7 @@ class NginxConfigParser:
         return dependencies
 
 
-def parse_swag_config_directory(directory_path: str) -> Dict[str, Any]:
+def parse_swag_config_directory(directory_path: str) -> dict[str, Any]:
     """
     Parse all nginx config files in a SWAG proxy-confs directory
     

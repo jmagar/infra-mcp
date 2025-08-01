@@ -69,7 +69,7 @@ async def lifespan(app: FastAPI):
     """Application lifespan manager for startup and shutdown tasks"""
     global polling_service
     logger.info("Starting Infrastructure Management API Server...")
-    
+
     # Startup tasks
     try:
         # Initialize database
@@ -82,7 +82,7 @@ async def lifespan(app: FastAPI):
         # app.state.polling_service = polling_service
         # await polling_service.start_polling()
         logger.info("Polling service temporarily disabled during refactoring")
-        
+
         # Log configuration
         logger.info(f"Environment: {settings.environment}")
         logger.info(f"Debug mode: {settings.debug}")

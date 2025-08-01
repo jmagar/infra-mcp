@@ -55,7 +55,7 @@ async def list_configs(
         )
     except Exception as e:
         logger.error(f"Error listing proxy configs: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail=str(e)) from e
 
 
 @router.get("/configs/{service_name}", response_model=ProxyConfigResponse)
@@ -74,7 +74,7 @@ async def get_config(
         return result
     except Exception as e:
         logger.error(f"Error getting proxy config for {service_name}: {e}")
-        raise HTTPException(status_code=404 if "not found" in str(e).lower() else 500, detail=str(e))
+        raise HTTPException(status_code=404 if "not found" in str(e).lower() else 500, detail=str(e)) from e
 
 
 @router.get("/configs/{service_name}/content", response_class=PlainTextResponse)
@@ -96,7 +96,7 @@ async def get_config_content(
         raise
     except Exception as e:
         logger.error(f"Error getting config content for {service_name}: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail=str(e)) from e
 
 
 @router.post("/scan", response_model=ProxyConfigSync)
@@ -111,7 +111,7 @@ async def scan_configs(
         return result
     except Exception as e:
         logger.error(f"Error scanning proxy configs: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail=str(e)) from e
 
 
 @router.post("/configs/{service_name}/sync", response_model=ProxyConfigResponse)
@@ -139,7 +139,7 @@ async def sync_config(
         raise
     except Exception as e:
         logger.error(f"Error syncing proxy config for {service_name}: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail=str(e)) from e
 
 
 @router.get("/summary", response_model=ProxyConfigSummary)
@@ -152,7 +152,7 @@ async def get_summary(
         return result
     except Exception as e:
         logger.error(f"Error getting proxy config summary: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail=str(e)) from e
 
 
 @router.get("/templates/{template_type}", response_class=PlainTextResponse)
@@ -175,7 +175,7 @@ async def get_template(
         raise
     except Exception as e:
         logger.error(f"Error getting template {template_type}: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail=str(e)) from e
 
 
 @router.get("/samples", response_model=dict)
@@ -191,7 +191,7 @@ async def list_samples():
         return resource_data
     except Exception as e:
         logger.error(f"Error listing samples: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail=str(e)) from e
 
 
 @router.get("/samples/{sample_name}", response_class=PlainTextResponse)
@@ -211,4 +211,4 @@ async def get_sample(
         raise
     except Exception as e:
         logger.error(f"Error getting sample {sample_name}: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail=str(e)) from e

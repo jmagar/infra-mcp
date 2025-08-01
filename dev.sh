@@ -17,7 +17,8 @@ rotate_logs() {
     local max_files=${3:-3}
     
     if [ -f "$log_file" ]; then
-        local size_mb=$(du -m "$log_file" | cut -f1)
+        local size_mb
+        size_mb=$(du -m "$log_file" | cut -f1)
         if [ "$size_mb" -ge "$max_size_mb" ]; then
             echo "🔄 Rotating $log_file (${size_mb}MB)"
             
@@ -55,9 +56,9 @@ show_logs() {
         tail -f logs/api_server.log logs/mcp_server.log | while IFS= read -r line; do
             current_time=$(date '+%H:%M:%S')
             
-            if [[ $line =~ "==> logs/api_server.log <==" ]]; then
+            if [[ $line =~ ^==\>[[:space:]]logs/api_server\.log[[:space:]]\<==$ ]]; then
                 echo -e "\n\033[1;34m╭─ API SERVER ─────────────────────────────────────────────────────\033[0m"
-            elif [[ $line =~ "==> logs/mcp_server.log <==" ]]; then
+            elif [[ $line =~ ^==\>[[:space:]]logs/mcp_server\.log[[:space:]]\<==$ ]]; then
                 echo -e "\n\033[1;32m╭─ MCP SERVER ─────────────────────────────────────────────────────\033[0m"
             elif [[ $line =~ "==>" ]]; then
                 # Skip other file headers
@@ -90,7 +91,7 @@ stop_servers() {
     API_PIDS=$(lsof -ti:$API_PORT 2>/dev/null)
     if [ -n "$API_PIDS" ]; then
         echo "🛑 Killing API server processes on port $API_PORT: $API_PIDS"
-        kill -9 $API_PIDS
+        kill -9 "$API_PIDS"
     else
         echo "✅ No API server processes found on port $API_PORT"
     fi
@@ -99,7 +100,7 @@ stop_servers() {
     MCP_PIDS=$(lsof -ti:$MCP_PORT 2>/dev/null)
     if [ -n "$MCP_PIDS" ]; then
         echo "🛑 Killing MCP server processes on port $MCP_PORT: $MCP_PIDS"
-        kill -9 $MCP_PIDS
+        kill -9 "$MCP_PIDS"
     else
         echo "✅ No MCP server processes found on port $MCP_PORT"
     fi
@@ -108,7 +109,7 @@ stop_servers() {
     LOG_MONITOR_PIDS=$(pgrep -f "sleep 300.*rotate_logs" 2>/dev/null)
     if [ -n "$LOG_MONITOR_PIDS" ]; then
         echo "🔄 Stopping log rotation monitor: $LOG_MONITOR_PIDS"
-        kill -9 $LOG_MONITOR_PIDS 2>/dev/null
+        kill -9 "$LOG_MONITOR_PIDS" 2>/dev/null
     fi
 }
 

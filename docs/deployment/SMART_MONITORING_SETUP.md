@@ -212,7 +212,7 @@ while read -r host; do
     # Install and configure
     ssh $SSH_USER@$host "
         sudo apt update && sudo apt install -y smartmontools
-        sudo sed 's/infrastructor/$SSH_USER/g' /tmp/sudoers.d-smartctl > /tmp/smartctl-configured
+        sudo sed \"s/infrastructor/\$SSH_USER/g\" /tmp/sudoers.d-smartctl > /tmp/smartctl-configured
         sudo mv /tmp/smartctl-configured /etc/sudoers.d/smartctl
         sudo chmod 440 /etc/sudoers.d/smartctl
         sudo chown root:root /etc/sudoers.d/smartctl

@@ -6,7 +6,7 @@ import asyncio
 import json
 import logging
 from datetime import datetime, timezone, timedelta
-from typing import List, Optional, Dict, Any, Set
+from typing import List, Optional, Any, Set
 from uuid import UUID
 
 from sqlalchemy import select, and_, or_, desc, func
@@ -28,7 +28,7 @@ class PollingService:
     def __init__(self):
         self.ssh_client = get_ssh_client()
         self.settings = get_settings()
-        self.polling_tasks: Dict[UUID, asyncio.Task] = {}
+        self.polling_tasks: dict[UUID, asyncio.Task] = {}
         self.is_running = False
         self.db = None  # Will be initialized in start_polling
         # Set polling interval - default to 5 minutes if not configured
@@ -94,7 +94,7 @@ class PollingService:
         async with self.session_factory() as db:
             query = select(Device).where(
                 and_(
-                    Device.monitoring_enabled == True,
+                    Device.monitoring_enabled,
                     Device.status.in_(["online", "unknown"])  # Don't poll offline devices
                 )
             )

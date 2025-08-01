@@ -18,8 +18,9 @@ api_router = APIRouter(tags=["API"])
 api_router.include_router(common_router, tags=["Common"])
 
 # Include resource-specific routers
+# Note: Using plural resource names (/devices, /containers, /proxies) for REST API consistency
 api_router.include_router(devices_router, prefix="/devices", tags=["Devices"])
 api_router.include_router(containers_router, prefix="/containers", tags=["Containers"])
-api_router.include_router(proxy_router, prefix="/proxy", tags=["Proxy"])
+api_router.include_router(proxy_router, prefix="/proxies", tags=["Proxy"])
 
 __all__ = ["api_router", "common_router", "devices_router", "containers_router", "proxy_router"]
