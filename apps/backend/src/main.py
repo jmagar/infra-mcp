@@ -76,12 +76,16 @@ async def lifespan(app: FastAPI):
         await init_database()
         logger.info("Database initialized successfully")
         
-        # TODO: Temporarily disable polling service due to database session management issues
-        # This will be re-enabled after refactoring the PollingService to properly manage sessions
-        # polling_service = PollingService()
-        # app.state.polling_service = polling_service
-        # await polling_service.start_polling()
-        logger.info("Polling service temporarily disabled during refactoring")
+        # Initialize and start polling service if enabled
+        if settings.polling.polling_enabled:
+            polling_service = PollingService()
+            app.state.polling_service = polling_service
+            await polling_service.start_polling()
+            logger.info("Polling service started successfully")
+        else:
+            polling_service = None
+            app.state.polling_service = None
+            logger.info("Polling service disabled via configuration")
 
         # Log configuration
         logger.info(f"Environment: {settings.environment}")
@@ -99,9 +103,11 @@ async def lifespan(app: FastAPI):
         logger.info("Shutting down Infrastructure Management API Server...")
         
         # Stop polling service
-        if polling_service:
+        if polling_service is not None:
             await polling_service.stop_polling()
             logger.info("Polling service stopped")
+        else:
+            logger.info("Polling service was not running")
         
         # Cleanup SSH connections
         await cleanup_ssh_client()

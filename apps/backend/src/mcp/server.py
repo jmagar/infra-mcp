@@ -18,6 +18,10 @@ from typing import Any
 # Third-party imports
 import httpx
 from fastmcp import FastMCP
+from dotenv import load_dotenv
+
+# Load environment variables from .env file
+load_dotenv()
 
 # Add the project root to Python path
 project_root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))))
@@ -29,11 +33,18 @@ from apps.backend.src.mcp.resources.compose_configs import (
     get_compose_config_resource, list_compose_config_resources
 )
 from apps.backend.src.mcp.resources.proxy_configs import get_proxy_config_resource
+from apps.backend.src.mcp.resources.zfs_resources import (
+    get_zfs_resource, list_zfs_resources
+)
 from apps.backend.src.mcp.tools.device_info import get_device_info
 from apps.backend.src.mcp.tools.device_management import add_device as device_add_device
 from apps.backend.src.mcp.tools.proxy_management import (
     get_proxy_config, get_proxy_config_summary, list_proxy_configs,
     scan_proxy_configs, sync_proxy_config
+)
+from apps.backend.src.mcp.prompts.device_analysis import (
+    analyze_device_performance, container_stack_analysis, 
+    infrastructure_health_check, troubleshoot_system_issue
 )
 
 # Configure logging
@@ -456,6 +467,12 @@ def create_mcp_server():
         description="Get comprehensive device information including capabilities analysis and system metrics (replaces analyze_device and get_system_info)"
     )(get_device_info)
     
+    # Register infrastructure analysis prompts
+    server.prompt(analyze_device_performance)
+    server.prompt(container_stack_analysis)
+    server.prompt(infrastructure_health_check)
+    server.prompt(troubleshoot_system_issue)
+    
     # Register SWAG proxy configuration resources
     @server.resource(
         uri="swag://configs",
@@ -612,7 +629,103 @@ def create_mcp_server():
         except Exception as e:
             return json.dumps({"error": str(e), "device": device, "service": service}, indent=2)
     
-    logger.info("MCP server created with 17 tools (11 HTTP client + 5 proxy config + 1 device analysis) and infrastructure + compose resources")
+    # Register ZFS resources
+    @server.resource(
+        uri="zfs://pools/{hostname}",
+        name="ZFS Pools",
+        description="Get ZFS pools for a device",
+        mime_type="application/json"
+    )
+    async def zfs_pools(hostname: str) -> str:
+        """Get ZFS pools for a device"""
+        try:
+            response = await api_client.client.get(f"/zfs/{hostname}/pools")
+            response.raise_for_status()
+            data = response.json()
+            
+            return json.dumps({
+                "resource_type": "zfs_pools",
+                "hostname": hostname,
+                "pools": data.get("pools", []),
+                "total_pools": data.get("total_pools", 0),
+                "uri": f"zfs://pools/{hostname}"
+            }, indent=2, default=str)
+        except httpx.HTTPError as e:
+            logger.error(f"HTTP error getting ZFS pools for {hostname}: {e}")
+            return json.dumps({
+                "error": f"Failed to get ZFS pools: {str(e)}",
+                "hostname": hostname,
+                "uri": f"zfs://pools/{hostname}"
+            }, indent=2)
+        except Exception as e:
+            logger.error(f"Error getting ZFS pools for {hostname}: {e}")
+            return json.dumps({
+                "error": str(e),
+                "hostname": hostname,
+                "uri": f"zfs://pools/{hostname}"
+            }, indent=2)
+    
+    @server.resource(
+        uri="zfs://pools/{hostname}/{pool_name}",
+        name="ZFS Pool Status",
+        description="Get ZFS pool status for a specific pool",
+        mime_type="application/json"
+    )
+    async def zfs_pool_status(hostname: str, pool_name: str) -> str:
+        """Get ZFS pool status for a specific pool"""
+        try:
+            response = await api_client.client.get(f"/zfs/{hostname}/pools/{pool_name}/status")
+            response.raise_for_status()
+            return json.dumps(response.json(), indent=2, default=str)
+        except Exception as e:
+            return json.dumps({"error": str(e), "hostname": hostname, "pool_name": pool_name}, indent=2)
+    
+    @server.resource(
+        uri="zfs://datasets/{hostname}",
+        name="ZFS Datasets",
+        description="Get ZFS datasets for a device",
+        mime_type="application/json"
+    )
+    async def zfs_datasets(hostname: str) -> str:
+        """Get ZFS datasets for a device"""
+        try:
+            response = await api_client.client.get(f"/zfs/{hostname}/datasets")
+            response.raise_for_status()
+            return json.dumps(response.json(), indent=2, default=str)
+        except Exception as e:
+            return json.dumps({"error": str(e), "hostname": hostname}, indent=2)
+    
+    @server.resource(
+        uri="zfs://snapshots/{hostname}",
+        name="ZFS Snapshots",
+        description="Get ZFS snapshots for a device",
+        mime_type="application/json"
+    )
+    async def zfs_snapshots(hostname: str) -> str:
+        """Get ZFS snapshots for a device"""
+        try:
+            response = await api_client.client.get(f"/zfs/{hostname}/snapshots")
+            response.raise_for_status()
+            return json.dumps(response.json(), indent=2, default=str)
+        except Exception as e:
+            return json.dumps({"error": str(e), "hostname": hostname}, indent=2)
+    
+    @server.resource(
+        uri="zfs://health/{hostname}",
+        name="ZFS Health",
+        description="Get ZFS health status for a device",
+        mime_type="application/json"
+    )
+    async def zfs_health(hostname: str) -> str:
+        """Get ZFS health status for a device"""
+        try:
+            response = await api_client.client.get(f"/zfs/{hostname}/health")
+            response.raise_for_status()
+            return json.dumps(response.json(), indent=2, default=str)
+        except Exception as e:
+            return json.dumps({"error": str(e), "hostname": hostname}, indent=2)
+    
+    logger.info("MCP server created with 17 tools, 4 prompts, and infrastructure + compose + ZFS resources")
     return server
 
 

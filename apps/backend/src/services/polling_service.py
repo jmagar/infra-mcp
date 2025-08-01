@@ -6,7 +6,7 @@ import asyncio
 import json
 import logging
 from datetime import datetime, timezone, timedelta
-from typing import List, Optional, Any, Set
+from typing import List, Optional, Any, Set, Dict
 from uuid import UUID
 
 from sqlalchemy import select, and_, or_, desc, func
@@ -171,22 +171,23 @@ class PollingService:
 
     async def _update_device_status(self, device: Device, status: str) -> None:
         """Update device status and last seen timestamp"""
-        try:
-            device.status = status
-            if status == "online":
-                device.last_seen = datetime.now(timezone.utc)
-            device.updated_at = datetime.now(timezone.utc)
-            
-            await self.db.commit()
-            
-        except Exception as e:
-            await self.db.rollback()
-            logger.error(f"Error updating device status for {device.hostname}: {e}")
+        async with self.session_factory() as db:
+            try:
+                device.status = status
+                if status == "online":
+                    device.last_seen = datetime.now(timezone.utc)
+                device.updated_at = datetime.now(timezone.utc)
+                
+                await db.commit()
+                
+            except Exception as e:
+                await db.rollback()
+                logger.error(f"Error updating device status for {device.hostname}: {e}")
 
     async def _collect_system_metrics(self, device: Device) -> None:
         """Collect and store system metrics for a device"""
         ssh_info = SSHConnectionInfo(
-            host=device.ip_address,
+            host=device.hostname,
             port=device.ssh_port or 22,
             username=device.ssh_username or "root"
         )
@@ -238,19 +239,19 @@ class PollingService:
                 disk_bytes_written=0
             )
             
-            self.db.add(metric)
-            await self.db.commit()
-            
-            logger.debug(f"Collected system metrics for {device.hostname}")
+            async with self.session_factory() as db:
+                db.add(metric)
+                await db.commit()
+                
+                logger.debug(f"Collected system metrics for {device.hostname}")
             
         except Exception as e:
-            await self.db.rollback()
             logger.error(f"Error collecting system metrics for {device.hostname}: {e}")
 
     async def _collect_drive_health(self, device: Device) -> None:
         """Collect and store drive health data for a device"""
         ssh_info = SSHConnectionInfo(
-            host=device.ip_address,
+            host=device.hostname,
             port=device.ssh_port or 22,
             username=device.ssh_username or "root"
         )
@@ -313,21 +314,21 @@ class PollingService:
                         drives.append(drive_health)
             
             # Add all drive records
-            for drive in drives:
-                self.db.add(drive)
-            
-            await self.db.commit()
-            
-            logger.debug(f"Collected drive health for {device.hostname}: {len(drives)} drives")
+            async with self.session_factory() as db:
+                for drive in drives:
+                    db.add(drive)
+                
+                await db.commit()
+                
+                logger.debug(f"Collected drive health for {device.hostname}: {len(drives)} drives")
             
         except Exception as e:
-            await self.db.rollback()
             logger.error(f"Error collecting drive health for {device.hostname}: {e}")
 
     async def _collect_container_data(self, device: Device) -> None:
         """Collect and store container data for a device"""
         ssh_info = SSHConnectionInfo(
-            host=device.ip_address,
+            host=device.hostname,
             port=device.ssh_port or 22,
             username=device.ssh_username or "root"
         )
@@ -420,15 +421,15 @@ class PollingService:
                     continue
             
             # Add all container snapshots
-            for container in containers:
-                self.db.add(container)
-            
-            await self.db.commit()
-            
-            logger.debug(f"Collected container data for {device.hostname}: {len(containers)} containers")
+            async with self.session_factory() as db:
+                for container in containers:
+                    db.add(container)
+                
+                await db.commit()
+                
+                logger.debug(f"Collected container data for {device.hostname}: {len(containers)} containers")
             
         except Exception as e:
-            await self.db.rollback()
             logger.error(f"Error collecting container data for {device.hostname}: {e}")
 
     def _parse_bytes(self, size_str: str) -> int:

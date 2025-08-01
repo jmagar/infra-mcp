@@ -8,7 +8,7 @@ monitoring status checks, and device information retrieval.
 import logging
 import time
 from datetime import datetime
-from typing import Any
+from typing import Any, Dict
 # UUID import removed - now using hostname-only approach
 
 from sqlalchemy import select, func
@@ -416,7 +416,7 @@ async def get_device_info(
                     start_time = time.time()
                     
                     connection_info = SSHConnectionInfo(
-                        host=device_record.ip_address,
+                        host=device_record.hostname,
                         port=device_record.ssh_port,
                         username=device_record.ssh_username,
                         password=device_record.ssh_password,
@@ -426,7 +426,7 @@ async def get_device_info(
                     
                     # Test basic connectivity
                     is_connected = await test_ssh_connectivity(
-                        host=device_record.ip_address,
+                        host=device_record.hostname,
                         port=device_record.ssh_port,
                         username=device_record.ssh_username,
                         password=device_record.ssh_password,
@@ -638,7 +638,7 @@ async def get_device_summary(
                     start_time = time.time()
                     
                     connection_info = SSHConnectionInfo(
-                        host=device_record.ip_address,
+                        host=device_record.hostname,
                         port=device_record.ssh_port,
                         username=device_record.ssh_username,
                         password=device_record.ssh_password,
@@ -648,7 +648,7 @@ async def get_device_summary(
                     
                     # Test SSH connectivity
                     is_connected = await test_ssh_connectivity(
-                        host=device_record.ip_address,
+                        host=device_record.hostname,
                         port=device_record.ssh_port,
                         username=device_record.ssh_username,
                         password=device_record.ssh_password,

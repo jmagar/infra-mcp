@@ -7,9 +7,9 @@ with real-time file access and database integration.
 
 import logging
 import re
-from datetime import datetime, timezone
+from datetime import datetime
 from pathlib import Path
-from typing import Optional, Any
+from typing import Any
 from urllib.parse import urlparse, parse_qs
 
 from apps.backend.src.mcp.tools.proxy_management import (
@@ -18,10 +18,57 @@ from apps.backend.src.mcp.tools.proxy_management import (
 from apps.backend.src.utils.nginx_parser import NginxConfigParser
 from apps.backend.src.utils.ssh_client import execute_ssh_command_simple
 from apps.backend.src.core.database import get_async_session
+from apps.backend.src.core.config import get_settings
 from apps.backend.src.models.proxy_config import ProxyConfig
 from sqlalchemy import select, and_
 
 logger = logging.getLogger(__name__)
+
+
+def _get_swag_config():
+    """Get SWAG configuration settings"""
+    settings = get_settings()
+    return settings.swag.swag_device, settings.swag.swag_config_dir
+
+
+async def _format_resource_content(
+    content: str,
+    file_path: str,
+    format_type: str,
+    include_parsed: bool,
+    resource_data: dict[str, Any]
+) -> dict[str, Any]:
+    """Helper function to format resource content based on requested format."""
+    # Format content based on requested format
+    if format_type == 'raw':
+        resource_data['content'] = content
+        resource_data['mime_type'] = 'text/plain'
+        
+    elif format_type == 'json':
+        if include_parsed:
+            parser = NginxConfigParser()
+            parsed_config = parser.parse_config_content(content, file_path)
+            resource_data['parsed_config'] = parsed_config
+        
+        resource_data['raw_content'] = content
+        resource_data['mime_type'] = 'application/json'
+        
+    elif format_type == 'yaml':
+        if include_parsed:
+            parser = NginxConfigParser()
+            parsed_config = parser.parse_config_content(content, file_path)
+            resource_data['parsed_config'] = parsed_config
+        
+        resource_data['raw_content'] = content
+        resource_data['mime_type'] = 'application/yaml'
+    
+    # Always include parsed config if requested
+    if include_parsed and format_type == 'raw':
+        parser = NginxConfigParser()
+        parsed_config = parser.parse_config_content(content, file_path)
+        resource_data['parsed_config'] = parsed_config
+    
+    return resource_data
 
 
 def _validate_service_name(service_name: str) -> bool:
@@ -74,8 +121,8 @@ async def get_proxy_config_resource(uri: str) -> dict[str, Any]:
         # Pattern 1: swag://service_name (most common)
         if device and not path:
             service_name = device  # device is actually the service name in this pattern
-            # All SWAG configs are on "squirts" - the reverse proxy host
-            swag_device = "squirts"
+            # All SWAG configs are on the configured SWAG device
+            swag_device, _ = _get_swag_config()
             
             # Handle special template requests
             if service_name == "subdomain-template":
@@ -87,23 +134,23 @@ async def get_proxy_config_resource(uri: str) -> dict[str, Any]:
         
         # Pattern 2: swag://configs - Directory listing of all active configs
         elif device == 'configs' and not path:
-            swag_device = "squirts"
-            config_dir = query_params.get('dir', ['/mnt/appdata/swag/nginx/proxy-confs'])[0]
+            swag_device, default_config_dir = _get_swag_config()
+            config_dir = query_params.get('dir', [default_config_dir])[0]
             return await _get_directory_listing_resource(swag_device, config_dir)
         
         # Pattern 3: swag://summary - Summary statistics  
         elif device == 'summary' and not path:
-            swag_device = "squirts"
+            swag_device, _ = _get_swag_config()
             return await _get_proxy_summary_resource(swag_device)
         
         # Pattern 4: swag://samples/filename
         elif device == 'samples' and path:
-            swag_device = "squirts"
+            swag_device, _ = _get_swag_config()
             return await _get_sample_resource(swag_device, path, format_type, include_parsed)
         
         # Pattern 5: swag://samples (directory listing of samples)
         elif device == 'samples' and not path:
-            swag_device = "squirts"
+            swag_device, _ = _get_swag_config()
             return await _get_samples_directory_resource(swag_device)
         
         else:
@@ -129,7 +176,8 @@ async def _get_template_resource(
     
     try:
         # SWAG template files are in the same directory as configs
-        template_path = f"/mnt/appdata/swag/nginx/proxy-confs/{template_filename}"
+        _, config_dir = _get_swag_config()
+        template_path = f"{config_dir}/{template_filename}"
         
         # Get real-time file info and content
         file_info = await _get_real_time_file_info(device, template_path)
@@ -174,34 +222,10 @@ async def _get_template_resource(
             'format': format_type
         }
         
-        # Format content based on requested format
-        if format_type == 'raw':
-            resource_data['content'] = content
-            resource_data['mime_type'] = 'text/plain'
-            
-        elif format_type == 'json':
-            if include_parsed:
-                parser = NginxConfigParser()
-                parsed_config = parser.parse_config_content(content, template_path)
-                resource_data['parsed_config'] = parsed_config
-            
-            resource_data['raw_content'] = content
-            resource_data['mime_type'] = 'application/json'
-            
-        elif format_type == 'yaml':
-            if include_parsed:
-                parser = NginxConfigParser()
-                parsed_config = parser.parse_config_content(content, template_path)
-                resource_data['parsed_config'] = parsed_config
-            
-            resource_data['raw_content'] = content
-            resource_data['mime_type'] = 'application/yaml'
-        
-        # Always include parsed config if requested
-        if include_parsed and format_type == 'raw':
-            parser = NginxConfigParser()
-            parsed_config = parser.parse_config_content(content, template_path)
-            resource_data['parsed_config'] = parsed_config
+        # Format content using helper function
+        resource_data = await _format_resource_content(
+            content, template_path, format_type, include_parsed, resource_data
+        )
         
         return resource_data
         
@@ -226,8 +250,9 @@ async def _get_sample_resource(
     
     try:
         # If full filename provided, use it directly
+        _, config_dir = _get_swag_config()
         if sample_filename.endswith('.sample'):
-            sample_path = f"/mnt/appdata/swag/nginx/proxy-confs/{sample_filename}"
+            sample_path = f"{config_dir}/{sample_filename}"
             file_info = await _get_real_time_file_info(device, sample_path)
         else:
             # Service name provided - find best matching sample file
@@ -243,7 +268,7 @@ async def _get_sample_resource(
             actual_filename = None
             
             for pattern in search_patterns[:2]:  # Try exact patterns first
-                test_path = f"/mnt/appdata/swag/nginx/proxy-confs/{pattern}"
+                test_path = f"{config_dir}/{pattern}"
                 test_info = await _get_real_time_file_info(device, test_path)
                 if test_info.get('exists', False):
                     sample_path = test_path
@@ -258,9 +283,8 @@ async def _get_sample_resource(
                     raise ValueError(f"Invalid sample filename: {sample_filename}")
                 
                 ls_command = f"""
-                find /mnt/appdata/swag/nginx/proxy-confs -name '{sample_filename}.*.conf.sample' -type f | head -1
+                find {config_dir} -name '{sample_filename}.*.conf.sample' -type f | head -1
                 """
-                from apps.backend.src.utils.ssh_client import execute_ssh_command_simple
                 result = await execute_ssh_command_simple(device, ls_command, timeout=10)
                 output = result.stdout
                 
@@ -338,34 +362,10 @@ async def _get_sample_resource(
             'format': format_type
         }
         
-        # Format content based on requested format
-        if format_type == 'raw':
-            resource_data['content'] = content
-            resource_data['mime_type'] = 'text/plain'
-            
-        elif format_type == 'json':
-            if include_parsed:
-                parser = NginxConfigParser()
-                parsed_config = parser.parse_config_content(content, sample_path)
-                resource_data['parsed_config'] = parsed_config
-            
-            resource_data['raw_content'] = content
-            resource_data['mime_type'] = 'application/json'
-            
-        elif format_type == 'yaml':
-            if include_parsed:
-                parser = NginxConfigParser()
-                parsed_config = parser.parse_config_content(content, sample_path)
-                resource_data['parsed_config'] = parsed_config
-            
-            resource_data['raw_content'] = content
-            resource_data['mime_type'] = 'application/yaml'
-        
-        # Always include parsed config if requested
-        if include_parsed and format_type == 'raw':
-            parser = NginxConfigParser()
-            parsed_config = parser.parse_config_content(content, sample_path)
-            resource_data['parsed_config'] = parsed_config
+        # Format content using helper function
+        resource_data = await _format_resource_content(
+            content, sample_path, format_type, include_parsed, resource_data
+        )
         
         return resource_data
         
@@ -385,8 +385,9 @@ async def _get_samples_directory_resource(device: str) -> dict[str, Any]:
     
     try:
         # Execute directory listing for sample files only
-        ls_command = """
-        find /mnt/appdata/swag/nginx/proxy-confs -name '*.sample' -type f -exec stat -c '%n|%s|%Y|%A' {} \\; 2>/dev/null | sort
+        _, config_dir = _get_swag_config()
+        ls_command = f"""
+        find {config_dir} -name '*.sample' -type f -exec stat -c '%n|%s|%Y|%A' {{}} \\; 2>/dev/null | sort
         """
         
         result = await execute_ssh_command_simple(device, ls_command, timeout=30)
@@ -440,7 +441,7 @@ async def _get_samples_directory_resource(device: str) -> dict[str, Any]:
         return {
             'uri': 'swag://samples/',
             'device': device,
-            'samples_directory': '/mnt/appdata/swag/nginx/proxy-confs',
+            'samples_directory': config_dir,
             'total_samples': len(samples),
             'samples': samples,
             'timestamp': datetime.now(timezone.utc).isoformat(),
@@ -467,7 +468,7 @@ async def _get_service_config_resource(
     """Get service configuration with automatic device discovery and real-time content"""
     
     try:
-        # Get database record if it exists (device is always "squirts" for SWAG configs)
+        # Get database record if it exists
         async with get_async_session() as session:
             query = select(ProxyConfig).where(ProxyConfig.service_name == service_name)
             result = await session.execute(query)
@@ -478,14 +479,16 @@ async def _get_service_config_resource(
                 file_path = config.file_path
             else:
                 # Construct path based on SWAG convention: service.subdomain.conf
-                file_path = f"/mnt/appdata/swag/nginx/proxy-confs/{service_name}.subdomain.conf"
+                _, config_dir = _get_swag_config()
+                file_path = f"{config_dir}/{service_name}.subdomain.conf"
         
         # Get real-time file info and content
         file_info = await _get_real_time_file_info(device, file_path)
         
         if not file_info.get('exists', False):
             # Try SWAG subfolder pattern if subdomain pattern doesn't exist
-            subfolder_path = f"/mnt/appdata/swag/nginx/proxy-confs/{service_name}.subfolder.conf"
+            _, config_dir = _get_swag_config()
+            subfolder_path = f"{config_dir}/{service_name}.subfolder.conf"
             subfolder_info = await _get_real_time_file_info(device, subfolder_path)
             
             if subfolder_info.get('exists', False):
@@ -497,8 +500,8 @@ async def _get_service_config_resource(
                     'service_name': service_name,
                     'device': device,
                     'searched_paths': [
-                        f"/mnt/appdata/swag/nginx/proxy-confs/{service_name}.subdomain.conf",
-                        f"/mnt/appdata/swag/nginx/proxy-confs/{service_name}.subfolder.conf"
+                        f"{config_dir}/{service_name}.subdomain.conf",
+                        f"{config_dir}/{service_name}.subfolder.conf"
                     ],
                     'timestamp': datetime.now(timezone.utc).isoformat(),
                     'resource_type': 'service_not_found'
@@ -551,34 +554,10 @@ async def _get_service_config_resource(
                 'sync_last_checked': config.sync_last_checked.isoformat() if config.sync_last_checked else None
             }
         
-        # Format content based on requested format
-        if format_type == 'raw':
-            resource_data['content'] = content
-            resource_data['mime_type'] = 'text/plain'
-            
-        elif format_type == 'json':
-            if include_parsed:
-                parser = NginxConfigParser()
-                parsed_config = parser.parse_config_content(content, file_path)
-                resource_data['parsed_config'] = parsed_config
-            
-            resource_data['raw_content'] = content
-            resource_data['mime_type'] = 'application/json'
-            
-        elif format_type == 'yaml':
-            if include_parsed:
-                parser = NginxConfigParser()
-                parsed_config = parser.parse_config_content(content, file_path)
-                resource_data['parsed_config'] = parsed_config
-            
-            resource_data['raw_content'] = content
-            resource_data['mime_type'] = 'application/yaml'
-        
-        # Always include parsed config if requested
-        if include_parsed and format_type == 'raw':
-            parser = NginxConfigParser()
-            parsed_config = parser.parse_config_content(content, file_path)
-            resource_data['parsed_config'] = parsed_config
+        # Format content using helper function
+        resource_data = await _format_resource_content(
+            content, file_path, format_type, include_parsed, resource_data
+        )
         
         return resource_data
         
@@ -603,7 +582,8 @@ async def _get_direct_file_resource(
     
     # Ensure absolute path
     if not file_path.startswith('/'):
-        file_path = f'/mnt/appdata/swag/nginx/proxy-confs/{file_path}'
+        _, config_dir = _get_swag_config()
+        file_path = f'{config_dir}/{file_path}'
     
     # Get file info and content
     file_info = await _get_real_time_file_info(device, file_path)
@@ -653,34 +633,10 @@ async def _get_direct_file_resource(
         'format': format_type
     }
     
-    # Format content based on requested format
-    if format_type == 'raw':
-        resource_data['content'] = content
-        resource_data['mime_type'] = 'text/plain'
-        
-    elif format_type == 'json':
-        if include_parsed:
-            parser = NginxConfigParser()
-            parsed_config = parser.parse_config_content(content, file_path)
-            resource_data['parsed_config'] = parsed_config
-        
-        resource_data['raw_content'] = content
-        resource_data['mime_type'] = 'application/json'
-        
-    elif format_type == 'yaml':
-        if include_parsed:
-            parser = NginxConfigParser()
-            parsed_config = parser.parse_config_content(content, file_path)
-            resource_data['parsed_config'] = parsed_config
-        
-        resource_data['raw_content'] = content
-        resource_data['mime_type'] = 'application/yaml'
-    
-    # Always include parsed config if requested
-    if include_parsed and format_type == 'raw':
-        parser = NginxConfigParser()
-        parsed_config = parser.parse_config_content(content, file_path)
-        resource_data['parsed_config'] = parsed_config
+    # Format content using helper function
+    resource_data = await _format_resource_content(
+        content, file_path, format_type, include_parsed, resource_data
+    )
     
     return resource_data
 
@@ -854,8 +810,9 @@ async def _get_proxy_summary_resource(device: str) -> dict[str, Any]:
     
     try:
         # Get directory listing
+        _, config_dir = _get_swag_config()
         directory_resource = await _get_directory_listing_resource(
-            device, '/mnt/appdata/swag/nginx/proxy-confs'
+            device, config_dir
         )
         
         if 'files' not in directory_resource:
@@ -983,7 +940,7 @@ async def list_proxy_config_resources(device: str | None = None) -> list[dict[st
         
         # Add individual sample file resources by discovering them
         try:
-            swag_device = "squirts"
+            swag_device, _ = _get_swag_config()
             samples_data = await _get_samples_directory_resource(swag_device)
             if 'samples' in samples_data:
                 for sample in samples_data['samples']:
@@ -998,13 +955,12 @@ async def list_proxy_config_resources(device: str | None = None) -> list[dict[st
         
         # Add individual active service configuration resources by discovering them
         try:
-            swag_device = "squirts"
+            swag_device, config_dir = _get_swag_config()
             # Discover all active .subdomain.conf and .subfolder.conf files
-            ls_command = """
-            find /mnt/appdata/swag/nginx/proxy-confs -name '*.subdomain.conf' -o -name '*.subfolder.conf' | grep -v '\\.sample$' | sort
+            ls_command = f"""
+            find {config_dir} -name '*.subdomain.conf' -o -name '*.subfolder.conf' | grep -v '\\.sample$' | sort
             """
             
-            from apps.backend.src.utils.ssh_client import execute_ssh_command_simple
             result = await execute_ssh_command_simple(swag_device, ls_command, timeout=30)
             output = result.stdout
             

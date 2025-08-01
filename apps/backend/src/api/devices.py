@@ -29,7 +29,6 @@ from apps.backend.src.schemas.common import OperationResult, PaginationParams, D
 from ..services.device_service import DeviceService
 from apps.backend.src.api.common import get_current_user
 from apps.backend.src.mcp.tools.system_monitoring import get_drive_health, get_system_logs, get_drive_stats
-from apps.backend.src.mcp.tools.device_info import get_device_info
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -180,15 +179,12 @@ async def get_device_metrics_by_hostname(
     current_user=Depends(get_current_user)
 ):
     """Get comprehensive system performance metrics from a device"""
-    try:
-        return await get_system_info(hostname, include_processes, timeout)
-    except SSHCommandError as e:
-        raise HTTPException(status_code=500, detail=str(e)) from e
-    except SSHConnectionError as e:
-        raise HTTPException(status_code=503, detail=str(e)) from e
-    except Exception as e:
-        logger.error(f"Error getting device metrics for {hostname}: {e}")
-        raise HTTPException(status_code=500, detail="Failed to get device metrics.") from e
+    # TODO: This endpoint needs to be updated to use the new granular monitoring functions
+    # or removed if deprecated. The get_device_info function is no longer available.
+    raise HTTPException(
+        status_code=501, 
+        detail="This endpoint is temporarily unavailable during refactoring. Use specific endpoints like /drives, /logs, etc."
+    )
 
 
 @router.get("/{hostname}/drives")

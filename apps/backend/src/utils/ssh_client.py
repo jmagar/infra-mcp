@@ -24,7 +24,7 @@ from apps.backend.src.core.config import get_settings
 logger = logging.getLogger(__name__)
 
 
-@dataclass
+@dataclass(frozen=True)
 class SSHConnectionInfo:
     """SSH connection configuration for a device"""
     host: str
@@ -136,6 +136,10 @@ class SSHConnectionPool:
     
     async def _create_connection(self, connection_info: SSHConnectionInfo) -> SSHClientConnection:
         """Create a new SSH connection using system SSH configuration"""
+        # Ensure host is a string
+        if not isinstance(connection_info.host, str):
+            raise TypeError(f"Host must be a string, got {type(connection_info.host)}: {connection_info.host}")
+            
         connect_kwargs = {
             "host": connection_info.host,
             "connect_timeout": connection_info.connect_timeout,
@@ -147,6 +151,7 @@ class SSHConnectionPool:
         # This allows ~/.ssh/config to handle username, port, keys, etc.
         
         try:
+            logger.debug(f"Attempting SSH connection with kwargs: {connect_kwargs}")
             connection = await asyncssh.connect(**connect_kwargs)
             logger.debug(f"Created SSH connection to {connection_info.host}")
             return connection
@@ -712,6 +717,10 @@ async def execute_ssh_command_simple(hostname: str, command: str, timeout: int =
     Returns:
         SSHExecutionResult: Command execution result
     """
+    # Ensure hostname is a string
+    if not isinstance(hostname, str):
+        raise TypeError(f"Hostname must be a string, got {type(hostname)}: {hostname}")
+        
     connection_info = SSHConnectionInfo(
         host=hostname,
         command_timeout=timeout

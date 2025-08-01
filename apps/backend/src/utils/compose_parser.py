@@ -7,10 +7,8 @@ similar to the nginx_parser.py for SWAG configurations.
 
 import logging
 import hashlib
-import re
-from pathlib import Path
-from typing import Dict, List, Optional, Any, Union
-from datetime import datetime, timezone
+from typing import Any, Dict, List
+from datetime import datetime
 
 import yaml
 
@@ -97,7 +95,7 @@ class DockerComposeParser:
                     'total_volumes': len(volumes),
                     'total_secrets': len(secrets),
                     'total_configs': len(configs),
-                    'parsed_at': datetime.now(timezone.utc).isoformat(),
+                    'parsed_at': datetime.now(datetime.UTC).isoformat(),
                     'compose_version': version
                 }
             }
@@ -260,7 +258,7 @@ class DockerComposeParser:
         
         return extracted
     
-    def _extract_environment(self, environment: Union[Dict, List]) -> Dict[str, str]:
+    def _extract_environment(self, environment: dict | list) -> dict[str, str]:
         """Extract and normalize environment variables"""
         if isinstance(environment, dict):
             return environment
@@ -334,7 +332,7 @@ class DockerComposeParser:
         except yaml.YAMLError:
             return []
     
-    def get_service_image(self, content: str, service_name: str) -> Optional[str]:
+    def get_service_image(self, content: str, service_name: str) -> str | None:
         """Get the image for a specific service"""
         try:
             parsed = yaml.safe_load(content)

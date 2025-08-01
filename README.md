@@ -1,4 +1,4 @@
-#  Infrastructor 🏗️
+# Infrastructor 🏗️
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![Python Version](https://img.shields.io/badge/python-3.11+-blue.svg)](https://www.python.org/downloads/)
@@ -11,9 +11,10 @@
 
 ## ✨ Features
 
-*   **Comprehensive Monitoring:** Keep a close eye on all aspects of your infrastructure, including system metrics, drive health, container performance, and ZFS status.
+*   **Comprehensive Monitoring:** Keep a close eye on all aspects of your infrastructure, including system metrics, drive health, container performance, and ZFS filesystem management.
 *   **Container Management:** Easily manage your Docker containers with tools for listing, inspecting, and retrieving logs.
 *   **Device Management:** Register and manage all of your infrastructure devices in a central location.
+*   **ZFS Management:** Complete ZFS filesystem management including pools, datasets, snapshots, health monitoring, and optimization recommendations.
 *   **Proxy Configuration Management:** Seamlessly manage your SWAG reverse proxy configurations.
 *   **Time-Series Database:** `infrastructor` uses TimescaleDB to store and analyze time-series data, providing powerful insights into your infrastructure's performance over time.
 *   **Dual-Interface:** Interact with your infrastructure through a powerful REST API or a flexible `fastmcp` command-line interface.
@@ -27,7 +28,7 @@
 
 This architecture ensures that all operations, whether initiated from the API or the MCP, go through the same centralized logic, providing a consistent and reliable management experience.
 
-```
+```text
 +-----------------+      +-----------------+      +-----------------+
 |                 |      |                 |      |                 |
 |   FastAPI REST  |<---->|   `fastmcp`     |<---->|   User          |
@@ -47,6 +48,7 @@ This architecture ensures that all operations, whether initiated from the API or
 ## 🚀 Getting Started
 
 1.  **Clone the repository:**
+
     ```bash
     git clone https://github.com/jmagar/infrastructor.git
     cd infrastructor
@@ -54,18 +56,22 @@ This architecture ensures that all operations, whether initiated from the API or
 2.  **Set up the environment:**
     *   Copy `.env.example` to `.env` and fill in the required values.
 3.  **Start the database:**
+
     ```bash
     docker-compose up -d
     ```
 4.  **Install the dependencies:**
+
     ```bash
     pip install -e .[dev]
     ```
 5.  **Run the database migrations:**
+
     ```bash
     alembic upgrade head
     ```
 6.  **Start the servers:**
+
     ```bash
     ./dev.sh start
     ```
@@ -132,6 +138,25 @@ The REST API provides a comprehensive set of endpoints for managing your infrast
 *   `GET /proxies/templates/{template_type}`: Get a proxy configuration template.
 *   `GET /proxies/samples`: List all proxy configuration samples.
 *   `GET /proxies/samples/{sample_name}`: Get a proxy configuration sample.
+
+### ZFS Management
+
+*   `GET /zfs/{hostname}/pools`: List all ZFS pools on a device.
+*   `GET /zfs/{hostname}/pools/{pool_name}/status`: Get detailed status for a specific ZFS pool.
+*   `GET /zfs/{hostname}/datasets`: List all ZFS datasets on a device.
+*   `GET /zfs/{hostname}/datasets/{dataset_name}/properties`: Get properties for a specific ZFS dataset.
+*   `GET /zfs/{hostname}/snapshots`: List all ZFS snapshots on a device.
+*   `POST /zfs/{hostname}/snapshots`: Create a new ZFS snapshot.
+*   `POST /zfs/{hostname}/snapshots/{snapshot_name}/clone`: Clone a ZFS snapshot.
+*   `POST /zfs/{hostname}/snapshots/{snapshot_name}/send`: Send a ZFS snapshot to another location.
+*   `POST /zfs/{hostname}/receive`: Receive a ZFS snapshot stream.
+*   `GET /zfs/{hostname}/snapshots/{snapshot_name}/diff`: Show differences between snapshots.
+*   `GET /zfs/{hostname}/health`: Get comprehensive ZFS health status.
+*   `GET /zfs/{hostname}/arc-stats`: Get ZFS ARC (cache) statistics.
+*   `GET /zfs/{hostname}/events`: Monitor ZFS events and system messages.
+*   `GET /zfs/{hostname}/report`: Generate comprehensive ZFS system report.
+*   `GET /zfs/{hostname}/snapshots/usage`: Analyze ZFS snapshot usage patterns.
+*   `GET /zfs/{hostname}/optimize`: Get ZFS optimization recommendations.
 
 ## 🛠️ MCP Tools
 
@@ -212,6 +237,42 @@ The `fastmcp` server provides a powerful command-line interface for interacting 
 
 *   `get_device_info`: Get comprehensive device information including capabilities analysis and system metrics.
 
+## 🔗 MCP Resources
+
+The `fastmcp` server provides MCP resources for programmatic access to infrastructure data through Claude Desktop and other MCP clients.
+
+### Infrastructure Resources
+
+*   `infra://devices`: List all registered infrastructure devices.
+*   `infra://{device}/status`: Get comprehensive device status and metrics.
+
+### Docker Compose Resources
+
+*   `docker://configs`: Global listing of all Docker Compose configurations.
+*   `docker://{device}/stacks`: List all Docker Compose stacks on a device.
+*   `docker://{device}/{service}`: Get Docker Compose configuration for a service.
+
+### SWAG Proxy Resources
+
+*   `swag://configs`: List all SWAG reverse proxy configurations.
+*   `swag://{service_name}`: Get SWAG service configuration content.
+*   `swag://{device}/{path}`: Get SWAG device-specific resource content.
+
+### ZFS Resources
+
+*   `zfs://pools/{hostname}`: Get all ZFS pools for a device.
+*   `zfs://pools/{hostname}/{pool_name}`: Get specific ZFS pool status.
+*   `zfs://datasets/{hostname}`: Get all ZFS datasets for a device.
+*   `zfs://snapshots/{hostname}`: Get ZFS snapshots for a device.
+*   `zfs://health/{hostname}`: Get ZFS health status for a device.
+
+**Example Usage:**
+```
+zfs://pools/squirts
+zfs://snapshots/squirts?limit=100
+zfs://health/squirts
+```
+
 ## 🗄️ Database Schema
 
 `infrastructor` uses a TimescaleDB database to store time-series data for infrastructure monitoring. The schema is designed to be flexible and extensible, and it includes tables for:
@@ -220,14 +281,7 @@ The `fastmcp` server provides a powerful command-line interface for interacting 
 *   **`system_metrics`:** Time-series data for system-level metrics (CPU, memory, disk, etc.).
 *   **`drive_health`:** Time-series data for S.M.A.R.T. drive health.
 *   **`container_snapshots`:** Time-series data for Docker container metrics.
-*   **`zfs_status`:** Time-series data for ZFS pool and dataset status.
-*   **`zfs_snapshots`:** Tracking of ZFS snapshots.
-*   **`network_interfaces`:** Time-series data for network interface metrics.
-*   **`docker_networks`:** Tracking of Docker networks.
-*   **`backup_status`:** Tracking of backup jobs.
-*   **`system_updates`:** Tracking of system updates.
-*   **`vm_status`:** Time-series data for virtual machine metrics.
-*   **`system_logs`:** Aggregation of system logs.
+*   **`proxy_configs`:** SWAG reverse proxy configuration management.
 
 The schema also makes extensive use of TimescaleDB's features, including:
 

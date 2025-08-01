@@ -7,7 +7,7 @@ from SWAG reverse proxy setups.
 
 import re
 import logging
-from typing import Optional, Any
+from typing import Optional, Any, List
 from pathlib import Path
 import hashlib
 
@@ -138,33 +138,33 @@ class NginxConfigParser:
         for directive, pattern in self.directive_patterns.items():
             matches = pattern.findall(content)
             if matches and directive == 'server_name':
-                    # Handle multiple server names
-                    server_names = []
-                    for match in matches:
-                        names = [name.strip() for name in match.split()]
-                        server_names.extend(names)
-                    result['server_names'] = server_names
-                    result['server_name'] = server_names[0] if server_names else None
+                # Handle multiple server names
+                server_names = []
+                for match in matches:
+                    names = [name.strip() for name in match.split()]
+                    server_names.extend(names)
+                result['server_names'] = server_names
+                result['server_name'] = server_names[0] if server_names else None
                     
-                elif directive == 'listen':
-                    # Parse listen directives
-                    ports = []
-                    for match in matches:
-                        port_info = self._parse_listen_directive(match)
-                        ports.extend(port_info['ports'])
-                        if port_info.get('ssl'):
-                            result['ssl_enabled'] = True
-                    result['listen_ports'] = sorted(set(ports))
+            elif directive == 'listen':
+                # Parse listen directives
+                ports = []
+                for match in matches:
+                    port_info = self._parse_listen_directive(match)
+                    ports.extend(port_info['ports'])
+                    if port_info.get('ssl'):
+                        result['ssl_enabled'] = True
+                result['listen_ports'] = sorted(set(ports))
                     
-                elif directive in ['ssl_certificate', 'ssl_certificate_key']:
-                    result[directive] = matches[0].strip()
-                    result['ssl_enabled'] = True
+            elif directive in ['ssl_certificate', 'ssl_certificate_key']:
+                result[directive] = matches[0].strip()
+                result['ssl_enabled'] = True
                     
-                elif directive == 'proxy_pass':
-                    result['proxy_pass'] = matches[0].strip()
+            elif directive == 'proxy_pass':
+                result['proxy_pass'] = matches[0].strip()
                     
-                else:
-                    result['raw_directives'][directive] = matches
+            else:
+                result['raw_directives'][directive] = matches
     
     def _parse_listen_directive(self, listen_value: str) -> dict[str, Any]:
         """Parse a listen directive value"""
@@ -281,7 +281,7 @@ class NginxConfigParser:
         
         return upstreams
     
-    def _extract_blocks(self, content: str, block_type: str) -> List[str]:
+    def _extract_blocks(self, content: str, block_type: str) -> list[str]:
         """Extract complete blocks of a specific type"""
         blocks = []
         pattern = self.block_patterns.get(block_type)

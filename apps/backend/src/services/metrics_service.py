@@ -51,7 +51,7 @@ class MetricsService:
 
     def create_ssh_connection_info(self, device: Device) -> SSHConnectionInfo:
         return SSHConnectionInfo(
-            host=device.ip_address,
+            host=device.hostname,
             port=device.ssh_port or 22,
             username=device.ssh_username or "root"
         )

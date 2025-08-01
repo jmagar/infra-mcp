@@ -65,15 +65,15 @@ show_logs() {
                 continue
             else
                 # Format different log levels with colors
-                if [[ $line =~ "ERROR"|"Error"|"error" ]]; then
+                if [[ $line =~ (ERROR|Error|error) ]]; then
                     echo -e "\033[31m│\033[0m \033[90m$current_time\033[0m \033[1;31m$line\033[0m"
-                elif [[ $line =~ "WARNING"|"Warning"|"warning"|"WARN" ]]; then
+                elif [[ $line =~ (WARNING|Warning|warning|WARN) ]]; then
                     echo -e "\033[33m│\033[0m \033[90m$current_time\033[0m \033[1;33m$line\033[0m"
-                elif [[ $line =~ "INFO"|"Info"|"info" ]]; then
+                elif [[ $line =~ (INFO|Info|info) ]]; then
                     echo -e "\033[36m│\033[0m \033[90m$current_time\033[0m \033[36m$line\033[0m"
-                elif [[ $line =~ "DEBUG"|"Debug"|"debug" ]]; then
+                elif [[ $line =~ (DEBUG|Debug|debug) ]]; then
                     echo -e "\033[35m│\033[0m \033[90m$current_time\033[0m \033[35m$line\033[0m"
-                elif [[ $line =~ "SUCCESS"|"Success"|"success"|"✅" ]]; then
+                elif [[ $line =~ (SUCCESS|Success|success|✅) ]]; then
                     echo -e "\033[32m│\033[0m \033[90m$current_time\033[0m \033[1;32m$line\033[0m"
                 else
                     echo -e "\033[37m│\033[0m \033[90m$current_time\033[0m $line"
@@ -91,7 +91,7 @@ stop_servers() {
     API_PIDS=$(lsof -ti:$API_PORT 2>/dev/null)
     if [ -n "$API_PIDS" ]; then
         echo "🛑 Killing API server processes on port $API_PORT: $API_PIDS"
-        kill -9 "$API_PIDS"
+        echo "$API_PIDS" | xargs -r kill -9
     else
         echo "✅ No API server processes found on port $API_PORT"
     fi
@@ -100,13 +100,13 @@ stop_servers() {
     MCP_PIDS=$(lsof -ti:$MCP_PORT 2>/dev/null)
     if [ -n "$MCP_PIDS" ]; then
         echo "🛑 Killing MCP server processes on port $MCP_PORT: $MCP_PIDS"
-        kill -9 "$MCP_PIDS"
+        echo "$MCP_PIDS" | xargs -r kill -9
     else
         echo "✅ No MCP server processes found on port $MCP_PORT"
     fi
     
     # Kill any log rotation monitor processes
-    LOG_MONITOR_PIDS=$(pgrep -f "sleep 300.*rotate_logs" 2>/dev/null)
+    LOG_MONITOR_PIDS=$(pgrep -f "bash.*dev\.sh.*sleep 300" 2>/dev/null)
     if [ -n "$LOG_MONITOR_PIDS" ]; then
         echo "🔄 Stopping log rotation monitor: $LOG_MONITOR_PIDS"
         kill -9 "$LOG_MONITOR_PIDS" 2>/dev/null
@@ -119,6 +119,9 @@ start_servers() {
     echo "📍 API Server: http://localhost:$API_PORT"
     echo "📚 API Documentation: http://localhost:$API_PORT/docs"
     echo "🔧 MCP Server: http://localhost:$MCP_PORT/mcp"
+
+    # Ensure logs directory exists
+    mkdir -p logs
 
     # Rotate logs if they're getting too large
     echo "🔄 Checking log rotation..."
@@ -171,6 +174,7 @@ start_servers() {
     ) &
     LOG_MONITOR_PID=$!
     echo "🔄 Log rotation monitor started with PID: $LOG_MONITOR_PID"
+    echo "$LOG_MONITOR_PID" > logs/rotation.pid
 }
 
 # Parse command line arguments

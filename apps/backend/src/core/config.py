@@ -115,6 +115,7 @@ class SSHSettings(BaseSettings):
 class PollingSettings(BaseSettings):
     """Polling intervals and data collection settings"""
     
+    polling_enabled: bool = Field(default=False, env="POLLING_ENABLED")
     polling_container_interval: int = Field(default=30, env="POLLING_CONTAINER_INTERVAL")
     polling_system_metrics_interval: int = Field(default=300, env="POLLING_SYSTEM_METRICS_INTERVAL")
     polling_drive_health_interval: int = Field(default=3600, env="POLLING_DRIVE_HEALTH_INTERVAL")
@@ -199,6 +200,16 @@ class APISettings(BaseSettings):
     model_config = SettingsConfigDict(env_file=".env", case_sensitive=False, extra="ignore")
 
 
+class SWAGSettings(BaseSettings):
+    """SWAG reverse proxy configuration settings"""
+    
+    # SWAG device and paths
+    swag_device: str = Field(default="squirts", env="SWAG_DEVICE")
+    swag_config_dir: str = Field(default="/mnt/appdata/swag/nginx/proxy-confs", env="SWAG_CONFIG_DIR")
+    
+    model_config = SettingsConfigDict(env_file=".env", case_sensitive=False, extra="ignore")
+
+
 class ExternalIntegrationSettings(BaseSettings):
     """External service integration settings"""
     
@@ -227,6 +238,7 @@ class ApplicationSettings(BaseSettings):
     auth: AuthSettings = Field(default_factory=AuthSettings)
     logging: LoggingSettings = Field(default_factory=LoggingSettings)
     api: APISettings = Field(default_factory=APISettings)
+    swag: SWAGSettings = Field(default_factory=SWAGSettings)
     external: ExternalIntegrationSettings = Field(default_factory=ExternalIntegrationSettings)
     
     @property
