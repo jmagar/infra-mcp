@@ -26,7 +26,7 @@ from apps.backend.src.schemas.device import (
 from apps.backend.src.schemas.common import OperationResult, PaginationParams, DeviceStatus
 from ..services.device_service import DeviceService
 from apps.backend.src.api.common import get_current_user
-from apps.backend.src.mcp.tools.system_monitoring import get_system_info, get_drive_health, get_system_logs
+from apps.backend.src.mcp.tools.system_monitoring import get_system_info, get_drive_health, get_system_logs, get_drive_stats
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -134,11 +134,11 @@ async def delete_device_by_hostname(
         )
     except DeviceNotFoundError as e:
         execution_time_ms = int((time.time() - start_time) * 1000)
-        raise HTTPException(status_code=404, detail=str(e))
+        raise HTTPException(status_code=404, detail=str(e)) from e
     except Exception as e:
         execution_time_ms = int((time.time() - start_time) * 1000)
         logger.error(f"Error deleting device {hostname}: {e}")
-        raise HTTPException(status_code=500, detail="Failed to delete device.")
+        raise HTTPException(status_code=500, detail="Failed to delete device.") from e
 
 @router.get("/{hostname}/status", response_model=DeviceConnectionTest)
 async def get_device_status_by_hostname(
@@ -194,7 +194,7 @@ async def get_device_metrics_by_hostname(
 @router.get("/{hostname}/drives")
 async def get_device_drives_by_hostname(
     hostname: str = Path(..., description="Device hostname"),
-    drive: Optional[str] = Query(None, description="Filter by specific drive name"),
+    drive: str | None = Query(None, description="Filter by specific drive name"),
     timeout: int = Query(60, description="SSH timeout in seconds"),
     current_user=Depends(get_current_user)
 ):
@@ -210,11 +210,30 @@ async def get_device_drives_by_hostname(
         raise HTTPException(status_code=500, detail="Failed to get drive health.") from e
 
 
+@router.get("/{hostname}/drives/stats")
+async def get_device_drives_stats_by_hostname(
+    hostname: str = Path(..., description="Device hostname"),
+    drive: str | None = Query(None, description="Filter by specific drive name (e.g., 'sda')"),
+    timeout: int = Query(60, description="SSH timeout in seconds"),
+    current_user=Depends(get_current_user)
+):
+    """Get drive usage statistics, I/O performance, and utilization metrics"""
+    try:
+        return await get_drive_stats(hostname, drive, timeout)
+    except SSHCommandError as e:
+        raise HTTPException(status_code=500, detail=str(e)) from e
+    except SSHConnectionError as e:
+        raise HTTPException(status_code=503, detail=str(e)) from e
+    except Exception as e:
+        logger.error(f"Error getting drive stats for {hostname}: {e}")
+        raise HTTPException(status_code=500, detail="Failed to get drive stats.") from e
+
+
 @router.get("/{hostname}/logs")
 async def get_device_logs_by_hostname(
     hostname: str = Path(..., description="Device hostname"),
-    service: Optional[str] = Query(None, description="Filter by service name"),
-    since: Optional[str] = Query("1h", description="Time range (1h, 6h, 24h, 7d)"),
+    service: str | None = Query(None, description="Filter by service name"),
+    since: str | None = Query("1h", description="Time range (1h, 6h, 24h, 7d)"),
     lines: int = Query(100, ge=1, le=1000, description="Number of log lines to return"),
     timeout: int = Query(60, description="SSH timeout in seconds"),
     current_user=Depends(get_current_user)

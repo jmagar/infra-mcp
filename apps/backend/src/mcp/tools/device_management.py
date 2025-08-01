@@ -17,7 +17,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from apps.backend.src.core.database import get_async_session
 from apps.backend.src.models.device import Device
 from apps.backend.src.core.exceptions import (
-    DeviceNotFoundError, DatabaseOperationError, SSHConnectionError, ValidationError
+    DeviceNotFoundError, DatabaseOperationError, ValidationError
 )
 from apps.backend.src.schemas.device import DeviceResponse, DeviceSummary, DeviceConnectionTest
 from apps.backend.src.schemas.common import DeviceStatus, PaginationParams
@@ -142,7 +142,7 @@ async def add_device(
                 try:
                     error_data = response.json()
                     error_message = error_data.get("detail", f"HTTP {response.status_code}")
-                except Exception as json_error:
+                except Exception:
                     error_message = f"HTTP {response.status_code}: {response.text}"
                 
                 raise DatabaseOperationError(

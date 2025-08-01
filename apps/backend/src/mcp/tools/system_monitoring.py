@@ -567,27 +567,6 @@ async def get_drive_health(
                         drive_info["errors"].append(f"S.M.A.R.T. query failed: {str(e)}")
                         logger.warning(f"S.M.A.R.T. query failed for {drive_path}: {e}")
                 
-                # Get filesystem information
-                try:
-                    fs_result = await ssh_client.execute_command(
-                        connection_info,
-                        f"lsblk {drive_path} -o FSTYPE,MOUNTPOINT -n",
-                        timeout=10
-                    )
-                    if fs_result.return_code == 0:
-                        fs_lines = fs_result.stdout.strip().split('\n')
-                        filesystems = []
-                        for fs_line in fs_lines:
-                            fs_parts = fs_line.split(None, 1)
-                            if len(fs_parts) >= 1 and fs_parts[0]:
-                                fs_info = {"type": fs_parts[0]}
-                                if len(fs_parts) >= 2:
-                                    fs_info["mount_point"] = fs_parts[1]
-                                filesystems.append(fs_info)
-                        drive_info["filesystems"] = filesystems
-                        
-                except Exception as e:
-                    drive_info["errors"].append(f"Filesystem info failed: {str(e)}")
                 
             except Exception as e:
                 drive_info["errors"].append(f"Drive check failed: {str(e)}")
@@ -983,6 +962,286 @@ async def get_system_logs(
         )
 
 
+async def get_drive_stats(
+    device: str,
+    drive: str | None = None,
+    timeout: int = 60
+) -> Dict[str, Any]:
+    """
+    Get drive usage statistics, I/O performance, and utilization metrics.
+    
+    This tool focuses on drive performance and usage data including I/O statistics,
+    throughput, utilization percentages, queue depths, and filesystem usage.
+    This is separate from drive health monitoring (S.M.A.R.T. data).
+    
+    Args:
+        device: Device hostname or IP address
+        drive: Specific drive to check (e.g., 'sda') or None for all drives
+        timeout: Command timeout in seconds (default: 60)
+        
+    Returns:
+        Dict containing:
+        - drives: List of drive usage and performance statistics
+        - filesystem_usage: Filesystem usage statistics for mounted drives
+        - io_performance: I/O performance metrics
+        - summary: Overall drive usage summary
+        - device_info: Device connection information
+        - timestamp: Collection timestamp
+        
+    Raises:
+        DeviceNotFoundError: If device cannot be reached
+        SystemMonitoringError: If drive stats collection fails
+        SSHConnectionError: If SSH connection fails
+    """
+    logger.info(f"Collecting drive usage statistics from device: {device}")
+    
+    try:
+        # Create SSH connection info
+        connection_info = SSHConnectionInfo(
+            host=device,
+            command_timeout=timeout
+        )
+        
+        # Get SSH client
+        ssh_client = get_ssh_client()
+        
+        drives_stats = []
+        filesystem_usage = []
+        
+        if drive:
+            # Check specific drive
+            drives_to_check = [drive]
+        else:
+            # Find all available drives
+            drives_to_check = []
+            
+            # List block devices (exclude loop devices)
+            lsblk_result = await ssh_client.execute_command(
+                connection_info,
+                "lsblk -d -n -o NAME,TYPE | grep disk",
+                timeout=15
+            )
+            if lsblk_result.return_code == 0:
+                for line in lsblk_result.stdout.strip().split('\n'):
+                    if line.strip():
+                        parts = line.split()
+                        if len(parts) >= 2 and parts[1] == 'disk':
+                            drives_to_check.append(parts[0])
+        
+        # Collect I/O statistics from /proc/diskstats
+        try:
+            diskstats_result = await ssh_client.execute_command(
+                connection_info,
+                "cat /proc/diskstats",
+                timeout=10
+            )
+            diskstats_data = {}
+            if diskstats_result.return_code == 0:
+                for line in diskstats_result.stdout.strip().split('\n'):
+                    parts = line.split()
+                    if len(parts) >= 14:
+                        device_name = parts[2]
+                        # Skip loop and partition devices for main stats
+                        if not device_name.startswith('loop') and not any(device_name.endswith(str(i)) for i in range(10)):
+                            diskstats_data[device_name] = {
+                                "reads_completed": int(parts[3]),
+                                "reads_merged": int(parts[4]),
+                                "sectors_read": int(parts[5]),
+                                "time_reading_ms": int(parts[6]),
+                                "writes_completed": int(parts[7]),
+                                "writes_merged": int(parts[8]),
+                                "sectors_written": int(parts[9]),
+                                "time_writing_ms": int(parts[10]),
+                                "io_in_progress": int(parts[11]),
+                                "time_io_ms": int(parts[12]),
+                                "weighted_time_io_ms": int(parts[13])
+                            }
+        except Exception as e:
+            logger.warning(f"Failed to collect diskstats: {e}")
+            diskstats_data = {}
+        
+        # Check each drive for usage statistics
+        for drive_name in drives_to_check:
+            drive_path = f"/dev/{drive_name}"
+            drive_stats = {
+                "device": drive_name,
+                "device_path": drive_path,
+                "io_stats": {},
+                "utilization": {},
+                "errors": []
+            }
+            
+            try:
+                # Get basic drive information
+                drive_info_result = await ssh_client.execute_command(
+                    connection_info,
+                    f"lsblk {drive_path} -o NAME,SIZE,TYPE,MOUNTPOINT -n",
+                    timeout=10
+                )
+                if drive_info_result.return_code == 0:
+                    lines = drive_info_result.stdout.strip().split('\n')
+                    if lines:
+                        info_parts = lines[0].split(None, 3)
+                        if len(info_parts) >= 2:
+                            drive_stats["size"] = info_parts[1]
+                            drive_stats["type"] = info_parts[2] if len(info_parts) >= 3 else "disk"
+                
+                # Add I/O statistics from diskstats
+                if drive_name in diskstats_data:
+                    io_data = diskstats_data[drive_name]
+                    drive_stats["io_stats"] = {
+                        "reads_completed": io_data["reads_completed"],
+                        "reads_merged": io_data["reads_merged"],
+                        "sectors_read": io_data["sectors_read"],
+                        "kb_read": io_data["sectors_read"] * 512 // 1024,  # Convert sectors to KB
+                        "time_reading_ms": io_data["time_reading_ms"],
+                        "writes_completed": io_data["writes_completed"],
+                        "writes_merged": io_data["writes_merged"],
+                        "sectors_written": io_data["sectors_written"],
+                        "kb_written": io_data["sectors_written"] * 512 // 1024,  # Convert sectors to KB
+                        "time_writing_ms": io_data["time_writing_ms"],
+                        "io_in_progress": io_data["io_in_progress"],
+                        "time_io_ms": io_data["time_io_ms"],
+                        "weighted_time_io_ms": io_data["weighted_time_io_ms"]
+                    }
+                    
+                    # Calculate utilization percentages (simplified)
+                    total_io_time = io_data["time_io_ms"]
+                    if total_io_time > 0:
+                        read_percentage = (io_data["time_reading_ms"] / total_io_time) * 100
+                        write_percentage = (io_data["time_writing_ms"] / total_io_time) * 100
+                        drive_stats["utilization"] = {
+                            "read_percentage": round(read_percentage, 2),
+                            "write_percentage": round(write_percentage, 2),
+                            "total_io_time_ms": total_io_time,
+                            "average_queue_size": round(io_data["weighted_time_io_ms"] / max(total_io_time, 1), 2)
+                        }
+                
+                # Get iostat-style current performance if available
+                try:
+                    iostat_result = await ssh_client.execute_command(
+                        connection_info,
+                        f"iostat -x {drive_name} 1 2 | tail -1",
+                        timeout=15
+                    )
+                    if iostat_result.return_code == 0 and iostat_result.stdout.strip():
+                        iostat_line = iostat_result.stdout.strip()
+                        iostat_parts = iostat_line.split()
+                        if len(iostat_parts) >= 10:
+                            drive_stats["current_performance"] = {
+                                "utilization_percent": float(iostat_parts[-1]) if iostat_parts[-1] != '-' else 0.0,
+                                "avg_queue_size": float(iostat_parts[-2]) if iostat_parts[-2] != '-' else 0.0,
+                                "await_ms": float(iostat_parts[-3]) if iostat_parts[-3] != '-' else 0.0,
+                                "r_await_ms": float(iostat_parts[-5]) if iostat_parts[-5] != '-' else 0.0,
+                                "w_await_ms": float(iostat_parts[-4]) if iostat_parts[-4] != '-' else 0.0
+                            }
+                except Exception as e:
+                    # iostat might not be available, that's okay
+                    logger.debug(f"iostat not available for {drive_name}: {e}")
+                
+            except Exception as e:
+                drive_stats["errors"].append(f"Stats collection failed: {str(e)}")
+                logger.warning(f"Drive stats collection failed for {drive_path}: {e}")
+            
+            drives_stats.append(drive_stats)
+        
+        # Get filesystem usage for mounted drives
+        try:
+            df_result = await ssh_client.execute_command(
+                connection_info,
+                "df -h --output=source,size,used,avail,pcent,target | grep -E '^/dev/'",
+                timeout=15
+            )
+            if df_result.return_code == 0:
+                for line in df_result.stdout.strip().split('\n'):
+                    if line.strip():
+                        parts = line.split()
+                        if len(parts) >= 6:
+                            fs_stats = {
+                                "device": parts[0],
+                                "size": parts[1],
+                                "used": parts[2],
+                                "available": parts[3],
+                                "usage_percent": int(parts[4].rstrip('%')),
+                                "mount_point": parts[5]
+                            }
+                            
+                            # Get inode usage
+                            try:
+                                inode_result = await ssh_client.execute_command(
+                                    connection_info,
+                                    f"df -i {parts[5]} | tail -1",
+                                    timeout=5
+                                )
+                                if inode_result.return_code == 0:
+                                    inode_parts = inode_result.stdout.strip().split()
+                                    if len(inode_parts) >= 5:
+                                        fs_stats["inodes_total"] = int(inode_parts[1]) if inode_parts[1] != '-' else 0
+                                        fs_stats["inodes_used"] = int(inode_parts[2]) if inode_parts[2] != '-' else 0
+                                        fs_stats["inodes_available"] = int(inode_parts[3]) if inode_parts[3] != '-' else 0
+                                        fs_stats["inodes_usage_percent"] = int(inode_parts[4].rstrip('%')) if inode_parts[4] != '-' else 0
+                            except Exception as e:
+                                logger.debug(f"Failed to get inode stats for {parts[5]}: {e}")
+                            
+                            filesystem_usage.append(fs_stats)
+        except Exception as e:
+            logger.warning(f"Failed to collect filesystem usage: {e}")
+        
+        # Generate summary statistics
+        total_drives = len(drives_stats)
+        total_reads = sum(d.get("io_stats", {}).get("reads_completed", 0) for d in drives_stats)
+        total_writes = sum(d.get("io_stats", {}).get("writes_completed", 0) for d in drives_stats)
+        total_kb_read = sum(d.get("io_stats", {}).get("kb_read", 0) for d in drives_stats)
+        total_kb_written = sum(d.get("io_stats", {}).get("kb_written", 0) for d in drives_stats)
+        
+        # Calculate average utilization
+        utilizations = [d.get("current_performance", {}).get("utilization_percent", 0) for d in drives_stats]
+        avg_utilization = sum(utilizations) / len(utilizations) if utilizations else 0
+        
+        summary = {
+            "total_drives": total_drives,
+            "total_filesystems": len(filesystem_usage),
+            "total_reads_completed": total_reads,
+            "total_writes_completed": total_writes,
+            "total_kb_read": total_kb_read,
+            "total_kb_written": total_kb_written,
+            "average_utilization_percent": round(avg_utilization, 2),
+            "high_utilization_drives": len([u for u in utilizations if u > 80])
+        }
+        
+        # Prepare response
+        response = {
+            "drives": drives_stats,
+            "filesystem_usage": filesystem_usage,
+            "summary": summary,
+            "device_info": {
+                "hostname": device,
+                "connection_successful": True
+            },
+            "query_info": {
+                "specific_drive": drive,
+                "drives_checked": len(drives_to_check),
+                "timestamp": datetime.now(timezone.utc).isoformat()
+            }
+        }
+        
+        logger.info(
+            f"Collected drive stats from {device}: {total_drives} drives, "
+            f"{total_reads + total_writes} total I/O operations"
+        )
+        
+        return response
+        
+    except Exception as e:
+        logger.error(f"Error collecting drive stats from {device}: {e}")
+        raise SystemMonitoringError(
+            message=f"Failed to collect drive stats: {str(e)}",
+            device=device,
+            operation="get_drive_stats",
+            details={"error": str(e), "drive": drive}
+        )
+
+
 # Tool registration metadata for MCP server
 SYSTEM_MONITORING_TOOLS = {
     "get_system_info": {
@@ -1074,5 +1333,31 @@ SYSTEM_MONITORING_TOOLS = {
             "required": ["device"]
         },
         "function": get_system_logs
+    },
+    "get_drive_stats": {
+        "name": "get_drive_stats",
+        "description": "Get drive usage statistics, I/O performance, and utilization metrics",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "device": {
+                    "type": "string",
+                    "description": "Device hostname or IP address"
+                },
+                "drive": {
+                    "type": "string",
+                    "description": "Specific drive to check (e.g., 'sda') or omit for all drives"
+                },
+                "timeout": {
+                    "type": "integer",
+                    "description": "Command timeout in seconds",
+                    "default": 60,
+                    "minimum": 10,
+                    "maximum": 300
+                }
+            },
+            "required": ["device"]
+        },
+        "function": get_drive_stats
     }
 }

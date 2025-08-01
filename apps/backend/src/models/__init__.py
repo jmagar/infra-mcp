@@ -8,6 +8,7 @@ from .device import Device
 from .metrics import SystemMetric, DriveHealth
 from .container import ContainerSnapshot
 from .user import User, UserSession, UserAPIKey, UserAuditLog
+from .proxy_config import ProxyConfig, ProxyConfigChange, ProxyConfigTemplate, ProxyConfigValidation
 
 __all__ = [
     "Device",
@@ -17,5 +18,9 @@ __all__ = [
     "User",
     "UserSession",
     "UserAPIKey", 
-    "UserAuditLog"
+    "UserAuditLog",
+    "ProxyConfig",
+    "ProxyConfigChange",
+    "ProxyConfigTemplate",
+    "ProxyConfigValidation"
 ]

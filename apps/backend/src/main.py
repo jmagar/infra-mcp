@@ -76,14 +76,12 @@ async def lifespan(app: FastAPI):
         await init_database()
         logger.info("Database initialized successfully")
         
-        # Initialize and start polling service
-        # Create a dedicated session for the polling service
-        from apps.backend.src.core.database import get_async_session
-        async for db_session in get_async_session():
-            polling_service = PollingService(db_session)
-            await polling_service.start_polling()
-            logger.info("Polling service started successfully")
-            break
+        # TODO: Temporarily disable polling service due to database session management issues
+        # This will be re-enabled after refactoring the PollingService to properly manage sessions
+        # polling_service = PollingService()
+        # app.state.polling_service = polling_service
+        # await polling_service.start_polling()
+        logger.info("Polling service temporarily disabled during refactoring")
         
         # Log configuration
         logger.info(f"Environment: {settings.environment}")

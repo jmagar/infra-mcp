@@ -25,12 +25,12 @@ from apps.backend.src.core.exceptions import (
 logger = logging.getLogger(__name__)
 
 class PollingService:
-    def __init__(self, db_session: AsyncSession):
-        self.db = db_session
+    def __init__(self):
         self.ssh_client = get_ssh_client()
         self.settings = get_settings()
         self.polling_tasks: Dict[UUID, asyncio.Task] = {}
         self.is_running = False
+        self.db = None  # Will be initialized in start_polling
         # Set polling interval - default to 5 minutes if not configured
         if hasattr(self.settings, 'polling') and hasattr(self.settings.polling, 'poll_interval_seconds'):
             self.poll_interval = self.settings.polling.poll_interval_seconds
@@ -46,7 +46,11 @@ class PollingService:
         self.is_running = True
         logger.info("Starting device polling service")
         
-        # Start polling loop
+        # Create database session factory for this service
+        from apps.backend.src.core.database import get_async_session_factory
+        self.session_factory = get_async_session_factory()
+        
+        # Start polling loop - it will manage its own database sessions
         asyncio.create_task(self._polling_loop())
 
     async def stop_polling(self) -> None:
@@ -87,15 +91,16 @@ class PollingService:
 
     async def _get_devices_to_poll(self) -> List[Device]:
         """Get all devices that should be actively polled"""
-        query = select(Device).where(
-            and_(
-                Device.monitoring_enabled == True,
-                Device.status.in_(["online", "unknown"])  # Don't poll offline devices
+        async with self.session_factory() as db:
+            query = select(Device).where(
+                and_(
+                    Device.monitoring_enabled == True,
+                    Device.status.in_(["online", "unknown"])  # Don't poll offline devices
+                )
             )
-        )
-        
-        result = await self.db.execute(query)
-        return result.scalars().all()
+            
+            result = await db.execute(query)
+            return result.scalars().all()
 
     async def _manage_polling_tasks(self, devices: List[Device]) -> None:
         """Start/stop polling tasks based on current devices"""
