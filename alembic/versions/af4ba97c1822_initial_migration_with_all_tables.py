@@ -119,7 +119,7 @@ def upgrade() -> None:
         sa.Column('airflow_temperature', sa.Integer(), nullable=True),
         sa.Column('g_sense_error_rate', sa.Integer(), nullable=True),
         sa.Column('head_flying_hours', sa.BigInteger(), nullable=True),
-        sa.Column('smart_attributes', postgresql.JSONB(astext_type=sa.Text()), nullable=True, default=sa.func.jsonb('{}' :: sa.text())),
+        sa.Column('smart_attributes', postgresql.JSONB(astext_type=sa.Text()), nullable=True, default=sa.func.jsonb('{}')),
         sa.ForeignKeyConstraint(['device_id'], ['devices.id'], ondelete='CASCADE'),
         sa.PrimaryKeyConstraint('time', 'device_id', 'drive_name')
     )

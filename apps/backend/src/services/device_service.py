@@ -21,7 +21,7 @@ from apps.backend.src.schemas.device import (
     DeviceSummary, DeviceHealth, DeviceConnectionTest, DeviceMetricsOverview
 )
 from apps.backend.src.schemas.common import OperationResult, PaginationParams, DeviceStatus
-from apps.backend.src.utils.ssh_client import get_ssh_client, SSHConnectionInfo, test_ssh_connectivity
+from apps.backend.src.utils.ssh_client import get_ssh_client, SSHConnectionInfo, test_ssh_connectivity_simple
 
 logger = logging.getLogger(__name__)
 
@@ -39,11 +39,8 @@ class DeviceService:
         connectivity_status = "unknown"
         if device_data.monitoring_enabled:
             try:
-                is_connected = await test_ssh_connectivity(
-                    host=device_data.ip_address,
-                    port=device_data.ssh_port,
-                    username=device_data.ssh_username
-                )
+                # Use hostname directly - SSH config will handle IP, port, username
+                is_connected = await test_ssh_connectivity_simple(device_data.hostname)
                 connectivity_status = "online" if is_connected else "offline"
             except Exception as e:
                 logger.warning(f"SSH connectivity test failed for {device_data.hostname}: {e}")
@@ -64,7 +61,7 @@ class DeviceService:
         except IntegrityError as e:
             await self.db.rollback()
             logger.error(f"Database integrity error creating device: {e}")
-            raise DatabaseOperationError(operation="create_device", details=str(e))
+            raise DatabaseOperationError(message="Failed to create device", operation="create_device", details={"error": str(e)})
         except Exception as e:
             await self.db.rollback()
             logger.error(f"Error creating device: {e}")
@@ -158,11 +155,8 @@ class DeviceService:
 
         if retest_connectivity and device.monitoring_enabled:
             try:
-                is_connected = await test_ssh_connectivity(
-                    host=device.ip_address,
-                    port=device.ssh_port,
-                    username=device.ssh_username
-                )
+                # Use hostname directly - SSH config will handle IP, port, username
+                is_connected = await test_ssh_connectivity_simple(device.hostname)
                 device.status = "online" if is_connected else "offline"
                 if is_connected:
                     device.last_seen = datetime.now(timezone.utc)
@@ -220,11 +214,8 @@ class DeviceService:
                 import time
                 start_time = time.time()
                 
-                is_connected = await test_ssh_connectivity(
-                    host=device.ip_address,
-                    port=device.ssh_port,
-                    username=device.ssh_username
-                )
+                # Use hostname directly - SSH config will handle IP, port, username
+                is_connected = await test_ssh_connectivity_simple(device.hostname)
                 
                 response_time_ms = (time.time() - start_time) * 1000
                 connection_status = "online" if is_connected else "offline"

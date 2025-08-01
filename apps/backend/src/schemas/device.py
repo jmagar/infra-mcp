@@ -13,9 +13,9 @@ from apps.backend.src.schemas.common import DeviceStatus, PaginatedResponse
 class DeviceBase(BaseModel):
     """Base device schema with common fields"""
     hostname: str = Field(..., min_length=1, max_length=255, description="Device hostname")
-    ip_address: str = Field(..., description="Device IP address")
-    ssh_port: int = Field(default=22, ge=1, le=65535, description="SSH port number")
-    ssh_username: str = Field(default="root", max_length=100, description="SSH username")
+    ip_address: Optional[str] = Field(None, description="Device IP address (optional - SSH config can handle this)")
+    ssh_port: Optional[int] = Field(None, ge=1, le=65535, description="SSH port number (optional - SSH config can handle this)")
+    ssh_username: Optional[str] = Field(None, max_length=100, description="SSH username (optional - SSH config can handle this)")
     device_type: str = Field(default="server", max_length=50, description="Device type")
     description: Optional[str] = Field(None, description="Device description")
     location: Optional[str] = Field(None, max_length=255, description="Physical location")
@@ -25,6 +25,8 @@ class DeviceBase(BaseModel):
     @field_validator("ip_address")
     @classmethod
     def validate_ip_address(cls, v):
+        if v is None:
+            return v
         try:
             # Handle both string and IPv4Address/IPv6Address objects
             from ipaddress import ip_address, IPv4Address, IPv6Address
@@ -105,6 +107,8 @@ class DeviceResponse(DeviceBase):
     @classmethod
     def convert_ip_address(cls, v):
         """Convert IPv4Address/IPv6Address objects to string"""
+        if v is None:
+            return v
         from ipaddress import IPv4Address, IPv6Address
         if isinstance(v, (IPv4Address, IPv6Address)):
             return str(v)
@@ -127,7 +131,7 @@ class DeviceSummary(BaseModel):
     """Device summary for dashboard and overview"""
     id: UUID
     hostname: str
-    ip_address: str
+    ip_address: Optional[str]
     device_type: str
     status: DeviceStatus
     monitoring_enabled: bool
@@ -167,12 +171,23 @@ class DeviceConnectionTest(BaseModel):
     """Device connectivity test result"""
     device_id: UUID
     hostname: str
-    ip_address: str
-    ssh_port: int
+    ip_address: Optional[str]
+    ssh_port: Optional[int]
     connection_status: str = Field(description="Connection test result")
     response_time_ms: Optional[float] = Field(description="Connection response time")
     error_message: Optional[str] = Field(description="Error message if connection failed")
     test_timestamp: datetime = Field(default_factory=datetime.utcnow)
+    
+    @field_validator("ip_address", mode="before")
+    @classmethod
+    def convert_ip_address(cls, v):
+        """Convert IPv4Address/IPv6Address objects to string"""
+        if v is None:
+            return v
+        from ipaddress import IPv4Address, IPv6Address
+        if isinstance(v, (IPv4Address, IPv6Address)):
+            return str(v)
+        return v
     
     class Config:
         from_attributes = True
