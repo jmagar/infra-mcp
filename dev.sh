@@ -38,25 +38,26 @@ rotate_logs() {
 # Function to show logs with pretty formatting
 show_logs() {
     echo "📝 Showing logs from both servers (Ctrl+C to exit)..."
-    echo "🔵 API Server logs (api_server.log) | 🟢 MCP Server logs (mcp_server.log)"
+    echo "🔵 API Server logs (logs/api_server.log) | 🟢 MCP Server logs (logs/mcp_server.log)"
     echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
     
-    # Create log files if they don't exist
-    touch api_server.log mcp_server.log
+    # Create logs directory and log files if they don't exist
+    mkdir -p logs
+    touch logs/api_server.log logs/mcp_server.log
     
     # Use multitail if available for best experience
     if command -v multitail >/dev/null 2>&1; then
         multitail \
-            -ci blue -i api_server.log \
-            -ci green -i mcp_server.log
+            -ci blue -i logs/api_server.log \
+            -ci green -i logs/mcp_server.log
     else
         # Custom log formatting with colors and timestamps
-        tail -f api_server.log mcp_server.log | while IFS= read -r line; do
+        tail -f logs/api_server.log logs/mcp_server.log | while IFS= read -r line; do
             current_time=$(date '+%H:%M:%S')
             
-            if [[ $line =~ "==> api_server.log <==" ]]; then
+            if [[ $line =~ "==> logs/api_server.log <==" ]]; then
                 echo -e "\n\033[1;34m╭─ API SERVER ─────────────────────────────────────────────────────\033[0m"
-            elif [[ $line =~ "==> mcp_server.log <==" ]]; then
+            elif [[ $line =~ "==> logs/mcp_server.log <==" ]]; then
                 echo -e "\n\033[1;32m╭─ MCP SERVER ─────────────────────────────────────────────────────\033[0m"
             elif [[ $line =~ "==>" ]]; then
                 # Skip other file headers
@@ -120,23 +121,23 @@ start_servers() {
 
     # Rotate logs if they're getting too large
     echo "🔄 Checking log rotation..."
-    rotate_logs "api_server.log" 10 3
-    rotate_logs "mcp_server.log" 10 3
+    rotate_logs "logs/api_server.log" 10 3
+    rotate_logs "logs/mcp_server.log" 10 3
 
     # Start the API server in background with log rotation
     echo "⚡ Starting API server..."
-    nohup uv run uvicorn apps.backend.src.main:app --host 0.0.0.0 --port $API_PORT --reload > api_server.log 2>&1 &
+    nohup uv run uvicorn apps.backend.src.main:app --host 0.0.0.0 --port $API_PORT --reload > logs/api_server.log 2>&1 &
     API_PID=$!
 
     # Start the MCP server in background with log rotation
     echo "⚡ Starting MCP server..."
-    nohup python mcp_server.py > mcp_server.log 2>&1 &
+    nohup python apps/backend/src/mcp/server.py > logs/mcp_server.log 2>&1 &
     MCP_PID=$!
 
     echo "📊 API Server started with PID: $API_PID"
     echo "📊 MCP Server started with PID: $MCP_PID"
-    echo "📝 API Logs: tail -f api_server.log"
-    echo "📝 MCP Logs: tail -f mcp_server.log"
+    echo "📝 API Logs: tail -f logs/api_server.log"
+    echo "📝 MCP Logs: tail -f logs/mcp_server.log"
     echo "🛑 To stop API: kill $API_PID"
     echo "🛑 To stop MCP: kill $MCP_PID"
 
@@ -163,8 +164,8 @@ start_servers() {
     (
         while true; do
             sleep 300  # Check every 5 minutes
-            rotate_logs "api_server.log" 10 3
-            rotate_logs "mcp_server.log" 10 3
+            rotate_logs "logs/api_server.log" 10 3
+            rotate_logs "logs/mcp_server.log" 10 3
         done
     ) &
     LOG_MONITOR_PID=$!

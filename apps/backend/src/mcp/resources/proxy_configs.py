@@ -16,7 +16,7 @@ from apps.backend.src.mcp.tools.proxy_management import (
     _get_real_time_file_info, _get_real_time_file_content
 )
 from apps.backend.src.utils.nginx_parser import NginxConfigParser
-from apps.backend.src.utils.ssh_client import execute_remote_command
+from apps.backend.src.utils.ssh_client import execute_ssh_command_simple
 from apps.backend.src.core.database import get_async_session
 from apps.backend.src.models.proxy_config import ProxyConfig
 from sqlalchemy import select, and_
@@ -240,8 +240,9 @@ async def _get_sample_resource(
                 ls_command = f"""
                 find /mnt/appdata/swag/nginx/proxy-confs -name '{sample_filename}.*.conf.sample' -type f | head -1
                 """
-                from apps.backend.src.utils.ssh_client import execute_remote_command
-                output = await execute_remote_command(device, ls_command, timeout=10)
+                from apps.backend.src.utils.ssh_client import execute_ssh_command_simple
+                result = await execute_ssh_command_simple(device, ls_command, timeout=10)
+                output = result.stdout
                 
                 if output.strip():
                     sample_path = output.strip()
@@ -368,7 +369,8 @@ async def _get_samples_directory_resource(device: str) -> Dict[str, Any]:
         find /mnt/appdata/swag/nginx/proxy-confs -name '*.sample' -type f -exec stat -c '%n|%s|%Y|%A' {{}} \\; 2>/dev/null | sort
         """
         
-        output = await execute_remote_command(device, ls_command, timeout=30)
+        result = await execute_ssh_command_simple(device, ls_command, timeout=30)
+        output = result.stdout
         
         samples = []
         for line in output.strip().split('\n'):
@@ -769,7 +771,8 @@ async def _get_directory_listing_resource(device: str, config_dir: str) -> Dict[
         find {config_dir} -name '*.conf' -type f -exec stat -c '%n|%s|%Y|%A' {{}} \\; 2>/dev/null | sort
         """
         
-        output = await execute_remote_command(device, ls_command, timeout=30)
+        result = await execute_ssh_command_simple(device, ls_command, timeout=30)
+        output = result.stdout
         
         files = []
         for line in output.strip().split('\n'):
@@ -978,8 +981,9 @@ async def list_proxy_config_resources(device: Optional[str] = None) -> List[Dict
             find /mnt/appdata/swag/nginx/proxy-confs -name '*.subdomain.conf' -o -name '*.subfolder.conf' | grep -v '\.sample$' | sort
             """
             
-            from apps.backend.src.utils.ssh_client import execute_remote_command
-            output = await execute_remote_command(swag_device, ls_command, timeout=30)
+            from apps.backend.src.utils.ssh_client import execute_ssh_command_simple
+            result = await execute_ssh_command_simple(swag_device, ls_command, timeout=30)
+            output = result.stdout
             
             for line in output.strip().split('\n'):
                 if line and '.conf' in line:

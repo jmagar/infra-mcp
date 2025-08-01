@@ -11,7 +11,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Dict, List, Optional, Any
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, and_, or_, desc, func
+from sqlalchemy import select, and_, or_, desc, func, Boolean
 from sqlalchemy.orm import selectinload
 
 from apps.backend.src.core.database import get_async_session
@@ -21,7 +21,7 @@ from apps.backend.src.schemas.proxy_config import (
     ProxyConfigFileInfo, ProxyConfigSync
 )
 from apps.backend.src.utils.nginx_parser import NginxConfigParser, parse_swag_config_directory
-from apps.backend.src.utils.ssh_client import execute_remote_command
+from apps.backend.src.utils.ssh_client import execute_ssh_command_simple
 from apps.backend.src.core.exceptions import (
     DeviceNotFoundError, SSHConnectionError, SSHCommandError,
     ResourceNotFoundError, ValidationError
@@ -66,10 +66,10 @@ async def list_proxy_configs(
                 conditions.append(ProxyConfig.status == status)
             if ssl_enabled is not None:
                 if ssl_enabled:
-                    conditions.append(ProxyConfig.parsed_config['ssl_enabled'].astext.cast(bool) == True)
+                    conditions.append(ProxyConfig.parsed_config['ssl_enabled'].as_string().cast(Boolean) == True)
                 else:
                     conditions.append(or_(
-                        ProxyConfig.parsed_config['ssl_enabled'].astext.cast(bool) == False,
+                        ProxyConfig.parsed_config['ssl_enabled'].as_string().cast(Boolean) == False,
                         ProxyConfig.parsed_config['ssl_enabled'].is_(None)
                     ))
             
@@ -256,7 +256,8 @@ async def scan_proxy_configs(
         ls_command = f"find {config_directory} -name '*.conf' -type f -exec stat -c '%n|%s|%Y' {{}} \\;"
         
         try:
-            ls_output = await execute_remote_command(device, ls_command, timeout=30)
+            ls_result = await execute_ssh_command_simple(device, ls_command, timeout=30)
+            ls_output = ls_result.stdout
         except (SSHConnectionError, SSHCommandError) as e:
             raise Exception(f"Failed to access device {device}: {str(e)}")
         
@@ -309,7 +310,7 @@ async def scan_proxy_configs(
             'device': device,
             'config_directory': config_directory,
             'scan_timestamp': scan_start.isoformat(),
-            'files_found': len(files_found),
+            'total_files_found': len(files_found),
             'configs_found': configs_found,
             'sync_to_database': sync_to_database,
             'scan_duration_ms': int((datetime.now(timezone.utc) - scan_start).total_seconds() * 1000)
@@ -490,7 +491,7 @@ async def get_proxy_config_summary(device: Optional[str] = None) -> Dict[str, An
             
             # SSL enabled count
             ssl_query = select(func.count()).where(
-                ProxyConfig.parsed_config['ssl_enabled'].astext.cast(bool) == True
+                ProxyConfig.parsed_config['ssl_enabled'].as_string().cast(Boolean) == True
             )
             if device:
                 ssl_query = ssl_query.where(ProxyConfig.device_id == device)
@@ -542,7 +543,8 @@ async def _get_real_time_file_info(device: str, file_path: str) -> Dict[str, Any
         # Use stat command to get file info
         stat_command = f"stat -c '%s|%Y|%A' '{file_path}' 2>/dev/null || echo 'NOT_FOUND'"
         
-        output = await execute_remote_command(device, stat_command, timeout=10)
+        result = await execute_ssh_command_simple(device, stat_command, timeout=10)
+        output = result.stdout
         output = output.strip()
         
         if output == 'NOT_FOUND':
@@ -595,7 +597,8 @@ async def _get_real_time_file_content(device: str, file_path: str) -> Optional[s
     try:
         # Read file content
         cat_command = f"cat '{file_path}'"
-        content = await execute_remote_command(device, cat_command, timeout=30)
+        result = await execute_ssh_command_simple(device, cat_command, timeout=30)
+        content = result.stdout
         return content
         
     except Exception as e:

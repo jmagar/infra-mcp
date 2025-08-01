@@ -1,470 +1,534 @@
+#!/usr/bin/env python3
 """
-Infrastructure Management MCP Server
+Standalone Infrastructure Management MCP Server
 
-This module sets up the FastMCP server for infrastructure monitoring and management.
-It registers all MCP tools and provides the server interface for LLM integration.
+This server provides MCP tools that make HTTP calls to the FastAPI REST endpoints
+instead of doing direct SSH operations. This eliminates code duplication and ensures
+consistency between MCP and REST interfaces.
 """
 
+import os
+import sys
+import asyncio
 import logging
-from typing import Dict, Any, Optional
-from contextlib import asynccontextmanager
+import httpx
+from typing import List, Any
+from fastmcp import FastMCP
 
-from fastmcp import FastMCP, Context
+# Add the project root to Python path
+project_root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
+sys.path.insert(0, project_root)
 
-# Import tool modules
-from apps.backend.src.mcp.tools.container_management import CONTAINER_TOOLS
-from apps.backend.src.mcp.tools.device_management import DEVICE_TOOLS
-from apps.backend.src.mcp.tools.system_monitoring import SYSTEM_MONITORING_TOOLS
+# Import device management functions
+from apps.backend.src.mcp.tools.device_management import add_device as device_add_device
 
-# Import database initialization
-from apps.backend.src.core.database import init_database, close_database
+# Import proxy configuration management functions
+from apps.backend.src.mcp.tools.proxy_management import (
+    list_proxy_configs, get_proxy_config, scan_proxy_configs,
+    sync_proxy_config, get_proxy_config_summary
+)
 
+# Import proxy configuration resources
+from apps.backend.src.mcp.resources.proxy_configs import (
+    get_proxy_config_resource, list_proxy_config_resources
+)
+
+# Configure logging
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+)
 logger = logging.getLogger(__name__)
 
+# FastAPI server configuration
+API_BASE_URL = "http://localhost:9101/api"
+API_TIMEOUT = 120.0
+API_KEY = os.getenv("API_KEY", "your-api-key-for-authentication")
 
-@asynccontextmanager
-async def mcp_lifespan(app):
-    """MCP server lifespan manager for startup and shutdown tasks"""
-    logger.info("Starting Infrastructure Management MCP Server")
+
+class APIClient:
+    """HTTP client for FastAPI endpoints"""
+    
+    def __init__(self):
+        headers = {"Content-Type": "application/json"}
+        if API_KEY:
+            headers["Authorization"] = f"Bearer {API_KEY}"
+            
+        self.client = httpx.AsyncClient(
+            base_url=API_BASE_URL,
+            timeout=httpx.Timeout(API_TIMEOUT),
+            headers=headers
+        )
+    
+    async def close(self):
+        """Close the HTTP client"""
+        await self.client.aclose()
+
+
+# Global API client instance
+api_client = APIClient()
+
+
+# Container Management Tools
+async def list_containers(
+    device: str,
+    status: str | None = None,
+    all_containers: bool = True,
+    timeout: int = 60,
+    limit: int | None = None,
+    offset: int = 0
+) -> dict[str, Any]:
+    """List Docker containers on a specific device"""
+    try:
+        params = {
+            "all_containers": all_containers,
+            "timeout": timeout,
+            "offset": offset
+        }
+        if status:
+            params["status"] = status
+        if limit:
+            params["limit"] = limit
+            
+        response = await api_client.client.get(f"/containers/{device}", params=params)
+        response.raise_for_status()
+        return response.json()
+        
+    except httpx.HTTPError as e:
+        logger.error(f"HTTP error listing containers on {device}: {e}")
+        raise Exception(f"Failed to list containers: {str(e)}")
+    except Exception as e:
+        logger.error(f"Error listing containers on {device}: {e}")
+        raise Exception(f"Failed to list containers: {str(e)}")
+
+
+async def get_container_info(
+    device: str,
+    container_name: str,
+    timeout: int = 60
+) -> dict[str, Any]:
+    """Get detailed information about a specific Docker container"""
+    try:
+        params = {"timeout": timeout}
+        response = await api_client.client.get(f"/containers/{device}/{container_name}", params=params)
+        response.raise_for_status()
+        return response.json()
+        
+    except httpx.HTTPError as e:
+        logger.error(f"HTTP error getting container info for {container_name} on {device}: {e}")
+        raise Exception(f"Failed to get container info: {str(e)}")
+    except Exception as e:
+        logger.error(f"Error getting container info for {container_name} on {device}: {e}")
+        raise Exception(f"Failed to get container info: {str(e)}")
+
+
+async def get_container_logs(
+    device: str,
+    container_name: str,
+    since: str | None = None,
+    tail: int | None = None,
+    timeout: int = 60
+) -> dict[str, Any]:
+    """Get logs from a specific Docker container"""
+    try:
+        params = {"timeout": timeout}
+        if since:
+            params["since"] = since
+        if tail:
+            params["tail"] = tail
+            
+        response = await api_client.client.get(f"/containers/{device}/{container_name}/logs", params=params)
+        response.raise_for_status()
+        return response.json()
+        
+    except httpx.HTTPError as e:
+        logger.error(f"HTTP error getting logs for {container_name} on {device}: {e}")
+        raise Exception(f"Failed to get container logs: {str(e)}")
+    except Exception as e:
+        logger.error(f"Error getting logs for {container_name} on {device}: {e}")
+        raise Exception(f"Failed to get container logs: {str(e)}")
+
+
+# System Monitoring Tools
+async def get_system_info(
+    device: str,
+    include_processes: bool = False,
+    timeout: int = 60
+) -> dict[str, Any]:
+    """Get comprehensive system performance metrics from a device"""
+    try:
+        params = {
+            "include_processes": include_processes,
+            "timeout": timeout
+        }
+        response = await api_client.client.get(f"/devices/{device}/metrics", params=params)
+        response.raise_for_status()
+        return response.json()
+        
+    except httpx.HTTPError as e:
+        logger.error(f"HTTP error getting system info for {device}: {e}")
+        raise Exception(f"Failed to get system info: {str(e)}")
+    except Exception as e:
+        logger.error(f"Error getting system info for {device}: {e}")
+        raise Exception(f"Failed to get system info: {str(e)}")
+
+
+async def get_drive_health(
+    device: str,
+    drive: str | None = None,
+    timeout: int = 60
+) -> dict[str, Any]:
+    """Get S.M.A.R.T. drive health information and disk status"""
+    try:
+        params = {"timeout": timeout}
+        if drive:
+            params["drive"] = drive
+            
+        response = await api_client.client.get(f"/devices/{device}/drives", params=params)
+        response.raise_for_status()
+        return response.json()
+        
+    except httpx.HTTPError as e:
+        logger.error(f"HTTP error getting drive health for {device}: {e}")
+        raise Exception(f"Failed to get drive health: {str(e)}")
+    except Exception as e:
+        logger.error(f"Error getting drive health for {device}: {e}")
+        raise Exception(f"Failed to get drive health: {str(e)}")
+
+
+async def get_drives_stats(
+    device: str,
+    drive: str | None = None,
+    timeout: int = 60
+) -> dict[str, Any]:
+    """Get drive usage statistics, I/O performance, and utilization metrics"""
+    try:
+        params = {"timeout": timeout}
+        if drive:
+            params["drive"] = drive
+            
+        response = await api_client.client.get(f"/devices/{device}/drives/stats", params=params)
+        response.raise_for_status()
+        return response.json()
+        
+    except httpx.HTTPError as e:
+        logger.error(f"HTTP error getting drives stats for {device}: {e}")
+        raise Exception(f"Failed to get drives stats: {str(e)}")
+    except Exception as e:
+        logger.error(f"Error getting drives stats for {device}: {e}")
+        raise Exception(f"Failed to get drives stats: {str(e)}")
+
+
+async def get_system_logs(
+    device: str,
+    service: str | None = None,
+    since: str | None = None,
+    lines: int = 100,
+    timeout: int = 60
+) -> dict[str, Any]:
+    """Get system logs from journald or traditional syslog"""
+    try:
+        params = {
+            "lines": lines,
+            "timeout": timeout
+        }
+        if service:
+            params["service"] = service
+        if since:
+            params["since"] = since
+            
+        response = await api_client.client.get(f"/devices/{device}/logs", params=params)
+        response.raise_for_status()
+        return response.json()
+        
+    except httpx.HTTPError as e:
+        logger.error(f"HTTP error getting system logs for {device}: {e}")
+        raise Exception(f"Failed to get system logs: {str(e)}")
+    except Exception as e:
+        logger.error(f"Error getting system logs for {device}: {e}")
+        raise Exception(f"Failed to get system logs: {str(e)}")
+
+
+# Device Management Tools
+async def list_devices() -> dict[str, Any]:
+    """List all registered infrastructure devices"""
+    try:
+        response = await api_client.client.get("/devices")
+        response.raise_for_status()
+        return response.json()
+        
+    except httpx.HTTPError as e:
+        logger.error(f"HTTP error listing devices: {e}")
+        raise Exception(f"Failed to list devices: {str(e)}")
+    except Exception as e:
+        logger.error(f"Error listing devices: {e}")
+        raise Exception(f"Failed to list devices: {str(e)}")
+
+
+async def add_device(
+    hostname: str,
+    device_type: str = "server",
+    description: str | None = None,
+    location: str | None = None,
+    monitoring_enabled: bool = True,
+    ip_address: str | None = None,
+    ssh_port: int | None = None,
+    ssh_username: str | None = None,
+    tags: dict[str, str] | None = None
+) -> dict[str, Any]:
+    """Add a new device to the infrastructure registry"""
+    return await device_add_device(
+        hostname=hostname,
+        device_type=device_type,
+        description=description,
+        location=location,
+        monitoring_enabled=monitoring_enabled,
+        ip_address=ip_address,
+        ssh_port=ssh_port,
+        ssh_username=ssh_username,
+        tags=tags
+    )
+
+
+async def remove_device(hostname: str) -> dict[str, Any]:
+    """Remove a device from the infrastructure registry"""
+    try:
+        response = await api_client.client.delete(f"/devices/{hostname}")
+        response.raise_for_status()
+        
+        result = response.json()
+        return {
+            "hostname": hostname,
+            "status": "deleted",
+            "message": f"Device '{hostname}' removed successfully from infrastructure registry",
+            "operation_result": result
+        }
+        
+    except httpx.HTTPError as e:
+        logger.error(f"HTTP error removing device {hostname}: {e}")
+        if e.response.status_code == 404:
+            raise Exception(f"Device with hostname '{hostname}' not found") from e
+        raise Exception(f"Failed to remove device: {str(e)}") from e
+    except Exception as e:
+        logger.error(f"Error removing device {hostname}: {e}")
+        raise Exception(f"Failed to remove device: {str(e)}") from e
+
+
+async def edit_device(
+    hostname: str,
+    device_type: str | None = None,
+    description: str | None = None,
+    location: str | None = None,
+    monitoring_enabled: bool | None = None,
+    ip_address: str | None = None,
+    ssh_port: int | None = None,
+    ssh_username: str | None = None,
+    tags: dict[str, str] | None = None
+) -> dict[str, Any]:
+    """Edit/update details of an existing device in the infrastructure registry"""
+    try:
+        # Prepare update data (only include fields that are provided)
+        update_data = {}
+        
+        if device_type is not None:
+            update_data["device_type"] = device_type
+        if description is not None:
+            update_data["description"] = description
+        if location is not None:
+            update_data["location"] = location
+        if monitoring_enabled is not None:
+            update_data["monitoring_enabled"] = monitoring_enabled
+        if ip_address is not None:
+            update_data["ip_address"] = ip_address
+        if ssh_port is not None:
+            update_data["ssh_port"] = ssh_port
+        if ssh_username is not None:
+            update_data["ssh_username"] = ssh_username
+        if tags is not None:
+            update_data["tags"] = tags
+        
+        if not update_data:
+            raise Exception("No fields provided to update")
+        
+        response = await api_client.client.put(f"/devices/{hostname}", json=update_data)
+        response.raise_for_status()
+        
+        result = response.json()
+        return {
+            "hostname": hostname,
+            "status": "updated",
+            "message": f"Device '{hostname}' updated successfully in infrastructure registry",
+            "updated_fields": list(update_data.keys()),
+            "device_info": result
+        }
+        
+    except httpx.HTTPError as e:
+        logger.error(f"HTTP error updating device {hostname}: {e}")
+        if e.response.status_code == 404:
+            raise Exception(f"Device with hostname '{hostname}' not found") from e
+        raise Exception(f"Failed to update device: {str(e)}") from e
+    except Exception as e:
+        logger.error(f"Error updating device {hostname}: {e}")
+        raise Exception(f"Failed to update device: {str(e)}") from e
+
+
+def create_mcp_server():
+    """Create and configure the MCP server"""
+    server = FastMCP(
+        name="Infrastructure Management MCP Server",
+        version="1.0.0", 
+        instructions="Comprehensive infrastructure monitoring and management tools for heterogeneous Linux environments"
+    )
+    
+    # Register container management tools
+    server.tool(
+        name="list_containers",
+        description="List Docker containers on a specific device"
+    )(list_containers)
+    
+    server.tool(
+        name="get_container_info",
+        description="Get detailed information about a specific Docker container"
+    )(get_container_info)
+    
+    server.tool(
+        name="get_container_logs",
+        description="Get logs from a specific Docker container"
+    )(get_container_logs)
+    
+    # DISABLED: Service dependencies endpoint does not exist in current API
+    # server.tool(
+    #     name="get_service_dependencies",
+    #     description="Analyze and map dependencies between Docker Compose services"
+    # )(get_service_dependencies)
+    
+    # Register system monitoring tools
+    server.tool(
+        name="get_system_info",
+        description="Get comprehensive system performance metrics from a device"
+    )(get_system_info)
+    
+    server.tool(
+        name="get_drive_health",
+        description="Get S.M.A.R.T. drive health information and disk status"
+    )(get_drive_health)
+    
+    server.tool(
+        name="get_drives_stats",
+        description="Get drive usage statistics, I/O performance, and utilization metrics"
+    )(get_drives_stats)
+    
+    server.tool(
+        name="get_system_logs",
+        description="Get system logs from journald or traditional syslog"
+    )(get_system_logs)
+    
+    # Register device management tools
+    server.tool(
+        name="list_devices",
+        description="List all registered infrastructure devices with optional filtering"
+    )(list_devices)
+    
+    server.tool(
+        name="add_device", 
+        description="Add a new device to the infrastructure registry"
+    )(add_device)
+    
+    server.tool(
+        name="remove_device",
+        description="Remove a device from the infrastructure registry"
+    )(remove_device)
+    
+    server.tool(
+        name="edit_device",
+        description="Edit/update details of an existing device in the infrastructure registry"
+    )(edit_device)
+    
+    # Register proxy configuration management tools
+    server.tool(
+        name="list_proxy_configs",
+        description="List SWAG reverse proxy configurations with real-time sync check"
+    )(list_proxy_configs)
+    
+    server.tool(
+        name="get_proxy_config",
+        description="Get specific proxy configuration with real-time file content"
+    )(get_proxy_config)
+    
+    server.tool(
+        name="scan_proxy_configs",
+        description="Scan proxy configuration directory for fresh configs and sync to database"
+    )(scan_proxy_configs)
+    
+    server.tool(
+        name="sync_proxy_config",
+        description="Sync specific proxy configuration with file system"
+    )(sync_proxy_config)
+    
+    server.tool(
+        name="get_proxy_config_summary",
+        description="Get summary statistics for proxy configurations"
+    )(get_proxy_config_summary)
+    
+    # Register SWAG proxy configuration resources
+    @server.resource("swag://{service_name}")
+    async def swag_service_resource(service_name: str) -> str:
+        """Get SWAG service configuration resource content"""
+        uri = f"swag://{service_name}"
+        resource_data = await get_proxy_config_resource(uri)
+        
+        # Return appropriate content based on resource type
+        if 'content' in resource_data:
+            return resource_data['content']
+        elif 'raw_content' in resource_data:
+            return resource_data['raw_content']
+        else:
+            # Return JSON representation for structured data
+            import json
+            return json.dumps(resource_data, indent=2, default=str)
+    
+    @server.resource("swag://{device}/{path}")
+    async def swag_device_resource(device: str, path: str) -> str:
+        """Get SWAG device-specific resource content (directory/summary)"""
+        uri = f"swag://{device}/{path}"
+        resource_data = await get_proxy_config_resource(uri)
+        
+        # Return JSON representation for structured data
+        import json
+        return json.dumps(resource_data, indent=2, default=str)
+    
+    @server.list_resources()
+    async def list_resources() -> List[dict]:
+        """List all available proxy configuration resources"""
+        resources = await list_proxy_config_resources()
+        return resources
+    
+    logger.info("MCP server created with 16 tools (11 HTTP client + 5 proxy config) and proxy resources")
+    return server
+
+
+def main():
+    """Main entry point for the MCP server"""
+    logger.info("Starting Infrastructure Management MCP Server...")
+    
+    # Create the MCP server
+    server = create_mcp_server()
     
     try:
-        # Initialize database connection
-        await init_database()
-        logger.info("Database initialized successfully")
-        yield
+        # Run the server on HTTP transport
+        logger.info("Starting MCP server on HTTP transport at port 9102...")
+        server.run(transport="http", host="localhost", port=9102)
+    except KeyboardInterrupt:
+        logger.info("MCP server stopped by user")
     except Exception as e:
-        logger.error(f"Failed to initialize MCP server: {e}")
+        logger.error(f"MCP server error: {e}")
         raise
     finally:
-        # Cleanup on shutdown
-        logger.info("Shutting down Infrastructure Management MCP Server")
-        try:
-            await close_database()
-            logger.info("Database connections closed")
-        except Exception as e:
-            logger.error(f"Error during MCP server shutdown: {e}")
+        # Cleanup
+        logger.info("Cleaning up MCP server...")
+        asyncio.run(api_client.close())
+        logger.info("MCP server shutdown complete")
 
 
-# Create FastMCP server instance
-# For development, we'll disable authentication completely
-mcp_server = FastMCP(
-    name="Infrastructure Management MCP Server",
-    version="1.0.0",
-    instructions="Comprehensive infrastructure monitoring and management tools for heterogeneous Linux environments",
-    lifespan=mcp_lifespan,
-    # No authentication for development
-)
-
-
-def register_container_tools():
-    """Register container management tools"""
-    logger.info("Registering container management tools")
-    
-    for tool_name, tool_config in CONTAINER_TOOLS.items():
-        try:
-            # Register the function directly with FastMCP
-            mcp_server.tool(
-                name=tool_config["name"],
-                description=tool_config["description"]
-            )(tool_config["function"])
-            
-            logger.debug(f"Registered container tool: {tool_name}")
-            
-        except Exception as e:
-            logger.error(f"Failed to register container tool {tool_name}: {e}")
-
-
-def register_device_tools():
-    """Register device management tools"""
-    logger.info("Registering device management tools")
-    
-    for tool_name, tool_config in DEVICE_TOOLS.items():
-        try:
-            # Register the function directly with FastMCP
-            mcp_server.tool(
-                name=tool_config["name"],
-                description=tool_config["description"]
-            )(tool_config["function"])
-            
-            logger.debug(f"Registered device tool: {tool_name}")
-            
-        except Exception as e:
-            logger.error(f"Failed to register device tool {tool_name}: {e}")
-
-
-def register_system_monitoring_tools():
-    """Register system monitoring tools"""
-    logger.info("Registering system monitoring tools")
-    
-    for tool_name, tool_config in SYSTEM_MONITORING_TOOLS.items():
-        try:
-            # Register the function directly with FastMCP
-            mcp_server.tool(
-                name=tool_config["name"],
-                description=tool_config["description"]
-            )(tool_config["function"])
-            
-            logger.debug(f"Registered system monitoring tool: {tool_name}")
-            
-        except Exception as e:
-            logger.error(f"Failed to register system monitoring tool {tool_name}: {e}")
-
-
-# Additional utility tools for infrastructure management
-@mcp_server.tool(
-    name="get_infrastructure_health",
-    description="Get overall infrastructure health summary across all monitored devices"
-)
-async def get_infrastructure_health(
-    include_details: bool = False,
-    timeout: int = 30,
-    ctx: Optional[Context] = None
-) -> Dict[str, Any]:
-    """
-    Get comprehensive infrastructure health overview.
-    
-    This tool provides a high-level summary of infrastructure health
-    across all registered devices, including connectivity status,
-    resource utilization, and potential issues.
-    """
-    from apps.backend.src.mcp.tools.device_management import list_devices, get_device_summary
-    
-    if ctx:
-        await ctx.info("Starting infrastructure health assessment")
-    
-    try:
-        # Get all devices
-        devices_response = await list_devices()
-        all_devices = devices_response.get("devices", [])
-        
-        if not all_devices:
-            return {
-                "overall_status": "no_devices",
-                "message": "No devices registered in the infrastructure",
-                "summary": {
-                    "total_devices": 0,
-                    "online_devices": 0,
-                    "offline_devices": 0,
-                    "unknown_devices": 0
-                },
-                "timestamp": devices_response.get("query_info", {}).get("timestamp")
-            }
-        
-        if ctx:
-            await ctx.report_progress(progress=10, total=100)
-            await ctx.info(f"Found {len(all_devices)} registered devices")
-        
-        # Analyze each device if details requested
-        device_health_data = []
-        healthy_count = 0
-        unhealthy_count = 0
-        offline_count = 0
-        
-        if include_details:
-            for i, device in enumerate(all_devices):
-                if ctx:
-                    progress = 10 + (i / len(all_devices)) * 80
-                    await ctx.report_progress(progress=int(progress), total=100)
-                    await ctx.debug(f"Checking health for device: {device['hostname']}")
-                
-                try:
-                    # Get detailed device summary
-                    device_summary = await get_device_summary(
-                        device=device["hostname"], 
-                        timeout=timeout
-                    )
-                    
-                    health_status = device_summary.get("health_status", {})
-                    overall_health = health_status.get("overall_health", "unknown")
-                    
-                    device_health = {
-                        "hostname": device["hostname"],
-                        "status": device["status"],
-                        "health": overall_health,
-                        "health_score": health_status.get("health_score", 0),
-                        "issues": health_status.get("issues", []),
-                        "warnings": health_status.get("warnings", [])
-                    }
-                    
-                    if overall_health in ["excellent", "good"]:
-                        healthy_count += 1
-                    elif overall_health == "offline":
-                        offline_count += 1
-                    else:
-                        unhealthy_count += 1
-                    
-                    device_health_data.append(device_health)
-                    
-                except Exception as e:
-                    logger.warning(f"Failed to get health data for {device['hostname']}: {e}")
-                    device_health_data.append({
-                        "hostname": device["hostname"],
-                        "status": "error",
-                        "health": "error",
-                        "health_score": 0,
-                        "issues": [f"Health check failed: {str(e)}"],
-                        "warnings": []
-                    })
-                    unhealthy_count += 1
-        else:
-            # Just count based on device status
-            status_summary = devices_response.get("summary", {})
-            healthy_count = status_summary.get("online", 0)
-            offline_count = status_summary.get("offline", 0)
-            unhealthy_count = status_summary.get("unknown", 0)
-        
-        # Determine overall infrastructure health
-        total_devices = len(all_devices)
-        
-        if total_devices == 0:
-            overall_status = "no_devices"
-        elif offline_count == total_devices:
-            overall_status = "critical"
-        elif unhealthy_count >= total_devices * 0.5:
-            overall_status = "degraded"
-        elif offline_count > 0 or unhealthy_count > 0:
-            overall_status = "warning"
-        else:
-            overall_status = "healthy"
-        
-        if ctx:
-            await ctx.report_progress(progress=100, total=100)
-            await ctx.info(f"Infrastructure health assessment completed: {overall_status}")
-        
-        # Prepare response
-        response = {
-            "overall_status": overall_status,
-            "summary": {
-                "total_devices": total_devices,
-                "healthy_devices": healthy_count,
-                "unhealthy_devices": unhealthy_count,
-                "offline_devices": offline_count,
-                "health_percentage": round((healthy_count / total_devices) * 100, 1) if total_devices > 0 else 0
-            },
-            "devices": device_health_data if include_details else None,
-            "recommendations": [],
-            "query_info": {
-                "include_details": include_details,
-                "timeout_used": timeout,
-                "timestamp": devices_response.get("query_info", {}).get("timestamp")
-            }
-        }
-        
-        # Add recommendations based on status
-        if offline_count > 0:
-            response["recommendations"].append(f"Check connectivity for {offline_count} offline device(s)")
-        if unhealthy_count > 0:
-            response["recommendations"].append(f"Investigate health issues on {unhealthy_count} device(s)")
-        if overall_status == "healthy" and total_devices > 0:
-            response["recommendations"].append("Infrastructure is healthy - maintain current monitoring")
-        
-        return response
-        
-    except Exception as e:
-        logger.error(f"Failed to get infrastructure health: {e}")
-        if ctx:
-            await ctx.error(f"Infrastructure health check failed: {str(e)}")
-        
-        return {
-            "overall_status": "error",
-            "message": f"Failed to assess infrastructure health: {str(e)}",
-            "summary": {
-                "total_devices": 0,
-                "healthy_devices": 0,
-                "unhealthy_devices": 0,
-                "offline_devices": 0,
-                "health_percentage": 0
-            },
-            "error": str(e)
-        }
-
-
-@mcp_server.tool(
-    name="troubleshoot_device",
-    description="Run automated troubleshooting checks on a specific device"
-)
-async def troubleshoot_device(
-    device: str,
-    check_type: str = "all",
-    timeout: int = 60,
-    ctx: Optional[Context] = None
-) -> Dict[str, Any]:
-    """
-    Run comprehensive troubleshooting checks on a device.
-    
-    This tool performs automated diagnostic checks to identify
-    common infrastructure issues and provide remediation suggestions.
-    """
-    from apps.backend.src.mcp.tools.device_management import get_device_info
-    from apps.backend.src.mcp.tools.system_monitoring import get_system_info
-    from apps.backend.src.mcp.tools.container_management import list_containers
-    
-    if ctx:
-        await ctx.info(f"Starting troubleshooting for device: {device}")
-    
-    troubleshooting_results = {
-        "device": device,
-        "check_type": check_type,
-        "overall_status": "unknown",
-        "checks_performed": [],
-        "issues_found": [],
-        "recommendations": [],
-        "detailed_results": {}
-    }
-    
-    try:
-        # Connectivity check
-        if check_type in ["connectivity", "all"]:
-            if ctx:
-                await ctx.debug("Performing connectivity check")
-                await ctx.report_progress(progress=10, total=100)
-            
-            try:
-                device_info = await get_device_info(
-                    device=device,
-                    test_connectivity=True,
-                    timeout=min(timeout, 30)
-                )
-                
-                connectivity = device_info.get("connectivity", {})
-                troubleshooting_results["checks_performed"].append("connectivity")
-                troubleshooting_results["detailed_results"]["connectivity"] = connectivity
-                
-                if not connectivity.get("ssh_accessible", False):
-                    troubleshooting_results["issues_found"].append("SSH connectivity failed")
-                    troubleshooting_results["recommendations"].append("Check SSH service and network connectivity")
-                    
-            except Exception as e:
-                troubleshooting_results["issues_found"].append(f"Connectivity check failed: {str(e)}")
-        
-        # Performance check
-        if check_type in ["performance", "all"]:
-            if ctx:
-                await ctx.debug("Performing performance check")
-                await ctx.report_progress(progress=40, total=100)
-            
-            try:
-                system_metrics = await get_system_info(
-                    device=device,
-                    include_processes=True,
-                    timeout=timeout
-                )
-                
-                cpu_metrics = system_metrics.get("cpu_metrics", {})
-                memory_metrics = system_metrics.get("memory_metrics", {})
-                disk_metrics = system_metrics.get("disk_metrics", {})
-                
-                troubleshooting_results["checks_performed"].append("performance")
-                troubleshooting_results["detailed_results"]["performance"] = {
-                    "cpu_usage": cpu_metrics.get("usage_percent"),
-                    "memory_usage": memory_metrics.get("usage_percent"),
-                    "load_average": cpu_metrics.get("load_1min")
-                }
-                
-                # Check for performance issues
-                if cpu_metrics.get("usage_percent", 0) > 90:
-                    troubleshooting_results["issues_found"].append("High CPU usage detected")
-                    troubleshooting_results["recommendations"].append("Investigate high CPU usage processes")
-                
-                if memory_metrics.get("usage_percent", 0) > 90:
-                    troubleshooting_results["issues_found"].append("High memory usage detected")
-                    troubleshooting_results["recommendations"].append("Check for memory leaks or resize memory")
-                
-                # Check disk usage
-                filesystems = disk_metrics.get("filesystems", [])
-                for fs in filesystems:
-                    if fs.get("usage_percent", 0) > 90:
-                        troubleshooting_results["issues_found"].append(f"High disk usage on {fs.get('mount_point', 'unknown')}")
-                        troubleshooting_results["recommendations"].append(f"Clean up disk space on {fs.get('mount_point', 'unknown')}")
-                        
-            except Exception as e:
-                troubleshooting_results["issues_found"].append(f"Performance check failed: {str(e)}")
-        
-        # Services check (Docker containers)
-        if check_type in ["services", "all"]:
-            if ctx:
-                await ctx.debug("Performing services check")
-                await ctx.report_progress(progress=70, total=100)
-            
-            try:
-                containers_result = await list_containers(
-                    device=device,
-                    timeout=timeout
-                )
-                
-                containers = containers_result.get("containers", [])
-                troubleshooting_results["checks_performed"].append("services")
-                
-                stopped_containers = [c for c in containers if not c.get("running", False)]
-                if stopped_containers:
-                    troubleshooting_results["detailed_results"]["services"] = {
-                        "total_containers": len(containers),
-                        "stopped_containers": len(stopped_containers),
-                        "stopped_container_names": [c.get("container_name") for c in stopped_containers]
-                    }
-                    
-                    if len(stopped_containers) > 0:
-                        troubleshooting_results["issues_found"].append(f"{len(stopped_containers)} containers are not running")
-                        troubleshooting_results["recommendations"].append("Check container logs and restart failed services")
-                        
-            except Exception as e:
-                troubleshooting_results["issues_found"].append(f"Services check failed: {str(e)}")
-        
-        # Determine overall status
-        if not troubleshooting_results["issues_found"]:
-            troubleshooting_results["overall_status"] = "healthy"
-            troubleshooting_results["recommendations"].append("No issues detected - system appears healthy")
-        elif len(troubleshooting_results["issues_found"]) <= 2:
-            troubleshooting_results["overall_status"] = "warning"
-        else:
-            troubleshooting_results["overall_status"] = "critical"
-        
-        if ctx:
-            await ctx.report_progress(progress=100, total=100)
-            await ctx.info(f"Troubleshooting completed: {troubleshooting_results['overall_status']}")
-        
-        return troubleshooting_results
-        
-    except Exception as e:
-        logger.error(f"Troubleshooting failed for {device}: {e}")
-        if ctx:
-            await ctx.error(f"Troubleshooting failed: {str(e)}")
-        
-        troubleshooting_results["overall_status"] = "error"
-        troubleshooting_results["issues_found"].append(f"Troubleshooting process failed: {str(e)}")
-        return troubleshooting_results
-
-
-def initialize_mcp_server():
-    """Initialize and configure the MCP server with all tools"""
-    logger.info("Initializing Infrastructure Management MCP Server")
-    
-    try:
-        # Register all tool categories
-        register_container_tools()
-        register_device_tools()
-        register_system_monitoring_tools()
-        
-        logger.info("MCP Server initialized successfully with all tools registered")
-        
-        # Log registered tools summary
-        logger.info(f"Registered {len(CONTAINER_TOOLS)} container management tools")
-        logger.info(f"Registered {len(DEVICE_TOOLS)} device management tools")
-        logger.info(f"Registered {len(SYSTEM_MONITORING_TOOLS)} system monitoring tools")
-        logger.info("Registered 2 additional utility tools")
-        
-        return mcp_server
-        
-    except Exception as e:
-        logger.error(f"Failed to initialize MCP server: {e}")
-        raise
-
-
-# Initialize the server
-def get_mcp_server() -> FastMCP:
-    """Get the configured MCP server instance"""
-    return initialize_mcp_server()
-
-
-# Export the server instance
-__all__ = ["get_mcp_server", "mcp_server"]
+if __name__ == "__main__":
+    main()
