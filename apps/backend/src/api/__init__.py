@@ -9,7 +9,6 @@ from fastapi import APIRouter
 from apps.backend.src.api.common import router as common_router
 from .devices import router as devices_router
 from .containers import router as containers_router
-from .monitoring import router as monitoring_router
 
 # Create main API router (no prefix since it's mounted at /api in main.py)
 api_router = APIRouter(tags=["API"])
@@ -21,7 +20,4 @@ api_router.include_router(common_router, tags=["Common"])
 api_router.include_router(devices_router, prefix="/devices", tags=["Devices"])
 api_router.include_router(containers_router, prefix="/containers", tags=["Containers"])
 
-# Include monitoring endpoints under devices
-api_router.include_router(monitoring_router, prefix="/devices", tags=["Device Monitoring"])
-
-__all__ = ["api_router", "common_router", "devices_router", "containers_router", "monitoring_router"]
+__all__ = ["api_router", "common_router", "devices_router", "containers_router"]

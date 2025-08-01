@@ -16,7 +16,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from apps.backend.src.core.database import get_db_session
 from apps.backend.src.core.exceptions import (
-    DeviceNotFoundError, DatabaseOperationError, ValidationError as CustomValidationError
+    DeviceNotFoundError, DatabaseOperationError, ValidationError as CustomValidationError,
+    SSHCommandError, SSHConnectionError
 )
 from apps.backend.src.schemas.device import (
     DeviceCreate, DeviceUpdate, DeviceResponse, DeviceList,
@@ -153,3 +154,66 @@ async def get_device_summary_by_hostname(
     except Exception as e:
         logger.error(f"Error getting device summary {hostname}: {e}")
         raise HTTPException(status_code=500, detail="Failed to get device summary.")
+
+
+# System Monitoring Endpoints
+@router.get("/{hostname}/metrics")
+async def get_device_metrics_by_hostname(
+    hostname: str = Path(..., description="Device hostname"),
+    include_processes: bool = Query(False, description="Include process information"),
+    timeout: int = Query(60, description="SSH timeout in seconds"),
+    current_user=Depends(get_current_user)
+):
+    """Get comprehensive system performance metrics from a device"""
+    try:
+        from apps.backend.src.mcp.tools.system_monitoring import get_system_info
+        return await get_system_info(hostname, include_processes, timeout)
+    except SSHCommandError as e:
+        raise HTTPException(status_code=500, detail=str(e))
+    except SSHConnectionError as e:
+        raise HTTPException(status_code=503, detail=str(e))
+    except Exception as e:
+        logger.error(f"Error getting device metrics for {hostname}: {e}")
+        raise HTTPException(status_code=500, detail="Failed to get device metrics.")
+
+
+@router.get("/{hostname}/drives")
+async def get_device_drives_by_hostname(
+    hostname: str = Path(..., description="Device hostname"),
+    drive: Optional[str] = Query(None, description="Filter by specific drive name"),
+    timeout: int = Query(60, description="SSH timeout in seconds"),
+    current_user=Depends(get_current_user)
+):
+    """Get S.M.A.R.T. drive health information and disk status"""
+    try:
+        from apps.backend.src.mcp.tools.system_monitoring import get_drive_health
+        return await get_drive_health(hostname, drive, timeout)
+    except SSHCommandError as e:
+        raise HTTPException(status_code=500, detail=str(e))
+    except SSHConnectionError as e:
+        raise HTTPException(status_code=503, detail=str(e))
+    except Exception as e:
+        logger.error(f"Error getting drive health for {hostname}: {e}")
+        raise HTTPException(status_code=500, detail="Failed to get drive health.")
+
+
+@router.get("/{hostname}/logs")
+async def get_device_logs_by_hostname(
+    hostname: str = Path(..., description="Device hostname"),
+    service: Optional[str] = Query(None, description="Filter by service name"),
+    since: Optional[str] = Query("1h", description="Time range (1h, 6h, 24h, 7d)"),
+    lines: int = Query(100, ge=1, le=1000, description="Number of log lines to return"),
+    timeout: int = Query(60, description="SSH timeout in seconds"),
+    current_user=Depends(get_current_user)
+):
+    """Get system logs from journald or traditional syslog"""
+    try:
+        from apps.backend.src.mcp.tools.system_monitoring import get_system_logs
+        return await get_system_logs(hostname, service, since, lines, timeout)
+    except SSHCommandError as e:
+        raise HTTPException(status_code=500, detail=str(e))
+    except SSHConnectionError as e:
+        raise HTTPException(status_code=503, detail=str(e))
+    except Exception as e:
+        logger.error(f"Error getting system logs for {hostname}: {e}")
+        raise HTTPException(status_code=500, detail="Failed to get system logs.")

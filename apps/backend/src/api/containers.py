@@ -18,19 +18,6 @@ from apps.backend.src.api.common import get_current_user
 logger = logging.getLogger(__name__)
 router = APIRouter()
 
-@router.get("")
-async def list_all_containers(
-    current_user=Depends(get_current_user)
-):
-    """
-    This endpoint is deprecated. Use /{hostname} to list containers on a specific device.
-    Container management now requires specifying a hostname instead of database lookups.
-    """
-    raise HTTPException(
-        status_code=400, 
-        detail="This endpoint is deprecated. Use /{hostname} to list containers on a specific device."
-    )
-
 @router.get("/{hostname}")
 async def list_device_containers(
     hostname: str = Path(..., description="Device hostname"),

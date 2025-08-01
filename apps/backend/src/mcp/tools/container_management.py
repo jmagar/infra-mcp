@@ -74,7 +74,7 @@ async def list_containers(
             raise ContainerError(
                 message=f"Docker ps command failed on {device}: {id_result.stderr}",
                 container_id="",
-                device_id=device,
+                hostname=device,
                 operation="list_containers"
             )
         
@@ -116,7 +116,7 @@ async def list_containers(
             raise ContainerError(
                 message=f"Docker inspect command failed on {device}: {result.stderr}",
                 container_id="",
-                device_id=device,
+                hostname=device,
                 operation="list_containers"
             )
         
@@ -199,7 +199,7 @@ async def list_containers(
             raise ContainerError(
                 message=f"Failed to parse container data from {device}",
                 container_id="",
-                device_id=device,
+                hostname=device,
                 operation="list_containers"
             )
         
@@ -245,7 +245,7 @@ async def list_containers(
         raise ContainerError(
             message=f"Failed to list containers: {str(e)}",
             container_id="",
-            device_id=device,
+            hostname=device,
             operation="list_containers"
         )
 
@@ -308,14 +308,14 @@ async def get_container_info(
                     message=f"Container '{container_name}' not found",
                     container_id=container_name,
                     operation="get_container_info",
-                    device_id=device
+                    hostname=device
                 )
             elif result.error_category == "docker_daemon_error":
                 raise ContainerError(
                     message="Docker daemon is not running or not accessible",
                     container_id=container_name,
                     operation="get_container_info",
-                    device_id=device
+                    hostname=device
                 )
             else:
                 docker_client.raise_docker_exception(result, "inspect container")
@@ -327,7 +327,7 @@ async def get_container_info(
                 message=f"No inspection data returned for container '{container_name}'",
                 container_id=container_name,
                 operation="get_container_info",
-                device_id=device
+                hostname=device
             )
         
         # Docker inspect returns an array, get the first (and only) item
@@ -495,7 +495,7 @@ async def get_container_info(
             message=f"Failed to get container details: {str(e)}",
             container_id=container_name,
             operation="get_container_info",
-            device_id=device
+            hostname=device
         )
 
 
@@ -563,14 +563,14 @@ async def get_container_logs(
                     message=f"Container '{container_name}' not found",
                     container_id=container_name,
                     operation="get_container_logs",
-                    device_id=device
+                    hostname=device
                 )
             elif result.error_category == "docker_daemon_error":
                 raise ContainerError(
                     message="Docker daemon is not running or not accessible",
                     container_id=container_name,
                     operation="get_container_logs",
-                    device_id=device
+                    hostname=device
                 )
             else:
                 docker_client.raise_docker_exception(result, "get container logs")
@@ -711,7 +711,7 @@ async def get_container_logs(
             message=f"Failed to get container logs: {str(e)}",
             container_id=container_name,
             operation="get_container_logs",
-            device_id=device
+            hostname=device
         )
 
 
@@ -776,7 +776,7 @@ async def get_service_dependencies(
                     message="Docker daemon is not running or not accessible",
                     container_id=container_name,
                     operation="get_service_dependencies",
-                    device_id=device
+                    hostname=device
                 )
             else:
                 docker_client.raise_docker_exception(containers_result, "list containers for dependency analysis")
@@ -794,7 +794,7 @@ async def get_service_dependencies(
                     message=f"Container '{container_name}' not found",
                     container_id=container_name,
                     operation="get_service_dependencies",
-                    device_id=device
+                    hostname=device
                 )
             else:
                 docker_client.raise_docker_exception(target_details_result, "inspect target container")
@@ -1135,7 +1135,7 @@ async def get_service_dependencies(
             message=f"Failed to analyze service dependencies: {str(e)}",
             container_id=container_name,
             operation="get_service_dependencies",
-            device_id=device
+            hostname=device
         )
 
 
