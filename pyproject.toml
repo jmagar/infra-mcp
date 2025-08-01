@@ -55,6 +55,8 @@ dependencies = [
     # JSON and data processing
     "orjson>=3.11.1", # Fast JSON serialization
     "python-dateutil>=2.9.0",
+    # YAML processing for Docker Compose files
+    "PyYAML>=6.0.1",
     # Monitoring and health checks
     "psutil>=7.0.0", # System monitoring
     # CLI utilities (for internal tooling)

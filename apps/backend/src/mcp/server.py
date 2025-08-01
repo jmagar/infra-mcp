@@ -7,37 +7,34 @@ instead of doing direct SSH operations. This eliminates code duplication and ens
 consistency between MCP and REST interfaces.
 """
 
+# Standard library imports
+import asyncio
+import json
+import logging
 import os
 import sys
-import asyncio
-import logging
+from typing import Any
+
+# Third-party imports
 import httpx
-from typing import List, Any
 from fastmcp import FastMCP
 
 # Add the project root to Python path
 project_root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))))
 sys.path.insert(0, project_root)
 
-# Import device management functions
-from apps.backend.src.mcp.tools.device_management import add_device as device_add_device
-
-# Import proxy configuration management functions
-from apps.backend.src.mcp.tools.proxy_management import (
-    list_proxy_configs, get_proxy_config, scan_proxy_configs,
-    sync_proxy_config, get_proxy_config_summary
-)
-
-# Import proxy configuration resources
-from apps.backend.src.mcp.resources.proxy_configs import (
-    get_proxy_config_resource, list_proxy_config_resources
-)
-
-# Import database initialization
+# Local imports
 from apps.backend.src.core.database import init_database
-
-# Import device analysis functions
-from apps.backend.src.mcp.tools.device_analysis import analyze_device
+from apps.backend.src.mcp.resources.compose_configs import (
+    get_compose_config_resource, list_compose_config_resources
+)
+from apps.backend.src.mcp.resources.proxy_configs import get_proxy_config_resource
+from apps.backend.src.mcp.tools.device_info import get_device_info
+from apps.backend.src.mcp.tools.device_management import add_device as device_add_device
+from apps.backend.src.mcp.tools.proxy_management import (
+    get_proxy_config, get_proxy_config_summary, list_proxy_configs,
+    scan_proxy_configs, sync_proxy_config
+)
 
 # Configure logging
 logging.basicConfig(
@@ -49,7 +46,9 @@ logger = logging.getLogger(__name__)
 # FastAPI server configuration
 API_BASE_URL = "http://localhost:9101/api"
 API_TIMEOUT = 120.0
-API_KEY = os.getenv("API_KEY", "your-api-key-for-authentication")
+API_KEY = os.getenv("API_KEY")
+if not API_KEY:
+    logger.warning("API_KEY environment variable not set. Authentication may fail.")
 
 
 class APIClient:
@@ -102,10 +101,10 @@ async def list_containers(
         
     except httpx.HTTPError as e:
         logger.error(f"HTTP error listing containers on {device}: {e}")
-        raise Exception(f"Failed to list containers: {str(e)}")
+        raise Exception(f"Failed to list containers: {str(e)}") from e
     except Exception as e:
         logger.error(f"Error listing containers on {device}: {e}")
-        raise Exception(f"Failed to list containers: {str(e)}")
+        raise Exception(f"Failed to list containers: {str(e)}") from e
 
 
 async def get_container_info(
@@ -122,10 +121,10 @@ async def get_container_info(
         
     except httpx.HTTPError as e:
         logger.error(f"HTTP error getting container info for {container_name} on {device}: {e}")
-        raise Exception(f"Failed to get container info: {str(e)}")
+        raise Exception(f"Failed to get container info: {str(e)}") from e
     except Exception as e:
         logger.error(f"Error getting container info for {container_name} on {device}: {e}")
-        raise Exception(f"Failed to get container info: {str(e)}")
+        raise Exception(f"Failed to get container info: {str(e)}") from e
 
 
 async def get_container_logs(
@@ -149,34 +148,13 @@ async def get_container_logs(
         
     except httpx.HTTPError as e:
         logger.error(f"HTTP error getting logs for {container_name} on {device}: {e}")
-        raise Exception(f"Failed to get container logs: {str(e)}")
+        raise Exception(f"Failed to get container logs: {str(e)}") from e
     except Exception as e:
         logger.error(f"Error getting logs for {container_name} on {device}: {e}")
-        raise Exception(f"Failed to get container logs: {str(e)}")
+        raise Exception(f"Failed to get container logs: {str(e)}") from e
 
 
 # System Monitoring Tools
-async def get_system_info(
-    device: str,
-    include_processes: bool = False,
-    timeout: int = 60
-) -> dict[str, Any]:
-    """Get comprehensive system performance metrics from a device"""
-    try:
-        params = {
-            "include_processes": include_processes,
-            "timeout": timeout
-        }
-        response = await api_client.client.get(f"/devices/{device}/metrics", params=params)
-        response.raise_for_status()
-        return response.json()
-        
-    except httpx.HTTPError as e:
-        logger.error(f"HTTP error getting system info for {device}: {e}")
-        raise Exception(f"Failed to get system info: {str(e)}")
-    except Exception as e:
-        logger.error(f"Error getting system info for {device}: {e}")
-        raise Exception(f"Failed to get system info: {str(e)}")
 
 
 async def get_drive_health(
@@ -196,10 +174,10 @@ async def get_drive_health(
         
     except httpx.HTTPError as e:
         logger.error(f"HTTP error getting drive health for {device}: {e}")
-        raise Exception(f"Failed to get drive health: {str(e)}")
+        raise Exception(f"Failed to get drive health: {str(e)}") from e
     except Exception as e:
         logger.error(f"Error getting drive health for {device}: {e}")
-        raise Exception(f"Failed to get drive health: {str(e)}")
+        raise Exception(f"Failed to get drive health: {str(e)}") from e
 
 
 async def get_drives_stats(
@@ -219,10 +197,10 @@ async def get_drives_stats(
         
     except httpx.HTTPError as e:
         logger.error(f"HTTP error getting drives stats for {device}: {e}")
-        raise Exception(f"Failed to get drives stats: {str(e)}")
+        raise Exception(f"Failed to get drives stats: {str(e)}") from e
     except Exception as e:
         logger.error(f"Error getting drives stats for {device}: {e}")
-        raise Exception(f"Failed to get drives stats: {str(e)}")
+        raise Exception(f"Failed to get drives stats: {str(e)}") from e
 
 
 async def get_system_logs(
@@ -249,10 +227,10 @@ async def get_system_logs(
         
     except httpx.HTTPError as e:
         logger.error(f"HTTP error getting system logs for {device}: {e}")
-        raise Exception(f"Failed to get system logs: {str(e)}")
+        raise Exception(f"Failed to get system logs: {str(e)}") from e
     except Exception as e:
         logger.error(f"Error getting system logs for {device}: {e}")
-        raise Exception(f"Failed to get system logs: {str(e)}")
+        raise Exception(f"Failed to get system logs: {str(e)}") from e
 
 
 # Device Management Tools
@@ -265,10 +243,10 @@ async def list_devices() -> dict[str, Any]:
         
     except httpx.HTTPError as e:
         logger.error(f"HTTP error listing devices: {e}")
-        raise Exception(f"Failed to list devices: {str(e)}")
+        raise Exception(f"Failed to list devices: {str(e)}") from e
     except Exception as e:
         logger.error(f"Error listing devices: {e}")
-        raise Exception(f"Failed to list devices: {str(e)}")
+        raise Exception(f"Failed to list devices: {str(e)}") from e
 
 
 async def add_device(
@@ -409,10 +387,6 @@ def create_mcp_server():
     # )(get_service_dependencies)
     
     # Register system monitoring tools
-    server.tool(
-        name="get_system_info",
-        description="Get comprehensive system performance metrics from a device"
-    )(get_system_info)
     
     server.tool(
         name="get_drive_health",
@@ -476,11 +450,11 @@ def create_mcp_server():
         description="Get summary statistics for proxy configurations"
     )(get_proxy_config_summary)
     
-    # Register device analysis tool
+    # Register comprehensive device info tool
     server.tool(
-        name="analyze_device",
-        description="Run comprehensive analysis on a target device to determine its capabilities including Docker, ZFS, hardware, OS, and virtualization"
-    )(analyze_device)
+        name="get_device_info",
+        description="Get comprehensive device information including capabilities analysis and system metrics (replaces analyze_device and get_system_info)"
+    )(get_device_info)
     
     # Register SWAG proxy configuration resources
     @server.resource(
@@ -495,10 +469,8 @@ def create_mcp_server():
             response = await api_client.client.get("/proxy/configs")
             response.raise_for_status()
             configs_data = response.json()
-            import json
             return json.dumps(configs_data, indent=2, default=str)
         except Exception as e:
-            import json
             return json.dumps({"error": str(e)}, indent=2)
     
     @server.resource(
@@ -512,8 +484,7 @@ def create_mcp_server():
         uri = f"swag://{service_name}"
         try:
             # Use HTTP client to get proxy config
-            params = {"service_name": service_name, "include_content": True}
-            response = await api_client.client.get("/proxy-configs/config", params=params)
+            response = await api_client.client.get(f"/proxy/configs/{service_name}")
             response.raise_for_status()
             resource_data = response.json()
             
@@ -524,7 +495,6 @@ def create_mcp_server():
                 return resource_data['raw_content']
             else:
                 # Return JSON representation for structured data
-                import json
                 return json.dumps(resource_data, indent=2, default=str)
         except Exception as e:
             return f"Error accessing resource {uri}: {str(e)}"
@@ -541,7 +511,6 @@ def create_mcp_server():
         try:
             # Use HTTP client - this endpoint may not exist yet, placeholder for now
             # Would need to implement device/path specific endpoints in FastAPI
-            import json
             return json.dumps({
                 "message": "Device/path specific resources not yet implemented",
                 "uri": uri,
@@ -549,7 +518,6 @@ def create_mcp_server():
                 "path": path
             }, indent=2)
         except Exception as e:
-            import json
             return json.dumps({"error": str(e), "uri": uri}, indent=2)
     
     # Register additional infrastructure resources
@@ -563,10 +531,8 @@ def create_mcp_server():
         """Get list of all infrastructure devices"""
         try:
             devices_data = await list_devices()
-            import json
             return json.dumps(devices_data, indent=2, default=str)
         except Exception as e:
-            import json
             return json.dumps({"error": str(e)}, indent=2)
     
     @server.resource(
@@ -580,7 +546,7 @@ def create_mcp_server():
         try:
             # Get system info and container list in parallel
             import asyncio
-            system_task = asyncio.create_task(get_system_info(device, include_processes=False))
+            system_task = asyncio.create_task(get_device_info(device, include_processes=False))
             containers_task = asyncio.create_task(list_containers(device, all_containers=True))
             
             system_info, containers_info = await asyncio.gather(
@@ -594,13 +560,59 @@ def create_mcp_server():
                 "containers": containers_info if not isinstance(containers_info, Exception) else {"error": str(containers_info)}
             }
             
-            import json
             return json.dumps(status_data, indent=2, default=str)
         except Exception as e:
-            import json
             return json.dumps({"error": str(e), "device": device}, indent=2)
     
-    logger.info("MCP server created with 17 tools (11 HTTP client + 5 proxy config + 1 device analysis) and infrastructure resources")
+    # Register Docker Compose configuration resources
+    @server.resource(
+        uri="docker://configs",
+        name="Docker Compose Global Configs",
+        description="Global listing of all Docker Compose configurations across all devices",
+        mime_type="application/json"
+    )
+    async def docker_configs_global() -> str:
+        """Get global listing of all Docker Compose configurations"""
+        try:
+            configs_data = await get_compose_config_resource("docker://configs")
+            return json.dumps(configs_data, indent=2, default=str)
+        except Exception as e:
+            return json.dumps({"error": str(e)}, indent=2)
+    
+    @server.resource(
+        uri="docker://{device}/stacks",
+        name="Docker Compose Stacks",
+        description="List all Docker Compose stacks on a specific device",
+        mime_type="application/json"
+    )
+    async def docker_device_stacks(device: str) -> str:
+        """Get list of Docker Compose stacks on device"""
+        try:
+            stacks_data = await get_compose_config_resource(f"docker://{device}/stacks")
+            return json.dumps(stacks_data, indent=2, default=str)
+        except Exception as e:
+            return json.dumps({"error": str(e), "device": device}, indent=2)
+    
+    @server.resource(
+        uri="docker://{device}/{service}",
+        name="Docker Compose Service Configuration",
+        description="Get Docker Compose configuration for a specific service",
+        mime_type="text/yaml"
+    )
+    async def docker_service_config(device: str, service: str) -> str:
+        """Get Docker Compose service configuration"""
+        try:
+            service_data = await get_compose_config_resource(f"docker://{device}/{service}")
+            
+            # Return raw YAML content if available, otherwise JSON
+            if 'content' in service_data:
+                return service_data['content']
+            else:
+                return json.dumps(service_data, indent=2, default=str)
+        except Exception as e:
+            return json.dumps({"error": str(e), "device": device, "service": service}, indent=2)
+    
+    logger.info("MCP server created with 17 tools (11 HTTP client + 5 proxy config + 1 device analysis) and infrastructure + compose resources")
     return server
 
 

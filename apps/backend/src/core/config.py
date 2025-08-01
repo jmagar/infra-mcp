@@ -123,6 +123,29 @@ class PollingSettings(BaseSettings):
     model_config = SettingsConfigDict(env_file=".env", case_sensitive=False, extra="ignore")
 
 
+class MonitoringSettings(BaseSettings):
+    """Monitoring and data collection feature settings"""
+    
+    # SMART Drive Monitoring
+    smart_monitoring_enabled: bool = Field(default=True, env="SMART_MONITORING_ENABLED")
+    smart_command_timeout: int = Field(default=15, env="SMART_COMMAND_TIMEOUT")
+    smart_graceful_fallback: bool = Field(default=True, env="SMART_GRACEFUL_FALLBACK")
+    smart_require_sudo: bool = Field(default=False, env="SMART_REQUIRE_SUDO")
+    
+    # Other monitoring features
+    container_monitoring_enabled: bool = Field(default=True, env="CONTAINER_MONITORING_ENABLED")
+    system_metrics_enabled: bool = Field(default=True, env="SYSTEM_METRICS_ENABLED")
+    network_monitoring_enabled: bool = Field(default=True, env="NETWORK_MONITORING_ENABLED")
+
+    @field_validator('smart_command_timeout')
+    def validate_smart_timeout(cls, v):
+        if v < 5 or v > 300:
+            raise ValueError('SMART command timeout must be between 5 and 300 seconds')
+        return v
+
+    model_config = SettingsConfigDict(env_file=".env", case_sensitive=False, extra="ignore")
+
+
 class RetentionSettings(BaseSettings):
     """Data retention and compression settings"""
     
@@ -199,6 +222,7 @@ class ApplicationSettings(BaseSettings):
     websocket: WebSocketSettings = Field(default_factory=WebSocketSettings)
     ssh: SSHSettings = Field(default_factory=SSHSettings)
     polling: PollingSettings = Field(default_factory=PollingSettings)
+    monitoring: MonitoringSettings = Field(default_factory=MonitoringSettings)
     retention: RetentionSettings = Field(default_factory=RetentionSettings)
     auth: AuthSettings = Field(default_factory=AuthSettings)
     logging: LoggingSettings = Field(default_factory=LoggingSettings)

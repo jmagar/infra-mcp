@@ -96,7 +96,7 @@ async def add_device(
             device_data["tags"] = tags
         
         # Make HTTP request to the API endpoint
-        api_url = f"http://localhost:9101/api/devices"
+        api_url = "http://localhost:9101/api/devices"
         headers = {
             "Authorization": f"Bearer {settings.api_key}",
             "Content-Type": "application/json"

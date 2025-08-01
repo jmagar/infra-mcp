@@ -6,13 +6,12 @@ with real-time file access and database synchronization.
 """
 
 import logging
-from typing import List, Optional
 from fastapi import APIRouter, HTTPException, Query, Path
 from fastapi.responses import PlainTextResponse
 
 from apps.backend.src.schemas.proxy_config import (
     ProxyConfigResponse, ProxyConfigList, ProxyConfigSummary,
-    ProxyConfigFileInfo, ProxyConfigSync
+    ProxyConfigSync
 )
 from apps.backend.src.mcp.tools.proxy_management import (
     list_proxy_configs, get_proxy_config, scan_proxy_configs,
@@ -28,9 +27,9 @@ router = APIRouter()
 @router.get("/configs", response_model=ProxyConfigList)
 async def list_configs(
     device: str = Query("squirts", description="Device hostname"),
-    service_name: Optional[str] = Query(None, description="Filter by service name"),
-    status: Optional[str] = Query(None, description="Filter by status"),
-    ssl_enabled: Optional[bool] = Query(None, description="Filter by SSL status"),
+    service_name: str | None = Query(None, description="Filter by service name"),
+    status: str | None = Query(None, description="Filter by status"),
+    ssl_enabled: bool | None = Query(None, description="Filter by SSL status"),
     limit: int = Query(100, description="Maximum number of results", ge=1, le=1000),
     offset: int = Query(0, description="Results offset for pagination", ge=0)
 ):
@@ -62,13 +61,16 @@ async def list_configs(
 @router.get("/configs/{service_name}", response_model=ProxyConfigResponse)
 async def get_config(
     service_name: str = Path(..., description="Service name"),
-    device: str = Query("squirts", description="Device hostname"),
-    force_refresh: bool = Query(False, description="Force refresh from file system"),
-    include_parsed: bool = Query(True, description="Include parsed nginx configuration")
+    device: str | None = Query(None, description="Device hostname (optional for disambiguation)"),
+    include_content: bool = Query(True, description="Include raw configuration content")
 ):
     """Get specific proxy configuration"""
     try:
-        result = await get_proxy_config(device, service_name, force_refresh, include_parsed)
+        result = await get_proxy_config(
+            service_name=service_name,
+            device=device,
+            include_content=include_content
+        )
         return result
     except Exception as e:
         logger.error(f"Error getting proxy config for {service_name}: {e}")
@@ -101,11 +103,11 @@ async def get_config_content(
 async def scan_configs(
     device: str = Query("squirts", description="Device hostname"),
     config_directory: str = Query("/mnt/appdata/swag/nginx/proxy-confs", description="Configuration directory path"),
-    force_update: bool = Query(False, description="Force update existing records")
+    sync_to_database: bool = Query(True, description="Whether to sync findings to database")
 ):
     """Scan and synchronize proxy configurations"""
     try:
-        result = await scan_proxy_configs(device, config_directory, force_update)
+        result = await scan_proxy_configs(device, config_directory, sync_to_database)
         return result
     except Exception as e:
         logger.error(f"Error scanning proxy configs: {e}")
@@ -115,12 +117,26 @@ async def scan_configs(
 @router.post("/configs/{service_name}/sync", response_model=ProxyConfigResponse)
 async def sync_config(
     service_name: str = Path(..., description="Service name"),
-    device: str = Query("squirts", description="Device hostname")
+    device: str | None = Query(None, description="Device hostname (optional)")
 ):
     """Synchronize specific proxy configuration"""
     try:
-        result = await sync_proxy_config(device, service_name)
+        # First get the config to find the config_id
+        config_result = await get_proxy_config(
+            service_name=service_name,
+            device=device,
+            include_content=False
+        )
+        config_id = config_result.get('id')
+        
+        if not config_id:
+            raise HTTPException(status_code=404, detail=f"Configuration not found for service '{service_name}'")
+        
+        # Now sync using the config_id
+        result = await sync_proxy_config(config_id=config_id)
         return result
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error(f"Error syncing proxy config for {service_name}: {e}")
         raise HTTPException(status_code=500, detail=str(e))

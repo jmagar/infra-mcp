@@ -26,7 +26,8 @@ from apps.backend.src.schemas.device import (
 from apps.backend.src.schemas.common import OperationResult, PaginationParams, DeviceStatus
 from ..services.device_service import DeviceService
 from apps.backend.src.api.common import get_current_user
-from apps.backend.src.mcp.tools.system_monitoring import get_system_info, get_drive_health, get_system_logs, get_drive_stats
+from apps.backend.src.mcp.tools.system_monitoring import get_drive_health, get_system_logs, get_drive_stats
+from apps.backend.src.mcp.tools.device_info import get_device_info
 
 logger = logging.getLogger(__name__)
 router = APIRouter()

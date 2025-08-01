@@ -31,6 +31,10 @@ class Device(Base):
     location = Column(String(255))
     tags = Column(JSONB, default={})
     
+    # Docker configuration paths
+    docker_compose_path = Column(String(512), nullable=True)  # Primary docker-compose project path
+    docker_appdata_path = Column(String(512), nullable=True)  # Primary appdata directory path
+    
     # Monitoring configuration
     monitoring_enabled = Column(Boolean, default=True, index=True)
     last_seen = Column(DateTime(timezone=True), index=True)

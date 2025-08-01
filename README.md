@@ -1,469 +1,429 @@
 # Infrastructor
 
-A comprehensive infrastructure monitoring and management system with separated FastAPI REST API and independent MCP server, providing traditional HTTP endpoints and AI-optimized tools for managing containerized services across multiple devices.
+> **Infrastructure Management MCP Server with FastAPI Integration**  
+> A comprehensive system for monitoring and managing Linux devices via SSH with LLM-friendly APIs
 
 ## 🚀 Features
 
-- **Separated Architecture**: Independent FastAPI REST API + standalone MCP server for optimal performance
-- **Real-time Monitoring**: Container status, system metrics, and drive health across multiple devices
-- **SSH-based Communication**: Secure device management over Tailscale network
-- **Time-series Data**: PostgreSQL + TimescaleDB for efficient metrics storage
-- **WebSocket Streaming**: Live data feeds for external applications
-- **Docker Integration**: Container discovery, management, and log streaming
-- **ZFS Support**: Pool health, snapshot integrity, and scrub monitoring
-- **LLM-Optimized Tools**: Purpose-built MCP tools for infrastructure analysis
-- **Gotify Notifications**: Real-time alerts and status updates via Gotify integration
+### Core Infrastructure Management
+- **Comprehensive Device Analysis**: Automated capability detection (Docker, ZFS, hardware, OS, virtualization)
+- **SWAG Reverse Proxy Management**: Real-time configuration sync, template management, and service discovery
+- **Enhanced Drive Monitoring**: SMART data collection, filesystem detection, I/O statistics, temperature monitoring
+- **Container Management**: Docker discovery, log streaming, service dependency mapping
+- **System Monitoring**: CPU, memory, disk usage, network statistics with time-series storage
+- **ZFS Integration**: Pool health, snapshot management, scrub monitoring
+
+### Architecture
+- **Separated API Design**: Independent FastAPI REST API + MCP server for optimal performance
+- **Real-time Synchronization**: Database storage with live file system access for fresh data
+- **SSH-based Communication**: Secure device management over SSH with proper key authentication
+- **TimescaleDB Integration**: Efficient time-series metrics storage with automatic retention
+- **MCP Resources**: Direct file access via `swag://`, `infra://` URI schemes for LLM integration
 
 ## 📋 Requirements
 
-- Python 3.11+
-- PostgreSQL 15+ with TimescaleDB extension
-- SSH key access to monitored devices
-- Tailscale network connectivity
-- UV package manager
+- **Python**: 3.11+
+- **Database**: PostgreSQL 15+ with TimescaleDB extension
+- **Access**: SSH key access to monitored devices
+- **Package Manager**: UV (recommended) or pip
+- **Optional**: Docker for containerized database
 
 ## 🏗️ Architecture
 
-### System Components
+### System Overview
 
 ```mermaid
 graph TB
-    A[FastAPI REST API] --> B[HTTP Endpoints /api/*]
-    A --> G[PostgreSQL + TimescaleDB]
-    A --> H[SSH Clients]
+    subgraph "API Layer"
+        A[FastAPI REST API<br/>Port 9101] --> B[/api/devices]
+        A --> C[/api/containers] 
+        A --> D[/api/proxy]
+        A --> E[/health]
+    end
     
-    C[Independent MCP Server] --> D[Infrastructure Tools]
-    C --> E[Custom LLM Tools]
-    C --> F[stdio Transport]
-    F --> L[Claude Code Integration]
+    subgraph "MCP Layer"
+        F[MCP Server<br/>HTTP 9102] --> G[17 Infrastructure Tools]
+        F --> H[SWAG Resources swag://]
+        F --> I[Device Resources infra://]
+    end
     
-    H --> I[Device 1<br/>Containers & Metrics]
-    H --> J[Device 2<br/>Containers & Metrics]
-    H --> K[Device N<br/>Containers & Metrics]
+    subgraph "Data Layer"
+        J[PostgreSQL + TimescaleDB<br/>Port 9100] --> K[Device Registry]
+        J --> L[Proxy Configurations]
+        J --> M[System Metrics]
+        J --> N[Change History]
+    end
+    
+    subgraph "Infrastructure"
+        O[Device 1: SSH] --> P[Docker Containers]
+        O --> Q[System Metrics]
+        O --> R[SWAG Configs]
+        S[Device 2: SSH] --> T[ZFS Pools]
+        S --> U[Hardware Info]
+        S --> V[Log Files]
+    end
+    
+    A --> J
+    F --> A
+    A --> O
+    A --> S
 ```
 
 ### Port Allocation
-
-- **PostgreSQL**: 9100
-- **FastAPI REST API**: 9101
-- **WebSocket**: 9102 (future)
-- **Frontend Dev**: 9103 (future)
-- **MCP Server**: Independent stdio process (no port)
+- **PostgreSQL**: 9100 (Docker container)
+- **FastAPI REST API**: 9101 (HTTP endpoints)
+- **MCP Server**: 9102 (HTTP transport for Claude Code)
+- **Development Scripts**: `./dev.sh` manages all services
 
 ## 🚀 Quick Start
 
-### 1. Clone and Setup
+### 1. Environment Setup
 
 ```bash
-git clone https://github.com/jmagar/infrastructor.git
+# Clone repository
+git clone https://github.com/jmagar/infra-mcp.git
 cd infrastructor
-```
 
-### 2. Install Dependencies
-
-```bash
-# Install UV if not already installed
+# Install UV package manager
 curl -LsSf https://astral.sh/uv/install.sh | sh
 
-# Install project dependencies
+# Install dependencies
 uv sync
-```
 
-### 3. Environment Configuration
-
-```bash
+# Configure environment
 cp .env.example .env
-# Edit .env with your configuration
+# Edit .env with your settings (database, API keys, etc.)
 ```
 
-### 4. Database Setup
+### 2. Database Setup
 
 ```bash
 # Start PostgreSQL with TimescaleDB
 docker compose up postgres -d
 
-# Wait for database to be ready
-docker compose logs postgres
+# Run database migrations
+uv run alembic upgrade head
+
+# Verify database health
+curl http://localhost:9101/health
 ```
 
-### 5. Development Server
+### 3. Development Server
 
 ```bash
-# Activate virtual environment
-source .venv/bin/activate
+# Start both API and MCP servers
+./dev.sh start
 
-# Run FastAPI REST API server
-uv run uvicorn apps.backend.src.main:app --reload --host 0.0.0.0 --port 9101
+# View logs from both servers
+./dev.sh logs
 
-# Run MCP server (separate terminal for Claude Code integration)
-python mcp_server.py
+# Stop all servers
+./dev.sh stop
 ```
+
+The development script manages:
+- **FastAPI server** on port 9101 with auto-reload
+- **MCP server** on port 9102 for Claude Code integration
+- **Log rotation** with size management
+- **Health monitoring** with startup verification
 
 ## 📁 Project Structure
 
 ```
 infrastructor/
-├── apps/backend/           # FastAPI REST API application
-│   ├── src/
-│   │   ├── api/           # REST API endpoints
-│   │   ├── mcp/           # MCP tools (used by independent server)
-│   │   ├── core/          # Configuration and database
-│   │   ├── services/      # Business logic
-│   │   ├── models/        # Database models
-│   │   └── schemas/       # Pydantic schemas
-│   └── tests/             # Backend tests
-├── apps/frontend/         # Web UI (future)
-├── packages/              # Shared packages
-├── scripts/               # Development scripts
-├── mcp_server.py          # Independent MCP server for Claude Code
-├── init-scripts/          # Database initialization
-├── logs/                  # Application logs
-└── docs/                  # Documentation
+├── apps/backend/src/           # FastAPI application
+│   ├── main.py                 # FastAPI app entry point
+│   ├── api/                    # REST API endpoints
+│   │   ├── devices.py          # Device management endpoints
+│   │   ├── containers.py       # Container operations
+│   │   ├── proxy.py            # SWAG proxy configuration
+│   │   └── common.py           # Health checks, utilities
+│   ├── mcp/                    # MCP server implementation
+│   │   ├── server.py           # Main MCP server
+│   │   ├── tools/              # 17 MCP tools
+│   │   │   ├── device_analysis.py      # Comprehensive device analysis
+│   │   │   ├── device_management.py    # Device registry operations
+│   │   │   ├── container_management.py # Docker operations
+│   │   │   ├── system_monitoring.py    # System metrics & drive stats
+│   │   │   ├── proxy_management.py     # SWAG configuration tools
+│   │   │   └── metrics_collection.py   # Historical data collection
+│   │   └── resources/          # MCP resources (swag://, infra://)
+│   │       └── proxy_configs.py        # Direct file access resources
+│   ├── models/                 # Database models (SQLAlchemy)
+│   ├── schemas/                # API schemas (Pydantic)
+│   ├── services/               # Business logic
+│   ├── core/                   # Configuration, database setup
+│   └── utils/                  # SSH client, nginx parser
+├── alembic/                    # Database migrations
+├── init-scripts/               # TimescaleDB setup scripts
+├── logs/                       # Application logs (auto-managed)
+├── dev.sh                      # Development server management
+├── docker-compose.yaml         # PostgreSQL setup
+└── docs/                       # Documentation
+    ├── PRD.md                  # Product requirements
+    └── MONOREPO.md             # Development guidelines
 ```
 
 ## 🔧 Configuration
 
-### Environment Variables
-
-Key configuration options in `.env`:
+### Environment Variables (.env)
 
 ```bash
-# Database
+# Database Configuration
 POSTGRES_HOST=localhost
 POSTGRES_PORT=9100
 POSTGRES_DB=infrastructor
 POSTGRES_USER=infrastructor
 POSTGRES_PASSWORD=your_secure_password
 
-# MCP Server
-MCP_HOST=0.0.0.0
-MCP_PORT=9101
-MCP_PATH=/mcp
+# API Authentication
+API_KEY=your-api-key-for-authentication
 
-# SSH Configuration
-SSH_KEY_PATH=~/.ssh/id_ed25519
+# Server Configuration
+MCP_HOST=localhost
+MCP_PORT=9102
+DEBUG=true
+ENVIRONMENT=development
+
+# SSH Configuration (uses ~/.ssh/config by default)
 SSH_CONNECTION_TIMEOUT=30
 SSH_COMMAND_TIMEOUT=60
-
-# Authentication
-JWT_SECRET_KEY=your_jwt_secret
-API_KEY=your_api_key
-
-# External Integrations
-GOTIFY_URL=https://your-gotify-instance.com
-GOTIFY_TOKEN=your_gotify_token
 ```
 
 ### Device Registration
 
 **Automatic Discovery** (Recommended):
 ```bash
-# Auto-discover devices from Tailscale network
-curl -X POST http://localhost:9101/api/devices/discover/tailscale \\
-  -H "X-API-Key: your_api_key"
-
-# Auto-discover devices from SSH config
-curl -X POST http://localhost:9101/api/devices/discover/ssh-config \\
-  -H "X-API-Key: your_api_key"
-```
-
-**Manual Registration**:
-```bash
-curl -X POST http://localhost:9101/api/devices \\
-  -H "Content-Type: application/json" \\
-  -H "X-API-Key: your_api_key" \\
+# Auto-register devices from your infrastructure
+curl -X POST http://localhost:9101/api/devices \
+  -H "Authorization: Bearer your-api-key-for-authentication" \
+  -H "Content-Type: application/json" \
   -d '{
     "hostname": "server1",
-    "ip_address": "100.64.1.100",
-    "ssh_user": "root",
-    "device_type": "ubuntu_physical"
+    "device_type": "server",
+    "monitoring_enabled": true
   }'
 ```
 
-The system can automatically discover devices using:
-- **Tailscale CLI**: `tailscale status` to find all connected devices
-- **SSH Config**: Parse `~/.ssh/config` for pre-configured hosts
-- **Network Scanning**: Discover devices on Tailscale subnet (optional)
-
-## 🛠️ Development
-
-### Running Tests
-
+**Device Analysis** (New Feature):
 ```bash
-# Run all tests
-uv run pytest
-
-# Run with coverage
-uv run pytest --cov=src
-
-# Run specific tests
-uv run pytest apps/backend/tests/test_api/
+# Run comprehensive capability analysis
+curl -X POST http://localhost:9101/api/devices/server1/analyze \
+  -H "Authorization: Bearer your-api-key-for-authentication"
 ```
 
-### Code Quality
+## 🛠️ API Interfaces
 
+### 1. REST API (Port 9101)
+
+**Core Endpoints:**
 ```bash
-# Linting and formatting
-uv run ruff check .
-uv run ruff format .
+# Device Management
+GET  /api/devices                    # List all devices
+POST /api/devices                    # Register new device  
+GET  /api/devices/{hostname}         # Get device details
+POST /api/devices/{hostname}/analyze # Run device analysis
 
-# Type checking
-uv run mypy src/
+# Container Operations
+GET  /api/containers/{device}               # List containers
+GET  /api/containers/{device}/{name}       # Container details
+GET  /api/containers/{device}/{name}/logs  # Container logs
+
+# System Monitoring  
+GET  /api/devices/{device}/metrics     # System metrics
+GET  /api/devices/{device}/drives      # Drive health (SMART data)
+GET  /api/devices/{device}/drives/stats # Enhanced drive statistics
+
+# SWAG Proxy Management (New)
+GET  /api/proxy/configs                     # List proxy configurations
+GET  /api/proxy/configs/{service}          # Get specific config
+GET  /api/proxy/templates/{type}           # Get templates (subdomain/subfolder)
+GET  /api/proxy/samples                     # List sample configurations
+POST /api/proxy/scan                       # Scan and sync configurations
+
+# Health & Status
+GET  /health                          # Application health check
 ```
 
-### Database Migrations
+**Enhanced Features:**
+- **SMART Drive Data**: Power-on hours, temperature, wear leveling
+- **Filesystem Detection**: ext4, xfs, btrfs, zfs, ntfs, vfat, exfat
+- **Real-time Sync**: Live file system access with database caching
+- **Comprehensive Analysis**: Hardware, OS, virtualization, service detection
 
-```bash
-# Generate migration
-uv run alembic revision --autogenerate -m "Description"
+### 2. MCP Interface (Port 9102)
 
-# Apply migrations
-uv run alembic upgrade head
-```
-
-## 📡 API Interfaces
-
-Infrastructor provides **three complementary interfaces** for different integration patterns:
-
-### 1. REST API (`/api/*`)
-**Traditional HTTP endpoints** for direct programmatic integration:
-
-```bash
-# Device management
-curl http://localhost:9101/api/devices
-curl http://localhost:9101/api/devices/server1
-
-# Container operations
-curl http://localhost:9101/api/containers
-curl http://localhost:9101/api/containers/server1/nginx-proxy
-curl http://localhost:9101/api/containers/server1/nginx-proxy/logs
-
-# System monitoring
-curl http://localhost:9101/api/metrics/server1
-curl http://localhost:9101/api/drives/server1
-curl http://localhost:9101/api/zfs/server1/status
-
-# Network topology
-curl http://localhost:9101/api/network/topology
-
-# Backup status
-curl http://localhost:9101/api/backups/server1
-```
-
-**Features:**
-- OpenAPI documentation at `/docs`
-- API key authentication (`X-API-Key` header)
-- JSON responses with consistent error handling
-- Historical metrics with TimescaleDB aggregation
-
-### 2. MCP Interface (`/mcp`)
-**LLM-optimized tools** for AI-powered infrastructure management:
-
-**Connection Configuration:**
+**Claude Code Integration:**
 ```json
 {
   "mcpServers": {
-    "infrastructure-server": {
+    "infra": {
       "command": "python",
-      "args": ["server.py"],
-      "transport": {
-        "type": "http",
-        "url": "http://localhost:9101/mcp"
-      }
+      "args": ["apps/backend/src/mcp/server.py"],
+      "cwd": "/path/to/infrastructor"
     }
   }
 }
 ```
 
 **Available Tools (17 total):**
-- **Container Management (4)**: `list_containers`, `get_container_details`, `get_container_logs`, `get_service_dependencies`
-- **System Monitoring (3)**: `get_system_metrics`, `get_drive_health`, `get_system_logs`
-- **ZFS Management (3)**: `get_zfs_status`, `get_zfs_snapshots`, `verify_zfs_integrity`
-- **Network Tools (2)**: `get_network_topology`, `list_docker_networks`
-- **Backup & Maintenance (2)**: `get_backup_status`, `check_updates`
-- **Utility Tools (3)**: `list_devices`, `get_device_info`, `get_vm_status`
 
-**Features:**
-- JWT bearer token authentication
-- Auto-generated from REST API + custom LLM-optimized tools
-- Context management with progress reporting
-- Resources and prompts for infrastructure analysis
+**Device Management (4 tools):**
+- `list_devices` - Device registry with filtering
+- `add_device` - Register new devices  
+- `edit_device` - Update device configuration
+- `analyze_device` - **NEW**: Comprehensive capability analysis
 
-### 3. WebSocket API (`/ws`)
-**Real-time streaming** for live monitoring and dashboards:
+**Container Management (3 tools):**
+- `list_containers` - Docker container discovery
+- `get_container_info` - Detailed container inspection
+- `get_container_logs` - Log streaming with filtering
 
-```javascript
-const ws = new WebSocket('ws://localhost:9102/ws?token=jwt-token');
+**System Monitoring (3 tools):**
+- `get_system_info` - CPU, memory, disk, network metrics
+- `get_drive_health` - SMART data and drive health
+- `get_drives_stats` - **Enhanced**: I/O statistics, filesystem types
+- `get_system_logs` - System log access and filtering
 
-// Subscribe to events
-ws.send(JSON.stringify({
-  type: 'subscribe',
-  subscriptions: [
-    {
-      event_type: 'system_metrics',
-      device_filter: ['server01', 'server02'],
-      rate_limit: 1
-    },
-    {
-      event_type: 'container_update',
-      device_filter: ['server01']
-    },
-    {
-      event_type: 'alerts'
-    }
-  ]
-}));
+**SWAG Proxy Management (5 tools):**
+- `list_proxy_configs` - Configuration discovery with sync status
+- `get_proxy_config` - Real-time configuration content  
+- `scan_proxy_configs` - Directory scanning and database sync
+- `sync_proxy_config` - Individual configuration synchronization
+- `get_proxy_config_summary` - Statistics and health overview
 
-ws.onmessage = (event) => {
-  const message = JSON.parse(event.data);
-  console.log('Live update:', message);
-};
-```
+**MCP Resources:**
+- `swag://configs` - List all SWAG configurations
+- `swag://{service}` - Direct access to service configurations  
+- `swag://templates/{type}` - Configuration templates
+- `swag://samples/{name}` - Sample configurations
+- `infra://devices` - Device registry overview
+- `infra://{device}/status` - Real-time device status
 
-**Message Types:** `system_metrics`, `container_update`, `device_status`, `alert`
+## 📊 Development
 
-### Complete API Documentation
-
-For comprehensive API reference including:
-- **Endpoint specifications** with parameters and responses
-- **Authentication patterns** for each interface
-- **Error handling** and status codes
-- **Rate limiting** and headers
-- **Implementation examples** in Python and JavaScript
-- **MCP resources and prompts**
-- **WebSocket message schemas**
-
-**See: @API.md**
-
-## 🚀 Deployment
-
-### Current Deployment (Development)
-
-- **PostgreSQL**: Docker container
-- **Application**: Local development server
+### Development Workflow
 
 ```bash
-# Production database
-docker compose up postgres -d
+# Start development environment
+./dev.sh start
 
-# Development server
-uv run uvicorn src.main:app --host 0.0.0.0 --port 9101
+# Monitor logs in real-time  
+./dev.sh logs
+
+# Restart after code changes
+./dev.sh restart
+
+# Stop all services
+./dev.sh stop
 ```
 
-### Future Deployment (Full Container)
+### Code Quality
 
 ```bash
-# Full containerized deployment (when ready)
-docker compose up -d
+# Type checking
+uv run mypy apps/backend/src/
+
+# Linting and formatting
+uv run ruff check apps/backend/src/
+uv run ruff format apps/backend/src/
 ```
 
-## 📊 Monitoring
-
-### Health Checks
+### Database Operations
 
 ```bash
-# Application health
-curl http://localhost:9101/health
+# Create migration
+uv run alembic revision --autogenerate -m "Description"
 
-# Database health
-curl http://localhost:9101/health/db
+# Apply migrations
+uv run alembic upgrade head
 
-# MCP server status
-curl http://localhost:9105/health
+# Check migration status
+uv run alembic current
 ```
 
-### Logs
+### Testing
 
 ```bash
-# Application logs
-tail -f logs/app/infrastructor.log
+# Run comprehensive device analysis
+curl -X POST "http://localhost:9101/api/devices/your-device/analyze" \
+  -H "Authorization: Bearer your-api-key-for-authentication"
 
-# PostgreSQL logs
-docker compose logs postgres -f
+# Test SWAG configuration sync
+curl -X POST "http://localhost:9101/api/proxy/scan?device=squirts" \
+  -H "Authorization: Bearer your-api-key-for-authentication"
 ```
-
-## 🤝 Contributing
-
-1. Fork the repository
-2. Create a feature branch (`git checkout -b feature/amazing-feature`)
-3. Commit your changes (`git commit -m 'Add amazing feature'`)
-4. Push to the branch (`git push origin feature/amazing-feature`)
-5. Open a Pull Request
-
-### Development Guidelines
-
-- Follow the monorepo structure in `MONOREPO.md`
-- Keep modules under 500 lines when possible
-- Write tests for new features
-- Use type hints throughout
-- Follow the existing code style (Ruff configuration)
-
-## 📚 Documentation
-
-- **@PRD.md** - Product Requirements Document with technical architecture
-- **@API.md** - Complete API reference for REST, MCP, and WebSocket interfaces
-- **@TOOLS.md** - All 17 MCP tools with detailed descriptions and examples
-- **@SCHEMAS.md** - TypeScript interfaces, database DDL, and Pydantic models
-- **@MONOREPO.md** - Project structure and development patterns
-- **@FASTAPI-FASTMCP-STREAMABLE-HTTP-SETUP.md** - FastAPI + MCP integration guide
-- **@CLAUDE.md** - Development guide and workflow instructions
 
 ## 🔐 Security
 
-- SSH key-based device authentication
-- JWT tokens for API access
-- API key authentication for external integrations
-- No credentials stored in repository (use environment variables)
-- Regular security updates via Dependabot
+- **SSH Key Authentication**: Uses existing SSH configuration and keys
+- **API Key Authentication**: Bearer token authentication for REST endpoints
+- **Secure Communication**: All device communication over SSH
+- **No Credential Storage**: Credentials managed via SSH agent and environment variables
+- **Permission Handling**: Graceful fallback when elevated permissions unavailable
 
-## 📈 Roadmap
+## 🗺️ Roadmap
 
-### Phase 1: MVP Foundation 🚧
-- [ ] MCP server framework
-- [ ] Device registry and SSH management
-- [ ] PostgreSQL + TimescaleDB setup
-- [ ] Basic container discovery
+### ✅ Completed Features (Phase 1-2)
+- [x] **Core MCP Server**: 17 tools with HTTP transport
+- [x] **Device Registry**: CRUD operations with automatic discovery
+- [x] **Container Management**: Docker integration with log streaming
+- [x] **Enhanced Drive Monitoring**: SMART data, filesystem detection, I/O stats
+- [x] **SWAG Proxy Management**: Real-time sync, templates, sample configurations
+- [x] **Device Analysis Tool**: Comprehensive capability detection
+- [x] **Database Integration**: TimescaleDB with efficient time-series storage
+- [x] **Development Tools**: Automated server management with `./dev.sh`
 
-### Phase 2: Monitoring & Health 🚧
-- [ ] Drive health monitoring (SMART data)
-- [ ] ZFS pool status and health checks
-- [ ] Background polling engine
-- [ ] Historical data storage
+### 🚧 Current Development (Phase 3)
+- [ ] **System Log Integration**: Centralized log access and searching
+- [ ] **Historical Metrics**: Long-term trend analysis and alerting
+- [ ] **Performance Optimization**: Connection pooling and caching strategies
+- [ ] **Enhanced Error Handling**: Retry logic and graceful degradation
 
-### Phase 3: Logging & Diagnostics
-- [ ] System log access and searching
-- [ ] Container log streaming
-- [ ] Log aggregation capabilities
+### 📅 Planned Features (Phase 4-5)
+- [ ] **Web Dashboard**: React-based monitoring interface
+- [ ] **WebSocket Streaming**: Real-time data feeds for dashboards
+- [ ] **Advanced Analytics**: Service dependency mapping and health scoring
+- [ ] **Backup Integration**: Automated backup verification and management
+- [ ] **Mobile Support**: Progressive web app with responsive design
 
-### Phase 4: Advanced Features
-- [ ] Service dependency mapping
-- [ ] VM status monitoring
-- [ ] Backup job verification
-- [ ] Update management
+## 📚 Documentation
 
-### Phase 5: Web Frontend
-- [ ] React-based dashboard
-- [ ] Real-time data visualization
-- [ ] Mobile-responsive design
-- [ ] Progressive Web App features
+- **[docs/PRD.md](docs/PRD.md)** - Product Requirements Document with technical architecture
+- **[docs/MONOREPO.md](docs/MONOREPO.md)** - Project structure and development patterns  
+- **[CLAUDE.md](CLAUDE.md)** - Development guide and Claude Code integration
+- **API Documentation** - OpenAPI docs available at `/docs` when server is running
 
+## 🤝 Contributing
+
+1. **Fork** the repository
+2. **Create** a feature branch (`git checkout -b feat/amazing-feature`)
+3. **Develop** following the existing patterns in `MONOREPO.md`
+4. **Test** using the development tools (`./dev.sh`)
+5. **Commit** with descriptive messages
+6. **Push** and create a Pull Request
+
+### Development Guidelines
+- Follow the monorepo structure with clear separation of concerns
+- Write comprehensive tests for new MCP tools
+- Use proper type hints and error handling
+- Document new features with examples
+- Test against real infrastructure devices
 
 ## 📄 License
 
 This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
 
-## 👥 Authors
-
-- **Infrastructure Team** - *Initial work*
-
 ## 🙏 Acknowledgments
 
-- [FastAPI](https://fastapi.tiangolo.com/) - Modern web framework
-- [FastMCP](https://github.com/jlowin/fastmcp) - MCP server integration
-- [TimescaleDB](https://www.timescale.com/) - Time-series database
-- [UV](https://github.com/astral-sh/uv) - Python package manager
-- [Tailscale](https://tailscale.com/) - Secure networking
+- **[FastAPI](https://fastapi.tiangolo.com/)** - Modern web framework for APIs
+- **[FastMCP](https://github.com/jlowin/fastmcp)** - Model Context Protocol server integration  
+- **[TimescaleDB](https://www.timescale.com/)** - Time-series database for metrics
+- **[UV](https://github.com/astral-sh/uv)** - Fast Python package manager
+- **[Claude Code](https://claude.ai/code)** - AI-powered development assistance
 
 ---
 
-**Status**: 🚧 Active Development | **Version**: 1.0.0-dev | **Python**: 3.11+
+**Status**: 🚀 **Production Ready** | **Version**: 2.0.0 | **Python**: 3.11+ | **MCP Tools**: 17
+
+**Quick Start**: `./dev.sh start` → **API**: http://localhost:9101/docs → **Health**: http://localhost:9101/health

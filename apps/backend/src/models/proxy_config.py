@@ -66,7 +66,7 @@ class ProxyConfig(Base):
     
     # Constraints
     __table_args__ = (
-        UniqueConstraint('device_id', 'service_name', 'subdomain', name='uq_proxy_config_service'),
+        UniqueConstraint('device_id', 'service_name', name='proxy_configs_device_id_service_name_key'),
         CheckConstraint("config_type IN ('subdomain', 'subfolder', 'port', 'custom')", name='ck_proxy_config_type'),
         CheckConstraint("status IN ('active', 'inactive', 'error', 'pending')", name='ck_proxy_config_status'),
         CheckConstraint("sync_status IN ('synced', 'out_of_sync', 'error', 'pending')", name='ck_proxy_config_sync_status'),

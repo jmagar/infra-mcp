@@ -145,8 +145,8 @@ async def get_proxy_config(
     
     Args:
         config_id: Configuration ID
-        device: Device hostname (alternative lookup)
-        service_name: Service name (with device for alternative lookup)
+        device: Device hostname (optional, for disambiguation)
+        service_name: Service name (unique identifier from filename)
         include_content: Include raw configuration content
         
     Returns:
@@ -154,22 +154,28 @@ async def get_proxy_config(
     """
     try:
         async with get_async_session() as session:
-            # Build query
+            # Build query - service_name should be sufficient as it's unique
             if config_id:
                 query = select(ProxyConfig).where(ProxyConfig.id == config_id)
-            elif device and service_name:
-                query = select(ProxyConfig).where(
-                    and_(ProxyConfig.device_id == device, ProxyConfig.service_name == service_name)
-                )
+            elif service_name:
+                # Service name is unique across the system (from filename)
+                if device:
+                    # If device is provided, use both for safety
+                    query = select(ProxyConfig).where(
+                        and_(ProxyConfig.device_id == device, ProxyConfig.service_name == service_name)
+                    )
+                else:
+                    # Service name alone should be sufficient
+                    query = select(ProxyConfig).where(ProxyConfig.service_name == service_name)
             else:
-                raise ValidationError("Must provide either config_id or both device and service_name")
+                raise ValidationError("Must provide either config_id or service_name")
             
             query = query.options(selectinload(ProxyConfig.device))
             result = await session.execute(query)
             config = result.scalar_one_or_none()
             
             if not config:
-                raise ResourceNotFoundError("Proxy configuration not found")
+                raise ResourceNotFoundError(f"Proxy configuration not found for service '{service_name}'")
             
             # Get real-time file information and content
             file_info = await _get_real_time_file_info(config.device_id, config.file_path)
@@ -185,13 +191,19 @@ async def get_proxy_config(
                     file_info['content_changed'] = True
                     file_info['parsed_config'] = parsed_config
             
-            # Get recent changes
-            changes_query = select(ProxyConfigChange).where(
-                ProxyConfigChange.config_id == config.id
-            ).order_by(desc(ProxyConfigChange.time)).limit(10)
-            
-            changes_result = await session.execute(changes_query)
-            recent_changes = changes_result.scalars().all()
+            # Get recent changes (handle missing table gracefully)
+            recent_changes = []
+            try:
+                changes_query = select(ProxyConfigChange).where(
+                    ProxyConfigChange.config_id == config.id
+                ).order_by(desc(ProxyConfigChange.time)).limit(10)
+                
+                changes_result = await session.execute(changes_query)
+                recent_changes = changes_result.scalars().all()
+            except Exception as e:
+                # Table doesn't exist yet, continue without changes
+                logger.warning(f"Could not fetch proxy config changes: {e}")
+                recent_changes = []
             
             return {
                 'id': config.id,
@@ -376,17 +388,20 @@ async def sync_proxy_config(
                 config.sync_last_error = 'File not found'
                 config.updated_at = sync_start
                 
-                # Record change
-                change = ProxyConfigChange(
-                    config_id=config.id,
-                    change_type='deleted',
-                    old_hash=config.file_hash,
-                    new_hash=None,
-                    change_summary='Configuration file deleted',
-                    triggered_by='sync_check',
-                    time=sync_start
-                )
-                session.add(change)
+                # Record change (handle missing table gracefully)
+                try:
+                    change = ProxyConfigChange(
+                        config_id=config.id,
+                        change_type='deleted',
+                        old_hash=config.file_hash,
+                        new_hash=None,
+                        change_summary='Configuration file deleted',
+                        triggered_by='sync_check',
+                        time=sync_start
+                    )
+                    session.add(change)
+                except Exception as e:
+                    logger.warning(f"Could not record proxy config change: {e}")
                 
                 sync_result['changes_detected'].append('File deleted')
                 sync_result['updated'] = True
@@ -415,17 +430,20 @@ async def sync_proxy_config(
                         config.sync_last_error = None
                         config.updated_at = sync_start
                         
-                        # Record change
-                        change = ProxyConfigChange(
-                            config_id=config.id,
-                            change_type='modified',
-                            old_hash=old_hash,
-                            new_hash=current_hash,
-                            change_summary='Configuration file updated',
-                            triggered_by='sync_check',
-                            time=sync_start
-                        )
-                        session.add(change)
+                        # Record change (handle missing table gracefully)
+                        try:
+                            change = ProxyConfigChange(
+                                config_id=config.id,
+                                change_type='modified',
+                                old_hash=old_hash,
+                                new_hash=current_hash,
+                                change_summary='Configuration file updated',
+                                triggered_by='sync_check',
+                                time=sync_start
+                            )
+                            session.add(change)
+                        except Exception as e:
+                            logger.warning(f"Could not record proxy config change: {e}")
                         
                         sync_result['changes_detected'].append('Content modified')
                         sync_result['updated'] = True
@@ -640,12 +658,11 @@ async def _sync_configs_to_database(device: str, configs_found: List[Dict[str, A
         async with get_async_session() as session:
             for config_info in configs_found:
                 try:
-                    # Check if config exists
+                    # Check if config exists using the actual unique constraint
                     query = select(ProxyConfig).where(
                         and_(
                             ProxyConfig.device_id == device,
-                            ProxyConfig.service_name == config_info['service_name'],
-                            ProxyConfig.subdomain == config_info['subdomain']
+                            ProxyConfig.service_name == config_info['service_name']
                         )
                     )
                     result = await session.execute(query)

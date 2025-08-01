@@ -8,6 +8,7 @@
 .env.production
 .env.staging
 *.env
+.claude
 
 # SSH Keys
 *.pem

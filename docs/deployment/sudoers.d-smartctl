@@ -1,0 +1,49 @@
+# Sudoers configuration for Infrastructor SMART data collection
+# 
+# This file should be placed at /etc/sudoers.d/smartctl on target devices
+# to allow the SSH user to execute limited smartctl commands for drive monitoring.
+#
+# SECURITY NOTE: This configuration restricts smartctl to read-only operations only.
+# The user cannot modify drive settings or perform write operations.
+#
+# Installation:
+#   1. Copy this file to /etc/sudoers.d/smartctl on each monitored device
+#   2. Set proper permissions: sudo chmod 440 /etc/sudoers.d/smartctl
+#   3. Validate with: sudo visudo -c -f /etc/sudoers.d/smartctl
+#
+# Replace 'infrastructor' with your actual SSH username
+
+# Allow infrastructor user to run specific smartctl commands without password
+infrastructor ALL=(root) NOPASSWD: /usr/sbin/smartctl -i /dev/*, \
+                                   /usr/sbin/smartctl -H /dev/*, \
+                                   /usr/sbin/smartctl -A /dev/*, \
+                                   /usr/sbin/smartctl -a /dev/*
+
+# Alternative locations for smartctl binary (some systems install it in different paths)
+infrastructor ALL=(root) NOPASSWD: /usr/bin/smartctl -i /dev/*, \
+                                   /usr/bin/smartctl -H /dev/*, \
+                                   /usr/bin/smartctl -A /dev/*, \
+                                   /usr/bin/smartctl -a /dev/*
+
+# For systems where smartctl is in /sbin
+infrastructor ALL=(root) NOPASSWD: /sbin/smartctl -i /dev/*, \
+                                   /sbin/smartctl -H /dev/*, \
+                                   /sbin/smartctl -A /dev/*, \
+                                   /sbin/smartctl -a /dev/*
+
+# Explanation of smartctl flags:
+# -i : Display device information (identify)  
+# -H : Check device health status
+# -A : Display all SMART attributes  
+# -a : Display all information (combines -i, -H, -A and more)
+#
+# Device pattern /dev/* allows access to:
+# - /dev/sda, /dev/sdb, etc. (traditional SATA/IDE drives)
+# - /dev/nvme0n1, /dev/nvme1n1, etc. (NVMe drives)  
+# - /dev/mmcblk0, etc. (eMMC/SD cards)
+#
+# This does NOT allow:
+# - smartctl -t (running tests)
+# - smartctl -s (setting attributes)  
+# - smartctl --set (modifying settings)
+# - Any other potentially destructive operations

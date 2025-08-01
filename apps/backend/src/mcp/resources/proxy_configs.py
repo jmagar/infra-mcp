@@ -5,11 +5,10 @@ MCP resources for exposing SWAG reverse proxy configurations
 with real-time file access and database integration.
 """
 
-import asyncio
 import logging
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Dict, List, Optional, Any
+from typing import Optional, Any
 from urllib.parse import urlparse, parse_qs
 
 from apps.backend.src.mcp.tools.proxy_management import (
@@ -25,7 +24,7 @@ logger = logging.getLogger(__name__)
 
 
 
-async def get_proxy_config_resource(uri: str) -> Dict[str, Any]:
+async def get_proxy_config_resource(uri: str) -> dict[str, Any]:
     """
     Get SWAG proxy configuration resource content
     
@@ -108,7 +107,7 @@ async def _get_template_resource(
     template_filename: str,
     format_type: str = 'raw',
     include_parsed: bool = True
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """Get SWAG template configuration file"""
     
     try:
@@ -205,7 +204,7 @@ async def _get_sample_resource(
     sample_filename: str,
     format_type: str = 'raw',
     include_parsed: bool = True
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """Get individual SWAG sample configuration file"""
     
     try:
@@ -360,7 +359,7 @@ async def _get_sample_resource(
         }
 
 
-async def _get_samples_directory_resource(device: str) -> Dict[str, Any]:
+async def _get_samples_directory_resource(device: str) -> dict[str, Any]:
     """Get directory listing of all SWAG sample files"""
     
     try:
@@ -443,7 +442,7 @@ async def _get_service_config_resource(
     force_refresh: bool = False,
     include_parsed: bool = True,
     format_type: str = 'raw'
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """Get service configuration with automatic device discovery and real-time content"""
     
     try:
@@ -578,7 +577,7 @@ async def _get_direct_file_resource(
     file_path: str, 
     format_type: str = 'raw',
     include_parsed: bool = True
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """Get direct file resource with real-time content"""
     
     # Ensure absolute path
@@ -670,7 +669,7 @@ async def _get_database_config_resource(
     service_name: str,
     force_refresh: bool = False,
     include_parsed: bool = True
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """Get configuration from database with real-time validation"""
     
     try:
@@ -762,7 +761,7 @@ async def _get_database_config_resource(
         }
 
 
-async def _get_directory_listing_resource(device: str, config_dir: str) -> Dict[str, Any]:
+async def _get_directory_listing_resource(device: str, config_dir: str) -> dict[str, Any]:
     """Get directory listing resource with file metadata"""
     
     try:
@@ -825,7 +824,7 @@ async def _get_directory_listing_resource(device: str, config_dir: str) -> Dict[
         }
 
 
-async def _get_proxy_summary_resource(device: str) -> Dict[str, Any]:
+async def _get_proxy_summary_resource(device: str) -> dict[str, Any]:
     """Get proxy configuration summary resource"""
     
     try:
@@ -841,8 +840,8 @@ async def _get_proxy_summary_resource(device: str) -> Dict[str, Any]:
         
         # Calculate summary statistics
         total_configs = len(files)
-        services = set(f['service_name'] for f in files)
-        subdomains = set(f['subdomain'] for f in files)
+        services = {f['service_name'] for f in files}
+        subdomains = {f['subdomain'] for f in files}
         
         # Get database info if available
         database_info = {}
@@ -867,9 +866,8 @@ async def _get_proxy_summary_resource(device: str) -> Dict[str, Any]:
                     database_info['status_distribution'][status] = database_info['status_distribution'].get(status, 0) + 1
                     database_info['sync_status_distribution'][sync_status] = database_info['sync_status_distribution'].get(sync_status, 0) + 1
                     
-                    if config.sync_last_checked:
-                        if not database_info['last_sync'] or config.sync_last_checked > database_info['last_sync']:
-                            database_info['last_sync'] = config.sync_last_checked.isoformat()
+                    if config.sync_last_checked and (not database_info['last_sync'] or config.sync_last_checked > database_info['last_sync']):
+                        database_info['last_sync'] = config.sync_last_checked.isoformat()
         
         except Exception as db_error:
             database_info['error'] = str(db_error)
@@ -911,7 +909,7 @@ async def _get_proxy_summary_resource(device: str) -> Dict[str, Any]:
         }
 
 
-async def list_proxy_config_resources(device: Optional[str] = None) -> List[Dict[str, str]]:
+async def list_proxy_config_resources(device: str | None = None) -> list[dict[str, str]]:
     """
     List available proxy configuration resources
     

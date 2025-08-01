@@ -15,361 +15,185 @@ from apps.backend.src.utils.ssh_client import get_ssh_client, SSHConnectionInfo
 from apps.backend.src.core.exceptions import (
     DeviceNotFoundError, SSHConnectionError, SystemMonitoringError
 )
+from apps.backend.src.core.config import get_settings
 
 logger = logging.getLogger(__name__)
 
 
-async def get_system_info(
-    device: str,
-    include_processes: bool = False,
-    timeout: int = 60
+async def _collect_smart_data(
+    ssh_client, 
+    connection_info: SSHConnectionInfo, 
+    drive_path: str,
+    drive_name: str
 ) -> Dict[str, Any]:
     """
-    Get comprehensive system performance metrics from a device.
+    Collect SMART data for a drive with configurable sudo behavior.
     
-    This tool connects to a device via SSH and collects detailed system
-    performance metrics including CPU usage, memory utilization, disk I/O,
-    network statistics, and optionally top processes.
-    
-    Args:
-        device: Device hostname or IP address
-        include_processes: Include top processes information (default: False)
-        timeout: Command timeout in seconds (default: 60)
-        
     Returns:
-        Dict containing:
-        - cpu_metrics: CPU usage, load averages, core count
-        - memory_metrics: RAM and swap usage statistics
-        - disk_metrics: Disk usage and I/O statistics
-        - network_metrics: Network interface statistics
-        - system_info: Kernel, uptime, and system information
-        - processes: Top processes (if requested)
-        - timestamp: Collection timestamp
-        
-    Raises:
-        DeviceNotFoundError: If device cannot be reached
-        SystemMonitoringError: If metric collection fails
-        SSHConnectionError: If SSH connection fails
+        Dict containing SMART data or empty dict if collection is disabled/failed
     """
-    logger.info(f"Collecting system metrics from device: {device}")
+    settings = get_settings()
+    
+    # Check if SMART monitoring is enabled
+    if not settings.monitoring.smart_monitoring_enabled:
+        logger.debug(f"SMART monitoring disabled, skipping {drive_name}")
+        return {}
+    
+    smart_data = {}
+    timeout = settings.monitoring.smart_command_timeout
     
     try:
-        # Create SSH connection info
-        connection_info = SSHConnectionInfo(
-            host=device,
-            command_timeout=timeout
+        # Build smartctl command with graceful fallback
+        if settings.monitoring.smart_require_sudo:
+            # Only try sudo if explicitly required
+            smart_cmd = f"sudo smartctl -a {drive_path}"
+        else:
+            # Try sudo first, fallback to non-sudo, then graceful failure
+            smart_cmd = f"sudo smartctl -a {drive_path} 2>/dev/null || smartctl -a {drive_path} 2>/dev/null || echo 'SMART_ACCESS_DENIED'"
+        
+        logger.debug(f"Executing SMART command for {drive_name}: {smart_cmd}")
+        
+        smart_result = await ssh_client.execute_command(
+            connection_info,
+            smart_cmd,
+            timeout=timeout
         )
         
-        # Get SSH client
-        ssh_client = get_ssh_client()
+        # Handle different response scenarios
+        if smart_result.return_code != 0:
+            if settings.monitoring.smart_graceful_fallback:
+                logger.warning(f"SMART command failed for {drive_name} (exit code {smart_result.return_code}), continuing without SMART data")
+                return {}
+            else:
+                raise SystemMonitoringError(f"SMART command failed for {drive_name}: {smart_result.stderr}")
         
-        # Initialize metric containers
-        cpu_metrics = {}
-        memory_metrics = {}
-        disk_metrics = {}
-        network_metrics = {}
-        system_info = {}
-        processes = []
+        smart_output = smart_result.stdout
         
-        # Collect CPU metrics
-        try:
-            # CPU usage from /proc/stat
-            cpu_result = await ssh_client.execute_command(
-                connection_info,
-                "cat /proc/stat | head -1",
-                timeout=10
-            )
-            if cpu_result.return_code == 0:
-                cpu_line = cpu_result.stdout.strip()
-                cpu_values = cpu_line.split()[1:]  # Skip 'cpu' label
-                if len(cpu_values) >= 7:
-                    user, nice, system, idle, iowait, irq, softirq = map(int, cpu_values[:7])
-                    total = sum([user, nice, system, idle, iowait, irq, softirq])
-                    
-                    cpu_metrics.update({
-                        "user_percent": round((user / total) * 100, 2),
-                        "system_percent": round((system / total) * 100, 2),
-                        "idle_percent": round((idle / total) * 100, 2),
-                        "iowait_percent": round((iowait / total) * 100, 2),
-                        "usage_percent": round(((total - idle) / total) * 100, 2)
-                    })
-            
-            # Load averages
-            load_result = await ssh_client.execute_command(
-                connection_info,
-                "cat /proc/loadavg",
-                timeout=10
-            )
-            if load_result.return_code == 0:
-                load_values = load_result.stdout.strip().split()
-                if len(load_values) >= 3:
-                    cpu_metrics.update({
-                        "load_1min": float(load_values[0]),
-                        "load_5min": float(load_values[1]),
-                        "load_15min": float(load_values[2])
-                    })
-            
-            # CPU count
-            cpu_count_result = await ssh_client.execute_command(
-                connection_info,
-                "nproc",
-                timeout=10
-            )
-            if cpu_count_result.return_code == 0:
-                cpu_metrics["core_count"] = int(cpu_count_result.stdout.strip())
-            
-        except Exception as e:
-            logger.warning(f"Failed to collect CPU metrics: {e}")
-            cpu_metrics["error"] = str(e)
+        # Check for access denied scenarios
+        if "SMART_ACCESS_DENIED" in smart_output:
+            if settings.monitoring.smart_graceful_fallback:
+                logger.warning(f"SMART access denied for {drive_name}, continuing without SMART data")
+                return {}
+            else:
+                raise SystemMonitoringError(f"SMART access denied for {drive_name}. Check sudo configuration.")
         
-        # Collect memory metrics
-        try:
-            mem_result = await ssh_client.execute_command(
-                connection_info,
-                "cat /proc/meminfo",
-                timeout=10
-            )
-            if mem_result.return_code == 0:
-                mem_info = {}
-                for line in mem_result.stdout.strip().split('\n'):
-                    if ':' in line:
-                        key, value = line.split(':', 1)
-                        # Extract numeric value (remove 'kB' unit)
-                        value_match = re.search(r'(\d+)', value.strip())
-                        if value_match:
-                            mem_info[key.strip()] = int(value_match.group(1))
-                
-                if 'MemTotal' in mem_info and 'MemAvailable' in mem_info:
-                    total_kb = mem_info['MemTotal']
-                    available_kb = mem_info['MemAvailable']
-                    used_kb = total_kb - available_kb
-                    
-                    memory_metrics.update({
-                        "total_mb": round(total_kb / 1024, 2),
-                        "used_mb": round(used_kb / 1024, 2),
-                        "available_mb": round(available_kb / 1024, 2),
-                        "usage_percent": round((used_kb / total_kb) * 100, 2),
-                        "cached_mb": round(mem_info.get('Cached', 0) / 1024, 2),
-                        "buffers_mb": round(mem_info.get('Buffers', 0) / 1024, 2)
-                    })
-                
-                # Swap information
-                if 'SwapTotal' in mem_info:
-                    swap_total_kb = mem_info['SwapTotal']
-                    swap_free_kb = mem_info.get('SwapFree', 0)
-                    swap_used_kb = swap_total_kb - swap_free_kb
-                    
-                    memory_metrics.update({
-                        "swap_total_mb": round(swap_total_kb / 1024, 2),
-                        "swap_used_mb": round(swap_used_kb / 1024, 2),
-                        "swap_usage_percent": round((swap_used_kb / swap_total_kb) * 100, 2) if swap_total_kb > 0 else 0
-                    })
-                    
-        except Exception as e:
-            logger.warning(f"Failed to collect memory metrics: {e}")
-            memory_metrics["error"] = str(e)
+        # Check for permission denied in stderr
+        if "Permission denied" in smart_result.stderr or "Operation not permitted" in smart_result.stderr:
+            if settings.monitoring.smart_graceful_fallback:
+                logger.warning(f"SMART permission denied for {drive_name}, continuing without SMART data")
+                return {}
+            else:
+                raise SystemMonitoringError(f"SMART permission denied for {drive_name}. Check sudo configuration.")
         
-        # Collect disk metrics
-        try:
-            # Disk usage for all mounted filesystems
-            df_result = await ssh_client.execute_command(
-                connection_info,
-                "df -h --output=source,size,used,avail,pcent,target | grep -E '^/dev/'",
-                timeout=15
-            )
-            if df_result.return_code == 0:
-                filesystems = []
-                for line in df_result.stdout.strip().split('\n'):
-                    if line.strip():
-                        parts = line.split()
-                        if len(parts) >= 6:
-                            filesystem = {
-                                "device": parts[0],
-                                "size": parts[1],
-                                "used": parts[2],
-                                "available": parts[3],
-                                "usage_percent": int(parts[4].rstrip('%')),
-                                "mount_point": parts[5]
-                            }
-                            filesystems.append(filesystem)
-                disk_metrics["filesystems"] = filesystems
-            
-            # Disk I/O statistics
-            iostat_result = await ssh_client.execute_command(
-                connection_info,
-                "cat /proc/diskstats",
-                timeout=10
-            )
-            if iostat_result.return_code == 0:
-                disk_io = []
-                for line in iostat_result.stdout.strip().split('\n'):
-                    parts = line.split()
-                    if len(parts) >= 14 and not parts[2].startswith('loop'):
-                        device_name = parts[2]
-                        reads_completed = int(parts[3])
-                        reads_merged = int(parts[4])
-                        sectors_read = int(parts[5])
-                        writes_completed = int(parts[7])
-                        writes_merged = int(parts[8])
-                        sectors_written = int(parts[9])
-                        
-                        disk_io.append({
-                            "device": device_name,
-                            "reads_completed": reads_completed,
-                            "reads_merged": reads_merged,
-                            "sectors_read": sectors_read,
-                            "writes_completed": writes_completed,
-                            "writes_merged": writes_merged,
-                            "sectors_written": sectors_written
-                        })
-                disk_metrics["io_stats"] = disk_io
-                
-        except Exception as e:
-            logger.warning(f"Failed to collect disk metrics: {e}")
-            disk_metrics["error"] = str(e)
-        
-        # Collect network metrics
-        try:
-            net_result = await ssh_client.execute_command(
-                connection_info,
-                "cat /proc/net/dev",
-                timeout=10
-            )
-            if net_result.return_code == 0:
-                interfaces = []
-                lines = net_result.stdout.strip().split('\n')[2:]  # Skip header lines
-                for line in lines:
-                    if ':' in line:
-                        interface_name, stats = line.split(':', 1)
-                        interface_name = interface_name.strip()
-                        stats = stats.split()
-                        
-                        if len(stats) >= 16:
-                            interface_stats = {
-                                "interface": interface_name,
-                                "rx_bytes": int(stats[0]),
-                                "rx_packets": int(stats[1]),
-                                "rx_errors": int(stats[2]),
-                                "rx_dropped": int(stats[3]),
-                                "tx_bytes": int(stats[8]),
-                                "tx_packets": int(stats[9]),
-                                "tx_errors": int(stats[10]),
-                                "tx_dropped": int(stats[11])
-                            }
-                            interfaces.append(interface_stats)
-                network_metrics["interfaces"] = interfaces
-                
-        except Exception as e:
-            logger.warning(f"Failed to collect network metrics: {e}")
-            network_metrics["error"] = str(e)
-        
-        # Collect system information
-        try:
-            # Kernel and system info
-            uname_result = await ssh_client.execute_command(
-                connection_info,
-                "uname -a",
-                timeout=10
-            )
-            if uname_result.return_code == 0:
-                system_info["kernel"] = uname_result.stdout.strip()
-            
-            # Uptime
-            uptime_result = await ssh_client.execute_command(
-                connection_info,
-                "cat /proc/uptime",
-                timeout=10
-            )
-            if uptime_result.return_code == 0:
-                uptime_seconds = float(uptime_result.stdout.split()[0])
-                days = int(uptime_seconds // 86400)
-                hours = int((uptime_seconds % 86400) // 3600)
-                minutes = int((uptime_seconds % 3600) // 60)
-                system_info["uptime"] = {
-                    "seconds_total": uptime_seconds,
-                    "days": days,
-                    "hours": hours,
-                    "minutes": minutes,
-                    "formatted": f"{days}d {hours}h {minutes}m"
-                }
-            
-            # Boot time
-            boot_time_result = await ssh_client.execute_command(
-                connection_info,
-                "stat -c %Y /proc/1",
-                timeout=10
-            )
-            if boot_time_result.return_code == 0:
-                boot_timestamp = int(boot_time_result.stdout.strip())
-                boot_time = datetime.fromtimestamp(boot_timestamp, tz=timezone.utc)
-                system_info["boot_time"] = boot_time.isoformat()
-                
-        except Exception as e:
-            logger.warning(f"Failed to collect system info: {e}")
-            system_info["error"] = str(e)
-        
-        # Collect top processes if requested
-        if include_processes:
-            try:
-                top_result = await ssh_client.execute_command(
-                    connection_info,
-                    "ps aux --sort=-%cpu | head -11",  # Top 10 processes + header
-                    timeout=15
-                )
-                if top_result.return_code == 0:
-                    lines = top_result.stdout.strip().split('\n')[1:]  # Skip header
-                    for line in lines:
-                        parts = line.split(None, 10)  # Split into max 11 parts
-                        if len(parts) >= 11:
-                            process = {
-                                "user": parts[0],
-                                "pid": int(parts[1]),
-                                "cpu_percent": float(parts[2]),
-                                "memory_percent": float(parts[3]),
-                                "vsz_kb": int(parts[4]),
-                                "rss_kb": int(parts[5]),
-                                "tty": parts[6],
-                                "stat": parts[7],
-                                "start": parts[8],
-                                "time": parts[9],
-                                "command": parts[10]
-                            }
-                            processes.append(process)
-                            
-            except Exception as e:
-                logger.warning(f"Failed to collect process info: {e}")
-                processes = [{"error": str(e)}]
-        
-        # Prepare response
-        response = {
-            "cpu_metrics": cpu_metrics,
-            "memory_metrics": memory_metrics,
-            "disk_metrics": disk_metrics,
-            "network_metrics": network_metrics,
-            "system_info": system_info,
-            "processes": processes if include_processes else None,
-            "device_info": {
-                "hostname": device,
-                "connection_successful": True
-            },
-            "collection_info": {
-                "timestamp": datetime.now(timezone.utc).isoformat(),
-                "include_processes": include_processes,
-                "timeout_seconds": timeout
-            }
-        }
-        
-        logger.info(f"Collected system metrics from {device}")
-        return response
-        
+        # Parse SMART attributes if we got valid output
+        if smart_output and "SMART" in smart_output:
+            smart_data = _parse_smart_output(smart_output, drive_path)
+            logger.debug(f"Successfully collected SMART data for {drive_name}: {list(smart_data.keys())}")
+        else:
+            logger.debug(f"No SMART data found in output for {drive_name}")
+    
     except Exception as e:
-        logger.error(f"Error collecting system metrics from {device}: {e}")
-        raise SystemMonitoringError(
-            message=f"Failed to collect system metrics: {str(e)}",
-            device=device,
-            operation="get_system_info",
-            details={"error": str(e)}
-        )
+        if settings.monitoring.smart_graceful_fallback:
+            logger.warning(f"SMART data collection failed for {drive_name}: {e}, continuing without SMART data")
+            return {}
+        else:
+            logger.error(f"SMART data collection failed for {drive_name}: {e}")
+            raise SystemMonitoringError(f"SMART data collection failed for {drive_name}: {str(e)}") from e
+    
+    return smart_data
+
+
+def _parse_smart_output(smart_output: str, drive_path: str) -> Dict[str, Any]:
+    """
+    Parse SMART output and extract key attributes.
+    
+    Args:
+        smart_output: Raw smartctl output
+        drive_path: Drive path for logging context
+        
+    Returns:
+        Dict with parsed SMART attributes
+    """
+    smart_data = {}
+    
+    try:
+        # Parse key SMART attributes
+        for line in smart_output.split('\n'):
+            line = line.strip()
+            
+            # Power on hours (traditional SMART and NVMe)
+            if 'Power_On_Hours' in line or 'Power On Hours' in line or 'Power on Hours:' in line:
+                parts = line.split()
+                for i, part in enumerate(parts):
+                    if part.replace(',', '').isdigit() and i > 0:
+                        smart_data["power_on_hours"] = int(part.replace(',', ''))
+                        break
+            
+            # Temperature - more specific parsing for SMART output
+            elif 'Temperature_Celsius' in line or ('Temperature' in line and 'Celsius' in line):
+                parts = line.split()
+                
+                # For traditional SMART output: "Temperature_Celsius 0x0022 xxx xxx xxx"
+                if 'Temperature_Celsius' in line and len(parts) >= 10:
+                    # Raw value is typically at index 9 (last column)
+                    try:
+                        temp_value = int(parts[9])
+                        if 0 <= temp_value <= 100:  # Reasonable temperature range
+                            smart_data["temperature_celsius"] = temp_value
+                    except (ValueError, IndexError):
+                        pass
+                
+                # For NVMe or other formats: "Temperature: 45 Celsius"
+                elif 'Temperature:' in line and 'Celsius' in line:
+                    for i, part in enumerate(parts):
+                        if part.isdigit():
+                            temp_value = int(part)
+                            # Verify it's followed by "Celsius" or similar
+                            if (i + 1 < len(parts) and 
+                                parts[i + 1].lower() in ['celsius', '°c', 'c'] and
+                                0 <= temp_value <= 100):
+                                smart_data["temperature_celsius"] = temp_value
+                                break
+            
+            # Wear leveling (SSD)
+            elif 'Wear_Leveling_Count' in line:
+                parts = line.split()
+                for i, part in enumerate(parts):
+                    if part.isdigit() and i > 5:  # Raw value is usually last
+                        smart_data["wear_leveling_count"] = int(part)
+                        break
+            
+            # Data units written (NVMe)
+            elif 'Data Units Written:' in line:
+                parts = line.split()
+                if len(parts) >= 4:
+                    try:
+                        value = float(parts[3].replace(',', ''))
+                        smart_data["data_units_written"] = value
+                    except ValueError:
+                        pass
+            
+            # Overall health status
+            elif 'SMART overall-health self-assessment test result:' in line:
+                parts = line.split(':')
+                if len(parts) >= 2:
+                    health_status = parts[1].strip()
+                    smart_data["health_status"] = health_status
+            
+            # Reallocated sectors
+            elif 'Reallocated_Sector_Ct' in line:
+                parts = line.split()
+                for i, part in enumerate(parts):
+                    if part.isdigit() and i > 5:  # Raw value is usually last
+                        smart_data["reallocated_sectors"] = int(part)
+                        break
+    
+    except Exception as e:
+        logger.warning(f"Error parsing SMART output for {drive_path}: {e}")
+    
+    return smart_data
+
+
 
 
 async def get_drive_health(
@@ -1041,8 +865,13 @@ async def get_drive_stats(
                     parts = line.split()
                     if len(parts) >= 14:
                         device_name = parts[2]
+                        
                         # Skip loop and partition devices for main stats
-                        if not device_name.startswith('loop') and not any(device_name.endswith(str(i)) for i in range(10)):
+                        is_loop_device = device_name.startswith('loop')
+                        is_partition_device = any(device_name.endswith(str(i)) for i in range(10))
+                        is_main_block_device = not is_loop_device and not is_partition_device
+                        
+                        if is_main_block_device:
                             diskstats_data[device_name] = {
                                 "reads_completed": int(parts[3]),
                                 "reads_merged": int(parts[4]),
@@ -1171,86 +1000,10 @@ async def get_drive_stats(
                 
                 # Collect SMART data if available
                 try:
-                    # Try smartctl for detailed drive information (try sudo first, then without)
-                    smart_result = await ssh_client.execute_command(
-                        connection_info,
-                        f"sudo smartctl -a {drive_path} 2>/dev/null || smartctl -a {drive_path} 2>/dev/null || echo 'SMART_NOT_AVAILABLE'",
-                        timeout=15
-                    )
-                    if smart_result.return_code == 0 and "SMART_NOT_AVAILABLE" not in smart_result.stdout:
-                        smart_output = smart_result.stdout
-                        smart_data = {}
-                        
-                        # Parse key SMART attributes
-                        for line in smart_output.split('\n'):
-                            line = line.strip()
-                            
-                            # Power on hours (traditional SMART and NVMe)
-                            if 'Power_On_Hours' in line or 'Power On Hours' in line or 'Power on Hours:' in line:
-                                parts = line.split()
-                                for i, part in enumerate(parts):
-                                    if part.replace(',', '').isdigit() and i > 0:
-                                        smart_data["power_on_hours"] = int(part.replace(',', ''))
-                                        break
-                            
-                            # Temperature
-                            elif 'Temperature_Celsius' in line or 'Temperature' in line and 'Celsius' in line:
-                                parts = line.split()
-                                for part in parts:
-                                    if part.isdigit() and int(part) < 100:  # Reasonable temp range
-                                        smart_data["temperature_celsius"] = int(part)
-                                        break
-                            
-                            # Wear leveling (SSD)
-                            elif 'Wear_Leveling_Count' in line:
-                                parts = line.split()
-                                for i, part in enumerate(parts):
-                                    if part.isdigit() and i > 5:  # Raw value is usually last
-                                        smart_data["wear_leveling_count"] = int(part)
-                                        break
-                            
-                            # Data units written (NVMe)
-                            elif 'Data Units Written:' in line:
-                                parts = line.split()
-                                if len(parts) >= 4:
-                                    try:
-                                        value = float(parts[3].replace(',', ''))
-                                        smart_data["data_units_written"] = value
-                                    except ValueError:
-                                        pass
-                            
-                            # Data units read (NVMe)
-                            elif 'Data Units Read:' in line:
-                                parts = line.split()
-                                if len(parts) >= 4:
-                                    try:
-                                        value = float(parts[3].replace(',', ''))
-                                        smart_data["data_units_read"] = value
-                                    except ValueError:
-                                        pass
-                            
-                            # Overall health
-                            elif 'SMART overall-health self-assessment test result:' in line:
-                                if 'PASSED' in line:
-                                    smart_data["health_status"] = "PASSED"
-                                elif 'FAILED' in line:
-                                    smart_data["health_status"] = "FAILED"
-                            
-                            # Model and serial
-                            elif line.startswith('Model Family:') or line.startswith('Device Model:'):
-                                model = line.split(':', 1)[1].strip()
-                                smart_data["model"] = model
-                            elif line.startswith('Serial Number:'):
-                                serial = line.split(':', 1)[1].strip()
-                                smart_data["serial_number"] = serial
-                            
-                            # Capacity
-                            elif 'User Capacity:' in line:
-                                parts = line.split('[')
-                                if len(parts) >= 2:
-                                    capacity = parts[1].split(']')[0]
-                                    smart_data["capacity"] = capacity
-                        
+                    # Use new configurable SMART data collection
+                    smart_output = await _collect_smart_data(ssh_client, connection_info, drive_name, drive_path)
+                    if smart_output:
+                        smart_data = _parse_smart_output(smart_output)
                         if smart_data:
                             drive_stats["smart_data"] = smart_data
                     
@@ -1369,33 +1122,6 @@ async def get_drive_stats(
 
 # Tool registration metadata for MCP server
 SYSTEM_MONITORING_TOOLS = {
-    "get_system_info": {
-        "name": "get_system_info",
-        "description": "Get comprehensive system performance metrics from a device",
-        "parameters": {
-            "type": "object",
-            "properties": {
-                "device": {
-                    "type": "string",
-                    "description": "Device hostname or IP address"
-                },
-                "include_processes": {
-                    "type": "boolean",
-                    "description": "Include top processes information",
-                    "default": False
-                },
-                "timeout": {
-                    "type": "integer",
-                    "description": "Command timeout in seconds",
-                    "default": 60,
-                    "minimum": 10,
-                    "maximum": 300
-                }
-            },
-            "required": ["device"]
-        },
-        "function": get_system_info
-    },
     "get_drive_health": {
         "name": "get_drive_health",
         "description": "Get S.M.A.R.T. drive health information and disk status",
