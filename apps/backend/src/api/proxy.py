@@ -28,13 +28,32 @@ router = APIRouter()
 @router.get("/configs", response_model=ProxyConfigList)
 async def list_configs(
     device: str = Query("squirts", description="Device hostname"),
-    sync_check: bool = Query(True, description="Check sync status with actual files"),
-    include_inactive: bool = Query(False, description="Include inactive configurations")
+    service_name: Optional[str] = Query(None, description="Filter by service name"),
+    status: Optional[str] = Query(None, description="Filter by status"),
+    ssl_enabled: Optional[bool] = Query(None, description="Filter by SSL status"),
+    limit: int = Query(100, description="Maximum number of results", ge=1, le=1000),
+    offset: int = Query(0, description="Results offset for pagination", ge=0)
 ):
     """List all proxy configurations"""
     try:
-        result = await list_proxy_configs(device, sync_check, include_inactive)
-        return result
+        result = await list_proxy_configs(
+            device=device,
+            service_name=service_name,
+            status=status,
+            ssl_enabled=ssl_enabled,
+            limit=limit,
+            offset=offset
+        )
+        
+        # Transform the result to match ProxyConfigList schema
+        pagination = result.get('pagination', {})
+        return ProxyConfigList(
+            items=result.get('configs', []),
+            total=pagination.get('total', 0),
+            page=pagination.get('page', 1),
+            page_size=pagination.get('limit', limit),
+            total_pages=pagination.get('total_pages', 0)
+        )
     except Exception as e:
         logger.error(f"Error listing proxy configs: {e}")
         raise HTTPException(status_code=500, detail=str(e))

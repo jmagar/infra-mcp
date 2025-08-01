@@ -16,7 +16,7 @@ from typing import List, Any
 from fastmcp import FastMCP
 
 # Add the project root to Python path
-project_root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
+project_root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))))
 sys.path.insert(0, project_root)
 
 # Import device management functions
@@ -32,6 +32,12 @@ from apps.backend.src.mcp.tools.proxy_management import (
 from apps.backend.src.mcp.resources.proxy_configs import (
     get_proxy_config_resource, list_proxy_config_resources
 )
+
+# Import database initialization
+from apps.backend.src.core.database import init_database
+
+# Import device analysis functions
+from apps.backend.src.mcp.tools.device_analysis import analyze_device
 
 # Configure logging
 logging.basicConfig(
@@ -470,46 +476,155 @@ def create_mcp_server():
         description="Get summary statistics for proxy configurations"
     )(get_proxy_config_summary)
     
+    # Register device analysis tool
+    server.tool(
+        name="analyze_device",
+        description="Run comprehensive analysis on a target device to determine its capabilities including Docker, ZFS, hardware, OS, and virtualization"
+    )(analyze_device)
+    
     # Register SWAG proxy configuration resources
-    @server.resource("swag://{service_name}")
+    @server.resource(
+        uri="swag://configs",
+        name="SWAG Configurations",
+        description="List all SWAG reverse proxy configurations",
+        mime_type="application/json"
+    )
+    async def swag_configs_list() -> str:
+        """Get list of all SWAG proxy configurations"""
+        try:
+            response = await api_client.client.get("/proxy/configs")
+            response.raise_for_status()
+            configs_data = response.json()
+            import json
+            return json.dumps(configs_data, indent=2, default=str)
+        except Exception as e:
+            import json
+            return json.dumps({"error": str(e)}, indent=2)
+    
+    @server.resource(
+        uri="swag://{service_name}",
+        name="SWAG Service Configuration",
+        description="Get SWAG service configuration content",
+        mime_type="text/plain"
+    )
     async def swag_service_resource(service_name: str) -> str:
         """Get SWAG service configuration resource content"""
         uri = f"swag://{service_name}"
-        resource_data = await get_proxy_config_resource(uri)
-        
-        # Return appropriate content based on resource type
-        if 'content' in resource_data:
-            return resource_data['content']
-        elif 'raw_content' in resource_data:
-            return resource_data['raw_content']
-        else:
-            # Return JSON representation for structured data
-            import json
-            return json.dumps(resource_data, indent=2, default=str)
+        try:
+            # Use HTTP client to get proxy config
+            params = {"service_name": service_name, "include_content": True}
+            response = await api_client.client.get("/proxy-configs/config", params=params)
+            response.raise_for_status()
+            resource_data = response.json()
+            
+            # Return appropriate content based on resource type
+            if 'content' in resource_data:
+                return resource_data['content']
+            elif 'raw_content' in resource_data:
+                return resource_data['raw_content']
+            else:
+                # Return JSON representation for structured data
+                import json
+                return json.dumps(resource_data, indent=2, default=str)
+        except Exception as e:
+            return f"Error accessing resource {uri}: {str(e)}"
     
-    @server.resource("swag://{device}/{path}")
+    @server.resource(
+        uri="swag://{device}/{path}",
+        name="SWAG Device Resource",
+        description="Get SWAG device-specific resource content",
+        mime_type="application/json"
+    )
     async def swag_device_resource(device: str, path: str) -> str:
         """Get SWAG device-specific resource content (directory/summary)"""
         uri = f"swag://{device}/{path}"
-        resource_data = await get_proxy_config_resource(uri)
-        
-        # Return JSON representation for structured data
-        import json
-        return json.dumps(resource_data, indent=2, default=str)
+        try:
+            # Use HTTP client - this endpoint may not exist yet, placeholder for now
+            # Would need to implement device/path specific endpoints in FastAPI
+            import json
+            return json.dumps({
+                "message": "Device/path specific resources not yet implemented",
+                "uri": uri,
+                "device": device,
+                "path": path
+            }, indent=2)
+        except Exception as e:
+            import json
+            return json.dumps({"error": str(e), "uri": uri}, indent=2)
     
-    @server.list_resources()
-    async def list_resources() -> List[dict]:
-        """List all available proxy configuration resources"""
-        resources = await list_proxy_config_resources()
-        return resources
+    # Register additional infrastructure resources
+    @server.resource(
+        uri="infra://devices",
+        name="Infrastructure Devices",
+        description="List all registered infrastructure devices",
+        mime_type="application/json"
+    )
+    async def infra_devices_resource() -> str:
+        """Get list of all infrastructure devices"""
+        try:
+            devices_data = await list_devices()
+            import json
+            return json.dumps(devices_data, indent=2, default=str)
+        except Exception as e:
+            import json
+            return json.dumps({"error": str(e)}, indent=2)
     
-    logger.info("MCP server created with 16 tools (11 HTTP client + 5 proxy config) and proxy resources")
+    @server.resource(
+        uri="infra://{device}/status",
+        name="Device Status",
+        description="Get comprehensive device status and metrics",
+        mime_type="application/json"
+    )
+    async def infra_device_status(device: str) -> str:
+        """Get device status including system info and containers"""
+        try:
+            # Get system info and container list in parallel
+            import asyncio
+            system_task = asyncio.create_task(get_system_info(device, include_processes=False))
+            containers_task = asyncio.create_task(list_containers(device, all_containers=True))
+            
+            system_info, containers_info = await asyncio.gather(
+                system_task, containers_task, return_exceptions=True
+            )
+            
+            status_data = {
+                "device": device,
+                "timestamp": None,
+                "system_info": system_info if not isinstance(system_info, Exception) else {"error": str(system_info)},
+                "containers": containers_info if not isinstance(containers_info, Exception) else {"error": str(containers_info)}
+            }
+            
+            import json
+            return json.dumps(status_data, indent=2, default=str)
+        except Exception as e:
+            import json
+            return json.dumps({"error": str(e), "device": device}, indent=2)
+    
+    logger.info("MCP server created with 17 tools (11 HTTP client + 5 proxy config + 1 device analysis) and infrastructure resources")
     return server
+
+
+async def initialize_mcp_server():
+    """Initialize database and other required services for MCP server"""
+    logger.info("Initializing MCP server database connection...")
+    try:
+        await init_database()
+        logger.info("MCP server database initialization completed successfully")
+    except Exception as e:
+        logger.error(f"Failed to initialize database for MCP server: {e}")
+        raise
 
 
 def main():
     """Main entry point for the MCP server"""
     logger.info("Starting Infrastructure Management MCP Server...")
+    
+    # Initialize database first
+    try:
+        asyncio.run(initialize_mcp_server())
+    except Exception as e:
+        logger.error(f"Failed to initialize MCP server: {e}")
+        return
     
     # Create the MCP server
     server = create_mcp_server()

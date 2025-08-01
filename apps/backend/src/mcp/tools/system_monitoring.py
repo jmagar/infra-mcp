@@ -1060,6 +1060,36 @@ async def get_drive_stats(
             logger.warning(f"Failed to collect diskstats: {e}")
             diskstats_data = {}
         
+        # Collect filesystem information first
+        try:
+            # Get filesystem types and mount information
+            mount_result = await ssh_client.execute_command(
+                connection_info,
+                "findmnt -D -o SOURCE,TARGET,FSTYPE,SIZE,USED,AVAIL,USE% -t ext4,xfs,btrfs,zfs,ntfs,vfat,exfat",
+                timeout=15
+            )
+            filesystem_info = {}
+            if mount_result.return_code == 0:
+                lines = mount_result.stdout.strip().split('\n')[1:]  # Skip header
+                for line in lines:
+                    if line.strip():
+                        parts = line.split()
+                        if len(parts) >= 7:
+                            source = parts[0]
+                            target = parts[1]
+                            fstype = parts[2]
+                            filesystem_info[source] = {
+                                "mount_point": target,
+                                "filesystem_type": fstype,
+                                "size": parts[3] if parts[3] != '-' else None,
+                                "used": parts[4] if parts[4] != '-' else None,
+                                "available": parts[5] if parts[5] != '-' else None,
+                                "usage_percent": parts[6] if parts[6] != '-' else None
+                            }
+        except Exception as e:
+            logger.warning(f"Failed to collect filesystem info: {e}")
+            filesystem_info = {}
+
         # Check each drive for usage statistics
         for drive_name in drives_to_check:
             drive_path = f"/dev/{drive_name}"
@@ -1138,6 +1168,101 @@ async def get_drive_stats(
                 except Exception as e:
                     # iostat might not be available, that's okay
                     logger.debug(f"iostat not available for {drive_name}: {e}")
+                
+                # Collect SMART data if available
+                try:
+                    # Try smartctl for detailed drive information (try sudo first, then without)
+                    smart_result = await ssh_client.execute_command(
+                        connection_info,
+                        f"sudo smartctl -a {drive_path} 2>/dev/null || smartctl -a {drive_path} 2>/dev/null || echo 'SMART_NOT_AVAILABLE'",
+                        timeout=15
+                    )
+                    if smart_result.return_code == 0 and "SMART_NOT_AVAILABLE" not in smart_result.stdout:
+                        smart_output = smart_result.stdout
+                        smart_data = {}
+                        
+                        # Parse key SMART attributes
+                        for line in smart_output.split('\n'):
+                            line = line.strip()
+                            
+                            # Power on hours (traditional SMART and NVMe)
+                            if 'Power_On_Hours' in line or 'Power On Hours' in line or 'Power on Hours:' in line:
+                                parts = line.split()
+                                for i, part in enumerate(parts):
+                                    if part.replace(',', '').isdigit() and i > 0:
+                                        smart_data["power_on_hours"] = int(part.replace(',', ''))
+                                        break
+                            
+                            # Temperature
+                            elif 'Temperature_Celsius' in line or 'Temperature' in line and 'Celsius' in line:
+                                parts = line.split()
+                                for part in parts:
+                                    if part.isdigit() and int(part) < 100:  # Reasonable temp range
+                                        smart_data["temperature_celsius"] = int(part)
+                                        break
+                            
+                            # Wear leveling (SSD)
+                            elif 'Wear_Leveling_Count' in line:
+                                parts = line.split()
+                                for i, part in enumerate(parts):
+                                    if part.isdigit() and i > 5:  # Raw value is usually last
+                                        smart_data["wear_leveling_count"] = int(part)
+                                        break
+                            
+                            # Data units written (NVMe)
+                            elif 'Data Units Written:' in line:
+                                parts = line.split()
+                                if len(parts) >= 4:
+                                    try:
+                                        value = float(parts[3].replace(',', ''))
+                                        smart_data["data_units_written"] = value
+                                    except ValueError:
+                                        pass
+                            
+                            # Data units read (NVMe)
+                            elif 'Data Units Read:' in line:
+                                parts = line.split()
+                                if len(parts) >= 4:
+                                    try:
+                                        value = float(parts[3].replace(',', ''))
+                                        smart_data["data_units_read"] = value
+                                    except ValueError:
+                                        pass
+                            
+                            # Overall health
+                            elif 'SMART overall-health self-assessment test result:' in line:
+                                if 'PASSED' in line:
+                                    smart_data["health_status"] = "PASSED"
+                                elif 'FAILED' in line:
+                                    smart_data["health_status"] = "FAILED"
+                            
+                            # Model and serial
+                            elif line.startswith('Model Family:') or line.startswith('Device Model:'):
+                                model = line.split(':', 1)[1].strip()
+                                smart_data["model"] = model
+                            elif line.startswith('Serial Number:'):
+                                serial = line.split(':', 1)[1].strip()
+                                smart_data["serial_number"] = serial
+                            
+                            # Capacity
+                            elif 'User Capacity:' in line:
+                                parts = line.split('[')
+                                if len(parts) >= 2:
+                                    capacity = parts[1].split(']')[0]
+                                    smart_data["capacity"] = capacity
+                        
+                        if smart_data:
+                            drive_stats["smart_data"] = smart_data
+                    
+                    # Also add filesystem type if available
+                    for fs_source, fs_info in filesystem_info.items():
+                        if drive_path in fs_source or drive_name in fs_source:
+                            drive_stats["filesystem_type"] = fs_info["filesystem_type"]
+                            drive_stats["mount_point"] = fs_info["mount_point"]
+                            break
+                    
+                except Exception as e:
+                    logger.debug(f"SMART data collection failed for {drive_name}: {e}")
                 
             except Exception as e:
                 drive_stats["errors"].append(f"Stats collection failed: {str(e)}")
