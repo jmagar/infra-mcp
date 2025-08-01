@@ -184,7 +184,6 @@ class DeviceConnectionTest(BaseModel):
         """Convert IPv4Address/IPv6Address objects to string"""
         if v is None:
             return v
-        from ipaddress import IPv4Address, IPv6Address
         if isinstance(v, (IPv4Address, IPv6Address)):
             return str(v)
         return v

@@ -17,13 +17,157 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from apps.backend.src.core.database import get_async_session
 from apps.backend.src.models.device import Device
 from apps.backend.src.core.exceptions import (
-    DeviceNotFoundError, DatabaseOperationError, SSHConnectionError
+    DeviceNotFoundError, DatabaseOperationError, SSHConnectionError, ValidationError
 )
 from apps.backend.src.schemas.device import DeviceResponse, DeviceSummary, DeviceConnectionTest
 from apps.backend.src.schemas.common import DeviceStatus, PaginationParams
 from apps.backend.src.utils.ssh_client import get_ssh_client, SSHConnectionInfo, test_ssh_connectivity
 
 logger = logging.getLogger(__name__)
+
+
+async def add_device(
+    hostname: str,
+    device_type: str = "server",
+    description: Optional[str] = None,
+    location: Optional[str] = None,
+    monitoring_enabled: bool = True,
+    ip_address: Optional[str] = None,
+    ssh_port: Optional[int] = None,
+    ssh_username: Optional[str] = None,
+    tags: Optional[Dict[str, str]] = None
+) -> Dict[str, Any]:
+    """
+    Add a new device to the infrastructure registry.
+    
+    This tool creates a new device record in the registry. Only hostname is required -
+    SSH config can handle connection details. The device will be available for
+    monitoring and management through other MCP tools.
+    
+    Args:
+        hostname: Device hostname (required, must be unique)
+        device_type: Type of device (default: "server")
+        description: Optional device description
+        location: Optional physical location
+        monitoring_enabled: Enable monitoring for this device (default: True)
+        ip_address: Optional IP address (SSH config can handle this)
+        ssh_port: Optional SSH port (SSH config can handle this)
+        ssh_username: Optional SSH username (SSH config can handle this)
+        tags: Optional key-value tags for organization
+        
+    Returns:
+        Dict containing:
+        - device_info: Created device information
+        - status: Creation status
+        - connectivity_test: SSH connectivity test results if monitoring enabled
+        - timestamp: Creation timestamp
+        
+    Raises:
+        ValidationError: If hostname already exists or validation fails
+        DatabaseOperationError: If device creation fails
+    """
+    import httpx
+    from apps.backend.src.core.config import get_settings
+    
+    logger.info(f"Adding new device: {hostname}")
+    
+    try:
+        settings = get_settings()
+        
+        # Prepare device data
+        device_data = {
+            "hostname": hostname,
+            "device_type": device_type,
+            "monitoring_enabled": monitoring_enabled
+        }
+        
+        # Add optional fields
+        if description:
+            device_data["description"] = description
+        if location:
+            device_data["location"] = location
+        if ip_address:
+            device_data["ip_address"] = ip_address
+        if ssh_port:
+            device_data["ssh_port"] = ssh_port
+        if ssh_username:
+            device_data["ssh_username"] = ssh_username
+        if tags:
+            device_data["tags"] = tags
+        
+        # Make HTTP request to the API endpoint
+        api_url = f"http://localhost:9101/api/devices"
+        headers = {
+            "Authorization": f"Bearer {settings.api_key}",
+            "Content-Type": "application/json"
+        }
+        
+        async with httpx.AsyncClient() as client:
+            response = await client.post(api_url, json=device_data, headers=headers)
+            
+            if response.status_code == 201:
+                # Device created successfully
+                device_info = response.json()
+                
+                logger.info(f"Successfully added device: {hostname} (ID: {device_info['id']})")
+                
+                return {
+                    "device_info": device_info,
+                    "status": "created",
+                    "message": f"Device '{hostname}' added successfully to infrastructure registry",
+                    "connectivity_test": {
+                        "performed": monitoring_enabled,
+                        "status": device_info.get("status", "unknown"),
+                        "ssh_accessible": device_info.get("status") == "online"
+                    },
+                    "next_steps": [
+                        "Device is now available for monitoring",
+                        "Use other MCP tools to manage containers, check system metrics, etc.",
+                        "Update device configuration via update_device tool if needed"
+                    ],
+                    "timestamp": datetime.now(timezone.utc).isoformat()
+                }
+                
+            elif response.status_code == 409:
+                # Device already exists
+                error_data = response.json()
+                raise ValidationError(
+                    message=f"Device with hostname '{hostname}' already exists",
+                    field="hostname",
+                    value=hostname
+                )
+                
+            else:
+                # Other error
+                try:
+                    error_data = response.json()
+                    error_message = error_data.get("detail", f"HTTP {response.status_code}")
+                except:
+                    error_message = f"HTTP {response.status_code}: {response.text}"
+                
+                raise DatabaseOperationError(
+                    message=f"Failed to create device: {error_message}",
+                    operation="add_device",
+                    details={
+                        "hostname": hostname,
+                        "status_code": response.status_code,
+                        "error": error_message
+                    }
+                )
+        
+    except httpx.RequestError as e:
+        logger.error(f"HTTP request error adding device {hostname}: {e}")
+        raise DatabaseOperationError(
+            message=f"Failed to connect to API server: {str(e)}",
+            operation="add_device",
+            details={
+                "hostname": hostname,
+                "error": str(e)
+            }
+        )
+    except Exception as e:
+        logger.error(f"Error adding device {hostname}: {e}")
+        raise
 
 
 async def list_devices(
@@ -732,6 +876,59 @@ async def get_device_summary(
 
 # Tool registration metadata for MCP server
 DEVICE_TOOLS = {
+    "add_device": {
+        "name": "add_device",
+        "description": "Add a new device to the infrastructure registry",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "hostname": {
+                    "type": "string",
+                    "description": "Device hostname (required, must be unique)"
+                },
+                "device_type": {
+                    "type": "string",
+                    "description": "Type of device",
+                    "enum": ["server", "workstation", "router", "switch", "nas", "iot", "other"],
+                    "default": "server"
+                },
+                "description": {
+                    "type": "string",
+                    "description": "Optional device description"
+                },
+                "location": {
+                    "type": "string",
+                    "description": "Optional physical location"
+                },
+                "monitoring_enabled": {
+                    "type": "boolean",
+                    "description": "Enable monitoring for this device",
+                    "default": True
+                },
+                "ip_address": {
+                    "type": "string",
+                    "description": "Optional IP address (SSH config can handle this)"
+                },
+                "ssh_port": {
+                    "type": "integer",
+                    "description": "Optional SSH port (SSH config can handle this)",
+                    "minimum": 1,
+                    "maximum": 65535
+                },
+                "ssh_username": {
+                    "type": "string",
+                    "description": "Optional SSH username (SSH config can handle this)"
+                },
+                "tags": {
+                    "type": "object",
+                    "description": "Optional key-value tags for organization",
+                    "additionalProperties": {"type": "string"}
+                }
+            },
+            "required": ["hostname"]
+        },
+        "function": add_device
+    },
     "list_devices": {
         "name": "list_devices",
         "description": "List all registered infrastructure devices with optional filtering",

@@ -21,7 +21,7 @@ from apps.backend.src.schemas.device import (
     DeviceSummary, DeviceHealth, DeviceConnectionTest, DeviceMetricsOverview
 )
 from apps.backend.src.schemas.common import OperationResult, PaginationParams, DeviceStatus
-from apps.backend.src.utils.ssh_client import get_ssh_client, SSHConnectionInfo, test_ssh_connectivity_simple
+from apps.backend.src.utils.ssh_client import test_ssh_connectivity_simple
 
 logger = logging.getLogger(__name__)
 
@@ -61,7 +61,7 @@ class DeviceService:
         except IntegrityError as e:
             await self.db.rollback()
             logger.error(f"Database integrity error creating device: {e}")
-            raise DatabaseOperationError(message="Failed to create device", operation="create_device", details={"error": str(e)})
+            raise DatabaseOperationError(message="Failed to create device", operation="create_device", details={"error": str(e)}) from e
         except Exception as e:
             await self.db.rollback()
             logger.error(f"Error creating device: {e}")

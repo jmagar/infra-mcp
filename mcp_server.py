@@ -227,6 +227,83 @@ async def list_devices() -> Dict[str, Any]:
         raise Exception(f"Failed to list devices: {str(e)}")
 
 
+async def add_device(
+    hostname: str,
+    device_type: str = "server",
+    description: Optional[str] = None,
+    location: Optional[str] = None,
+    monitoring_enabled: bool = True,
+    ip_address: Optional[str] = None,
+    ssh_port: Optional[int] = None,
+    ssh_username: Optional[str] = None,
+    tags: Optional[Dict[str, str]] = None
+) -> Dict[str, Any]:
+    """Add a new device to the infrastructure registry"""
+    try:
+        # Prepare device data
+        device_data = {
+            "hostname": hostname,
+            "device_type": device_type,
+            "monitoring_enabled": monitoring_enabled
+        }
+        
+        # Add optional fields
+        if description:
+            device_data["description"] = description
+        if location:
+            device_data["location"] = location
+        if ip_address:
+            device_data["ip_address"] = ip_address
+        if ssh_port:
+            device_data["ssh_port"] = ssh_port
+        if ssh_username:
+            device_data["ssh_username"] = ssh_username
+        if tags:
+            device_data["tags"] = tags
+        
+        response = await api_client.client.post("/devices", json=device_data)
+        response.raise_for_status()
+        
+        result = response.json()
+        return {
+            "device_info": result,
+            "status": "created",
+            "message": f"Device '{hostname}' added successfully to infrastructure registry"
+        }
+        
+    except httpx.HTTPError as e:
+        logger.error(f"HTTP error adding device {hostname}: {e}")
+        if e.response.status_code == 409:
+            raise Exception(f"Device with hostname '{hostname}' already exists")
+        raise Exception(f"Failed to add device: {str(e)}")
+    except Exception as e:
+        logger.error(f"Error adding device {hostname}: {e}")
+        raise Exception(f"Failed to add device: {str(e)}")
+
+
+async def remove_device(hostname: str) -> Dict[str, Any]:
+    """Remove a device from the infrastructure registry"""
+    try:
+        response = await api_client.client.delete(f"/devices/{hostname}")
+        response.raise_for_status()
+        
+        result = response.json()
+        return {
+            "hostname": hostname,
+            "status": "deleted",
+            "message": f"Device '{hostname}' removed successfully from infrastructure registry",
+            "operation_result": result
+        }
+        
+    except httpx.HTTPError as e:
+        logger.error(f"HTTP error removing device {hostname}: {e}")
+        if e.response.status_code == 404:
+            raise Exception(f"Device with hostname '{hostname}' not found")
+        raise Exception(f"Failed to remove device: {str(e)}")
+    except Exception as e:
+        logger.error(f"Error removing device {hostname}: {e}")
+        raise Exception(f"Failed to remove device: {str(e)}")
+
 
 def create_mcp_server():
     """Create and configure the MCP server"""
@@ -280,7 +357,17 @@ def create_mcp_server():
         description="List all registered infrastructure devices with optional filtering"
     )(list_devices)
     
-    logger.info(f"MCP server created with 7 HTTP client tools")
+    server.tool(
+        name="add_device", 
+        description="Add a new device to the infrastructure registry"
+    )(add_device)
+    
+    server.tool(
+        name="remove_device",
+        description="Remove a device from the infrastructure registry"
+    )(remove_device)
+    
+    logger.info(f"MCP server created with 9 HTTP client tools")
     return server
 
 

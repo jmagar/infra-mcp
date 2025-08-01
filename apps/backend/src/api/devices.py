@@ -26,6 +26,7 @@ from apps.backend.src.schemas.device import (
 from apps.backend.src.schemas.common import OperationResult, PaginationParams, DeviceStatus
 from ..services.device_service import DeviceService
 from apps.backend.src.api.common import get_current_user
+from apps.backend.src.mcp.tools.system_monitoring import get_system_info, get_drive_health
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -111,17 +112,31 @@ async def delete_device_by_hostname(
     service: DeviceService = Depends(get_device_service),
     current_user=Depends(get_current_user)
 ):
+    import time
+    import uuid
+    
+    start_time = time.time()
+    operation_id = str(uuid.uuid4())
+    
     try:
         result = await service.delete_device_by_hostname(hostname)
+        execution_time_ms = int((time.time() - start_time) * 1000)
+        
         return OperationResult[dict](
             success=True,
+            operation_id=operation_id,
             operation_type="delete_device",
             result=result,
+            error_message=None,
+            warnings=[],
+            execution_time_ms=execution_time_ms,
             message=f"Device '{hostname}' deleted successfully"
         )
     except DeviceNotFoundError as e:
+        execution_time_ms = int((time.time() - start_time) * 1000)
         raise HTTPException(status_code=404, detail=str(e))
     except Exception as e:
+        execution_time_ms = int((time.time() - start_time) * 1000)
         logger.error(f"Error deleting device {hostname}: {e}")
         raise HTTPException(status_code=500, detail="Failed to delete device.")
 
@@ -166,15 +181,14 @@ async def get_device_metrics_by_hostname(
 ):
     """Get comprehensive system performance metrics from a device"""
     try:
-        from apps.backend.src.mcp.tools.system_monitoring import get_system_info
         return await get_system_info(hostname, include_processes, timeout)
     except SSHCommandError as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail=str(e)) from e
     except SSHConnectionError as e:
-        raise HTTPException(status_code=503, detail=str(e))
+        raise HTTPException(status_code=503, detail=str(e)) from e
     except Exception as e:
         logger.error(f"Error getting device metrics for {hostname}: {e}")
-        raise HTTPException(status_code=500, detail="Failed to get device metrics.")
+        raise HTTPException(status_code=500, detail="Failed to get device metrics.") from e
 
 
 @router.get("/{hostname}/drives")
@@ -186,15 +200,14 @@ async def get_device_drives_by_hostname(
 ):
     """Get S.M.A.R.T. drive health information and disk status"""
     try:
-        from apps.backend.src.mcp.tools.system_monitoring import get_drive_health
         return await get_drive_health(hostname, drive, timeout)
     except SSHCommandError as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail=str(e)) from e
     except SSHConnectionError as e:
-        raise HTTPException(status_code=503, detail=str(e))
+        raise HTTPException(status_code=503, detail=str(e)) from e
     except Exception as e:
         logger.error(f"Error getting drive health for {hostname}: {e}")
-        raise HTTPException(status_code=500, detail="Failed to get drive health.")
+        raise HTTPException(status_code=500, detail="Failed to get drive health.") from e
 
 
 @router.get("/{hostname}/logs")
