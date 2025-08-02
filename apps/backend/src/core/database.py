@@ -1,7 +1,7 @@
 """
 Infrastructure Management MCP Server - Database Configuration
 
-This module provides async SQLAlchemy setup with TimescaleDB-optimized 
+This module provides async SQLAlchemy setup with TimescaleDB-optimized
 connection pooling, session management, and dependency injection.
 """
 
@@ -14,7 +14,7 @@ from sqlalchemy.ext.asyncio import (
     AsyncSession,
     AsyncEngine,
     create_async_engine,
-    async_sessionmaker
+    async_sessionmaker,
 )
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.pool import NullPool, AsyncAdaptedQueuePool
@@ -36,7 +36,7 @@ custom_metadata = MetaData(
         "uq": "uq_%(table_name)s_%(column_0_name)s",
         "ck": "ck_%(table_name)s_%(constraint_name)s",
         "fk": "fk_%(table_name)s_%(column_0_name)s_%(referred_table_name)s",
-        "pk": "pk_%(table_name)s"
+        "pk": "pk_%(table_name)s",
     }
 )
 
@@ -47,12 +47,12 @@ Base = declarative_base(metadata=custom_metadata)
 def create_async_database_engine() -> AsyncEngine:
     """
     Create async SQLAlchemy engine with TimescaleDB-optimized configuration.
-    
+
     Returns:
         AsyncEngine: Configured async database engine
     """
     settings = get_settings()
-    
+
     # Engine configuration optimized for TimescaleDB
     engine_config = {
         "url": settings.database.database_url,
@@ -74,32 +74,32 @@ def create_async_database_engine() -> AsyncEngine:
                 "timezone": "UTC",  # Use UTC for all timestamp operations
                 "statement_timeout": "60s",  # Global statement timeout
                 "lock_timeout": "30s",  # Lock timeout for concurrent operations
-            }
-        }
+            },
+        },
     }
-    
+
     # Use NullPool for testing/development if specified
     if settings.environment == "testing":
         engine_config["poolclass"] = NullPool
         logger.info("Using NullPool for testing environment")
-    
+
     engine = create_async_engine(**engine_config)
-    
+
     logger.info(
         f"Created async database engine: {settings.database.postgres_host}:"
         f"{settings.database.postgres_port}/{settings.database.postgres_db}"
     )
-    
+
     return engine
 
 
 def create_async_session_factory(engine: AsyncEngine) -> async_sessionmaker[AsyncSession]:
     """
     Create async session factory for database operations.
-    
+
     Args:
         engine: Async SQLAlchemy engine
-        
+
     Returns:
         async_sessionmaker: Session factory for creating async sessions
     """
@@ -110,7 +110,7 @@ def create_async_session_factory(engine: AsyncEngine) -> async_sessionmaker[Asyn
         autoflush=True,  # Auto-flush before queries
         autocommit=False,  # Manual transaction control
     )
-    
+
     logger.info("Created async session factory")
     return session_factory
 
@@ -121,23 +121,23 @@ async def init_database() -> None:
     Should be called during application startup.
     """
     global _async_engine, _async_session_factory
-    
+
     if _async_engine is not None:
         logger.warning("Database already initialized")
         return
-    
+
     try:
         # Create async engine
         _async_engine = create_async_database_engine()
-        
+
         # Create session factory
         _async_session_factory = create_async_session_factory(_async_engine)
-        
+
         # Test connection
         await test_database_connection()
-        
+
         logger.info("Database initialization completed successfully")
-        
+
     except Exception as e:
         logger.error(f"Failed to initialize database: {e}")
         raise
@@ -149,7 +149,7 @@ async def close_database() -> None:
     Should be called during application shutdown.
     """
     global _async_engine, _async_session_factory
-    
+
     if _async_engine is not None:
         await _async_engine.dispose()
         _async_engine = None
@@ -160,10 +160,10 @@ async def close_database() -> None:
 def get_async_engine() -> AsyncEngine:
     """
     Get the global async database engine.
-    
+
     Returns:
         AsyncEngine: Global database engine
-        
+
     Raises:
         RuntimeError: If database is not initialized
     """
@@ -175,10 +175,10 @@ def get_async_engine() -> AsyncEngine:
 def get_async_session_factory() -> async_sessionmaker[AsyncSession]:
     """
     Get the global async session factory.
-    
+
     Returns:
         async_sessionmaker: Global session factory
-        
+
     Raises:
         RuntimeError: If database is not initialized
     """
@@ -191,17 +191,17 @@ def get_async_session_factory() -> async_sessionmaker[AsyncSession]:
 async def get_async_session() -> AsyncGenerator[AsyncSession, None]:
     """
     Get an async database session with automatic cleanup.
-    
+
     Usage:
         async with get_async_session() as session:
             result = await session.execute(query)
             await session.commit()
-    
+
     Yields:
         AsyncSession: Database session
     """
     session_factory = get_async_session_factory()
-    
+
     async with session_factory() as session:
         try:
             yield session
@@ -215,7 +215,7 @@ async def get_async_session() -> AsyncGenerator[AsyncSession, None]:
 async def get_db_session() -> AsyncGenerator[AsyncSession, None]:
     """
     Dependency injection function for FastAPI to get database session.
-    
+
     Yields:
         AsyncSession: Database session for FastAPI dependency injection
     """
@@ -226,10 +226,10 @@ async def get_db_session() -> AsyncGenerator[AsyncSession, None]:
 async def test_database_connection() -> bool:
     """
     Test database connectivity and TimescaleDB extension.
-    
+
     Returns:
         bool: True if connection successful
-        
+
     Raises:
         Exception: If connection fails
     """
@@ -238,32 +238,36 @@ async def test_database_connection() -> bool:
             # Test basic connectivity
             result = await session.execute(text("SELECT 1"))
             assert result.scalar() == 1
-            
+
             # Test TimescaleDB extension
             result = await session.execute(
-                text("SELECT installed_version FROM pg_available_extensions WHERE name = 'timescaledb'")
+                text(
+                    "SELECT installed_version FROM pg_available_extensions WHERE name = 'timescaledb'"
+                )
             )
             timescale_version = result.scalar()
-            
+
             if timescale_version:
                 logger.info(f"TimescaleDB extension version: {timescale_version}")
             else:
                 logger.warning("TimescaleDB extension not found")
-            
+
             # Test UUID extension
             result = await session.execute(
-                text("SELECT installed_version FROM pg_available_extensions WHERE name = 'uuid-ossp'")
+                text(
+                    "SELECT installed_version FROM pg_available_extensions WHERE name = 'uuid-ossp'"
+                )
             )
             uuid_version = result.scalar()
-            
+
             if uuid_version:
                 logger.info(f"UUID-OSSP extension version: {uuid_version}")
             else:
                 logger.warning("UUID-OSSP extension not found")
-            
+
             logger.info("Database connection test successful")
             return True
-            
+
     except Exception as e:
         logger.error(f"Database connection test failed: {e}")
         raise
@@ -272,7 +276,7 @@ async def test_database_connection() -> bool:
 async def check_database_health() -> dict:
     """
     Comprehensive database health check for monitoring.
-    
+
     Returns:
         dict: Health check results with metrics
     """
@@ -281,12 +285,12 @@ async def check_database_health() -> dict:
         "connection_pool": {},
         "timescaledb_info": {},
         "table_counts": {},
-        "performance_metrics": {}
+        "performance_metrics": {},
     }
-    
+
     try:
         engine = get_async_engine()
-        
+
         # Check connection pool status
         pool = engine.pool
         health_data["connection_pool"] = {
@@ -295,29 +299,29 @@ async def check_database_health() -> dict:
             "checked_out": pool.checkedout(),
             "overflow": pool.overflow(),
             # AsyncAdaptedQueuePool doesn't have invalid() method
-            "pool_class": str(type(pool).__name__)
+            "pool_class": str(type(pool).__name__),
         }
-        
+
         async with get_async_session() as session:
             # Basic connectivity
             await session.execute(text("SELECT 1"))
-            
+
             # TimescaleDB specific checks
             result = await session.execute(
                 text("SELECT COUNT(*) FROM timescaledb_information.hypertables")
             )
             hypertable_count = result.scalar()
-            
+
             result = await session.execute(
                 text("SELECT COUNT(*) FROM timescaledb_information.continuous_aggregates")
             )
             cagg_count = result.scalar()
-            
+
             health_data["timescaledb_info"] = {
                 "hypertables": hypertable_count,
-                "continuous_aggregates": cagg_count
+                "continuous_aggregates": cagg_count,
             }
-            
+
             # Table counts for key tables
             tables_to_check = ["devices", "system_metrics", "drive_health", "container_snapshots"]
             for table in tables_to_check:
@@ -326,38 +330,40 @@ async def check_database_health() -> dict:
                     health_data["table_counts"][table] = result.scalar()
                 except Exception as e:
                     health_data["table_counts"][table] = f"Error: {e}"
-            
+
             # Performance metrics
             result = await session.execute(
-                text("SELECT datname, numbackends, xact_commit, xact_rollback FROM pg_stat_database WHERE datname = current_database()")
+                text(
+                    "SELECT datname, numbackends, xact_commit, xact_rollback FROM pg_stat_database WHERE datname = current_database()"
+                )
             )
             db_stats = result.fetchone()
-            
+
             if db_stats:
                 health_data["performance_metrics"] = {
                     "active_connections": db_stats[1],
                     "transactions_committed": db_stats[2],
-                    "transactions_rolled_back": db_stats[3]
+                    "transactions_rolled_back": db_stats[3],
                 }
-            
+
             health_data["status"] = "healthy"
-            
+
     except Exception as e:
         health_data["status"] = "unhealthy"
         health_data["error"] = str(e)
         logger.error(f"Database health check failed: {e}")
-    
+
     return health_data
 
 
 async def execute_raw_sql(query: str, params: dict = None) -> any:
     """
     Execute raw SQL query with parameters.
-    
+
     Args:
         query: SQL query string
         params: Query parameters
-        
+
     Returns:
         Query result
     """
@@ -369,12 +375,12 @@ async def execute_raw_sql(query: str, params: dict = None) -> any:
 async def get_database_stats() -> dict:
     """
     Get comprehensive database statistics for monitoring.
-    
+
     Returns:
         dict: Database statistics including sizes and performance metrics
     """
     stats = {}
-    
+
     try:
         async with get_async_session() as session:
             # Database size
@@ -382,7 +388,7 @@ async def get_database_stats() -> dict:
                 text("SELECT pg_size_pretty(pg_database_size(current_database()))")
             )
             stats["database_size"] = result.scalar()
-            
+
             # Table sizes for hypertables
             result = await session.execute(
                 text("""
@@ -397,7 +403,7 @@ async def get_database_stats() -> dict:
                 """)
             )
             stats["hypertable_sizes"] = [dict(row) for row in result.fetchall()]
-            
+
             # Recent activity
             result = await session.execute(
                 text("""
@@ -413,11 +419,11 @@ async def get_database_stats() -> dict:
                 """)
             )
             stats["table_activity"] = [dict(row) for row in result.fetchall()]
-            
+
     except Exception as e:
         logger.error(f"Failed to get database stats: {e}")
         stats["error"] = str(e)
-    
+
     return stats
 
 
@@ -425,16 +431,12 @@ async def create_hypertables() -> dict:
     """
     Create TimescaleDB hypertables for time-series tables.
     This function should be called after running Alembic migrations.
-    
+
     Returns:
         dict: Results of hypertable creation operations
     """
-    results = {
-        "created": [],
-        "skipped": [],
-        "errors": []
-    }
-    
+    results = {"created": [], "skipped": [], "errors": []}
+
     # Define hypertables to create
     hypertables = [
         ("system_metrics", "time", "1 day"),
@@ -449,7 +451,7 @@ async def create_hypertables() -> dict:
         ("backup_status", "time", "1 day"),
         ("system_updates", "time", "1 day"),
     ]
-    
+
     try:
         async with get_async_session() as session:
             for table_name, time_column, chunk_interval in hypertables:
@@ -460,13 +462,13 @@ async def create_hypertables() -> dict:
                             SELECT table_name FROM timescaledb_information.hypertables 
                             WHERE table_name = :table_name
                         """),
-                        {"table_name": table_name}
+                        {"table_name": table_name},
                     )
-                    
+
                     if result.fetchone():
                         results["skipped"].append(f"{table_name} (already exists)")
                         continue
-                    
+
                     # Create hypertable
                     await session.execute(
                         text(f"""
@@ -477,40 +479,36 @@ async def create_hypertables() -> dict:
                             )
                         """)
                     )
-                    
+
                     await session.commit()
                     results["created"].append(table_name)
                     logger.info(f"Created hypertable: {table_name}")
-                    
+
                 except Exception as e:
                     results["errors"].append(f"{table_name}: {str(e)}")
                     logger.error(f"Failed to create hypertable {table_name}: {e}")
                     await session.rollback()
-    
+
     except Exception as e:
         logger.error(f"Failed to create hypertables: {e}")
         results["errors"].append(f"General error: {str(e)}")
-    
+
     return results
 
 
 async def setup_compression_policies() -> dict:
     """
     Set up compression policies for hypertables to optimize storage.
-    
+
     Returns:
         dict: Results of compression policy setup
     """
-    results = {
-        "created": [],
-        "skipped": [],
-        "errors": []
-    }
-    
+    results = {"created": [], "skipped": [], "errors": []}
+
     # Define compression policies (compress data older than 7 days)
     compression_policies = [
         "system_metrics",
-        "drive_health", 
+        "drive_health",
         "container_snapshots",
         "zfs_status",
         "zfs_snapshots",
@@ -521,7 +519,7 @@ async def setup_compression_policies() -> dict:
         "backup_status",
         "system_updates",
     ]
-    
+
     try:
         async with get_async_session() as session:
             for table_name in compression_policies:
@@ -532,56 +530,52 @@ async def setup_compression_policies() -> dict:
                             SELECT hypertable_name FROM timescaledb_information.compression_settings 
                             WHERE hypertable_name = :table_name
                         """),
-                        {"table_name": table_name}
+                        {"table_name": table_name},
                     )
-                    
+
                     if result.fetchone():
                         results["skipped"].append(f"{table_name} (policy exists)")
                         continue
-                    
+
                     # Enable compression on the hypertable
                     await session.execute(
                         text(f"ALTER TABLE {table_name} SET (timescaledb.compress)")
                     )
-                    
+
                     # Add compression policy (compress chunks older than 7 days)
                     await session.execute(
                         text(f"""
                             SELECT add_compression_policy('{table_name}', INTERVAL '7 days')
                         """)
                     )
-                    
+
                     await session.commit()
                     results["created"].append(table_name)
                     logger.info(f"Created compression policy: {table_name}")
-                    
+
                 except Exception as e:
                     results["errors"].append(f"{table_name}: {str(e)}")
                     logger.error(f"Failed to create compression policy {table_name}: {e}")
                     await session.rollback()
-    
+
     except Exception as e:
         logger.error(f"Failed to setup compression policies: {e}")
         results["errors"].append(f"General error: {str(e)}")
-    
+
     return results
 
 
 async def setup_retention_policies() -> dict:
     """
     Set up data retention policies for hypertables.
-    
+
     Returns:
         dict: Results of retention policy setup
     """
-    results = {
-        "created": [],
-        "skipped": [],
-        "errors": []
-    }
-    
+    results = {"created": [], "skipped": [], "errors": []}
+
     settings = get_settings()
-    
+
     # Define retention policies based on configuration
     retention_policies = [
         ("system_metrics", f"{settings.retention.retention_system_metrics_days} days"),
@@ -596,7 +590,7 @@ async def setup_retention_policies() -> dict:
         ("backup_status", "90 days"),
         ("system_updates", "90 days"),
     ]
-    
+
     try:
         async with get_async_session() as session:
             for table_name, retention_interval in retention_policies:
@@ -607,40 +601,40 @@ async def setup_retention_policies() -> dict:
                             SELECT hypertable FROM timescaledb_information.data_retention_policies 
                             WHERE hypertable = :table_name
                         """),
-                        {"table_name": table_name}
+                        {"table_name": table_name},
                     )
-                    
+
                     if result.fetchone():
                         results["skipped"].append(f"{table_name} (policy exists)")
                         continue
-                    
+
                     # Add retention policy
                     await session.execute(
                         text(f"""
                             SELECT add_retention_policy('{table_name}', INTERVAL '{retention_interval}')
                         """)
                     )
-                    
+
                     await session.commit()
                     results["created"].append(f"{table_name} ({retention_interval})")
                     logger.info(f"Created retention policy: {table_name} - {retention_interval}")
-                    
+
                 except Exception as e:
                     results["errors"].append(f"{table_name}: {str(e)}")
                     logger.error(f"Failed to create retention policy {table_name}: {e}")
                     await session.rollback()
-    
+
     except Exception as e:
         logger.error(f"Failed to setup retention policies: {e}")
         results["errors"].append(f"General error: {str(e)}")
-    
+
     return results
 
 
 async def get_timescaledb_info() -> dict:
     """
     Get comprehensive TimescaleDB information and statistics.
-    
+
     Returns:
         dict: TimescaleDB configuration and statistics
     """
@@ -651,9 +645,9 @@ async def get_timescaledb_info() -> dict:
         "continuous_aggregates": [],
         "compression_stats": {},
         "retention_policies": [],
-        "background_jobs": []
+        "background_jobs": [],
     }
-    
+
     try:
         async with get_async_session() as session:
             # TimescaleDB version
@@ -661,14 +655,14 @@ async def get_timescaledb_info() -> dict:
                 text("SELECT extversion FROM pg_extension WHERE extname = 'timescaledb'")
             )
             info["version"] = result.scalar()
-            
+
             # License information
             try:
                 result = await session.execute(text("SELECT timescaledb_license()"))
                 info["license"] = result.scalar()
             except Exception:
                 info["license"] = "community"
-            
+
             # Hypertables information
             result = await session.execute(
                 text("""
@@ -684,7 +678,7 @@ async def get_timescaledb_info() -> dict:
                 """)
             )
             info["hypertables"] = [dict(row) for row in result.fetchall()]
-            
+
             # Continuous aggregates
             result = await session.execute(
                 text("""
@@ -697,7 +691,7 @@ async def get_timescaledb_info() -> dict:
                 """)
             )
             info["continuous_aggregates"] = [dict(row) for row in result.fetchall()]
-            
+
             # Compression statistics
             result = await session.execute(
                 text("""
@@ -719,7 +713,7 @@ async def get_timescaledb_info() -> dict:
             compression_stats = result.fetchall()
             if compression_stats:
                 info["compression_stats"] = [dict(row) for row in compression_stats]
-            
+
             # Retention policies
             result = await session.execute(
                 text("""
@@ -732,7 +726,7 @@ async def get_timescaledb_info() -> dict:
                 """)
             )
             info["retention_policies"] = [dict(row) for row in result.fetchall()]
-            
+
             # Background jobs
             result = await session.execute(
                 text("""
@@ -751,26 +745,23 @@ async def get_timescaledb_info() -> dict:
                 """)
             )
             info["background_jobs"] = [dict(row) for row in result.fetchall()]
-            
+
     except Exception as e:
         logger.error(f"Failed to get TimescaleDB info: {e}")
         info["error"] = str(e)
-    
+
     return info
 
 
 async def optimize_database() -> dict:
     """
     Perform database optimization operations.
-    
+
     Returns:
         dict: Results of optimization operations
     """
-    results = {
-        "operations": [],
-        "errors": []
-    }
-    
+    results = {"operations": [], "errors": []}
+
     try:
         async with get_async_session() as session:
             # Update table statistics
@@ -780,7 +771,7 @@ async def optimize_database() -> dict:
                 results["operations"].append("Updated table statistics (ANALYZE)")
             except Exception as e:
                 results["errors"].append(f"ANALYZE failed: {e}")
-            
+
             # Vacuum unused space (light vacuum, non-blocking)
             try:
                 await session.execute(text("VACUUM (ANALYZE)"))
@@ -788,14 +779,14 @@ async def optimize_database() -> dict:
                 results["operations"].append("Performed VACUUM ANALYZE")
             except Exception as e:
                 results["errors"].append(f"VACUUM failed: {e}")
-            
+
             # Reorder continuous aggregates if any exist
             try:
                 result = await session.execute(
                     text("SELECT user_view_name FROM timescaledb_information.continuous_aggregates")
                 )
                 caggs = result.fetchall()
-                
+
                 for cagg in caggs:
                     try:
                         await session.execute(
@@ -804,33 +795,28 @@ async def optimize_database() -> dict:
                         results["operations"].append(f"Refreshed continuous aggregate: {cagg[0]}")
                     except Exception as e:
                         results["errors"].append(f"Failed to refresh {cagg[0]}: {e}")
-                
+
                 await session.commit()
-                
+
             except Exception as e:
                 results["errors"].append(f"Continuous aggregate refresh failed: {e}")
-    
+
     except Exception as e:
         logger.error(f"Database optimization failed: {e}")
         results["errors"].append(f"General error: {str(e)}")
-    
+
     return results
 
 
 async def get_chunk_statistics() -> dict:
     """
     Get TimescaleDB chunk statistics for monitoring storage.
-    
+
     Returns:
         dict: Chunk statistics and storage information
     """
-    stats = {
-        "total_chunks": 0,
-        "compressed_chunks": 0,
-        "chunk_details": [],
-        "storage_summary": {}
-    }
-    
+    stats = {"total_chunks": 0, "compressed_chunks": 0, "chunk_details": [], "storage_summary": {}}
+
     try:
         async with get_async_session() as session:
             # Total chunk count
@@ -838,8 +824,8 @@ async def get_chunk_statistics() -> dict:
                 text("SELECT COUNT(*) FROM timescaledb_information.chunks")
             )
             stats["total_chunks"] = result.scalar()
-            
-            # Compressed chunk count  
+
+            # Compressed chunk count
             result = await session.execute(
                 text("""
                     SELECT COUNT(*) FROM timescaledb_information.chunks 
@@ -847,7 +833,7 @@ async def get_chunk_statistics() -> dict:
                 """)
             )
             stats["compressed_chunks"] = result.scalar()
-            
+
             # Detailed chunk information
             result = await session.execute(
                 text("""
@@ -867,7 +853,7 @@ async def get_chunk_statistics() -> dict:
                 """)
             )
             stats["chunk_details"] = [dict(row) for row in result.fetchall()]
-            
+
             # Storage summary by hypertable
             result = await session.execute(
                 text("""
@@ -882,27 +868,27 @@ async def get_chunk_statistics() -> dict:
                     ORDER BY SUM(total_bytes) DESC
                 """)
             )
-            
+
             storage_summary = {}
             for row in result.fetchall():
                 storage_summary[row[0]] = {
                     "chunk_count": row[1],
-                    "compressed_count": row[2], 
-                    "total_size": row[3]
+                    "compressed_count": row[2],
+                    "total_size": row[3],
                 }
             stats["storage_summary"] = storage_summary
-            
+
     except Exception as e:
         logger.error(f"Failed to get chunk statistics: {e}")
         stats["error"] = str(e)
-    
+
     return stats
 
 
 async def validate_database_schema() -> dict:
     """
     Validate database schema integrity and consistency.
-    
+
     Returns:
         dict: Schema validation results
     """
@@ -913,15 +899,24 @@ async def validate_database_schema() -> dict:
         "foreign_keys": [],
         "indexes": [],
         "extensions": [],
-        "issues": []
+        "issues": [],
     }
-    
+
     expected_tables = [
-        "devices", "system_metrics", "drive_health", "container_snapshots",
-        "zfs_status", "zfs_snapshots", "network_interfaces", "docker_networks",
-        "vm_status", "system_logs", "backup_status", "system_updates"
+        "devices",
+        "system_metrics",
+        "drive_health",
+        "container_snapshots",
+        "zfs_status",
+        "zfs_snapshots",
+        "network_interfaces",
+        "docker_networks",
+        "vm_status",
+        "system_logs",
+        "backup_status",
+        "system_updates",
     ]
-    
+
     try:
         async with get_async_session() as session:
             # Check for required tables
@@ -934,15 +929,15 @@ async def validate_database_schema() -> dict:
             )
             found_tables = [row[0] for row in result.fetchall()]
             validation["tables_found"] = found_tables
-            
+
             # Find missing tables
             missing = set(expected_tables) - set(found_tables)
             validation["missing_tables"] = list(missing)
-            
+
             if missing:
                 validation["schema_valid"] = False
                 validation["issues"].append(f"Missing tables: {', '.join(missing)}")
-            
+
             # Check foreign key constraints
             result = await session.execute(
                 text("""
@@ -963,7 +958,7 @@ async def validate_database_schema() -> dict:
                 """)
             )
             validation["foreign_keys"] = [dict(row) for row in result.fetchall()]
-            
+
             # Check indexes
             result = await session.execute(
                 text("""
@@ -978,7 +973,7 @@ async def validate_database_schema() -> dict:
                 """)
             )
             validation["indexes"] = [dict(row) for row in result.fetchall()]
-            
+
             # Check required extensions
             result = await session.execute(
                 text("""
@@ -988,43 +983,45 @@ async def validate_database_schema() -> dict:
                 """)
             )
             validation["extensions"] = [dict(row) for row in result.fetchall()]
-            
+
             # Validate TimescaleDB extension
-            timescale_found = any(ext["extname"] == "timescaledb" for ext in validation["extensions"])
+            timescale_found = any(
+                ext["extname"] == "timescaledb" for ext in validation["extensions"]
+            )
             if not timescale_found:
                 validation["schema_valid"] = False
                 validation["issues"].append("TimescaleDB extension not installed")
-            
+
     except Exception as e:
         logger.error(f"Schema validation failed: {e}")
         validation["schema_valid"] = False
         validation["issues"].append(f"Validation error: {str(e)}")
-    
+
     return validation
 
 
 async def get_connection_info() -> dict:
     """
     Get current database connection information.
-    
+
     Returns:
         dict: Connection details and configuration
     """
     info = {}
-    
+
     try:
         settings = get_settings()
         engine = get_async_engine()
-        
+
         info["configuration"] = {
             "host": settings.database.postgres_host,
             "port": settings.database.postgres_port,
             "database": settings.database.postgres_db,
             "user": settings.database.postgres_user,
             "pool_size": settings.database.db_pool_size,
-            "max_overflow": settings.database.db_max_overflow
+            "max_overflow": settings.database.db_max_overflow,
         }
-        
+
         # Pool information
         pool = engine.pool
         info["pool_status"] = {
@@ -1032,9 +1029,9 @@ async def get_connection_info() -> dict:
             "checked_in": pool.checkedin(),
             "checked_out": pool.checkedout(),
             "overflow": pool.overflow(),
-            "invalid": pool.invalid()
+            "invalid": pool.invalid(),
         }
-        
+
         # Current database session info
         async with get_async_session() as session:
             result = await session.execute(
@@ -1048,17 +1045,17 @@ async def get_connection_info() -> dict:
                 """)
             )
             db_info = result.fetchone()
-            
+
             info["server_info"] = {
                 "database": db_info[0],
-                "user": db_info[1], 
+                "user": db_info[1],
                 "server_addr": db_info[2],
                 "server_port": db_info[3],
-                "version": db_info[4]
+                "version": db_info[4],
             }
-            
+
     except Exception as e:
         logger.error(f"Failed to get connection info: {e}")
         info["error"] = str(e)
-    
+
     return info

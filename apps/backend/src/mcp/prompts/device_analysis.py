@@ -6,7 +6,7 @@ Device analysis prompts for infrastructure management.
 def analyze_device_performance(hostname: str, metric_type: str = "all") -> str:
     """
     Generate analysis prompt for device performance based on system metrics.
-    
+
     Args:
         hostname: The device hostname to analyze
         metric_type: Type of metrics to focus on (cpu, memory, disk, network, or all)
@@ -29,7 +29,7 @@ Format your analysis in clear sections with actionable recommendations."""
 def container_stack_analysis(hostname: str, focus_area: str = "performance") -> str:
     """
     Generate analysis prompt for Docker container stack on a device.
-    
+
     Args:
         hostname: The device hostname running containers
         focus_area: Area to focus analysis on (performance, security, resources, or overview)
@@ -53,7 +53,7 @@ Provide specific, actionable recommendations for container optimization."""
 def infrastructure_health_check(hostname: str) -> str:
     """
     Generate comprehensive health check prompt for infrastructure device.
-    
+
     Args:
         hostname: The device hostname to health check
     """
@@ -73,10 +73,12 @@ Use multiple tools including get_device_info, get_drive_health, get_drives_stats
 Provide a health score (1-10) and prioritized action items for any issues found."""
 
 
-def troubleshoot_system_issue(hostname: str, issue_description: str, symptom_type: str = "performance") -> str:
+def troubleshoot_system_issue(
+    hostname: str, issue_description: str, symptom_type: str = "performance"
+) -> str:
     """
     Generate troubleshooting prompt for system issues.
-    
+
     Args:
         hostname: The affected device hostname
         issue_description: Description of the problem

@@ -3,7 +3,7 @@ ZFS Services Module
 
 Modular ZFS management services providing focused functionality for:
 - Pool management
-- Dataset operations  
+- Dataset operations
 - Snapshot handling
 - Health monitoring
 - Analysis and reporting
@@ -18,9 +18,9 @@ from .base import ZFSBaseService
 
 __all__ = [
     "ZFSPoolService",
-    "ZFSDatasetService", 
+    "ZFSDatasetService",
     "ZFSSnapshotService",
     "ZFSHealthService",
     "ZFSAnalysisService",
-    "ZFSBaseService"
+    "ZFSBaseService",
 ]

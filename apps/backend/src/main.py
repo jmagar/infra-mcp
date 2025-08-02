@@ -27,24 +27,45 @@ from slowapi.util import get_remote_address
 from slowapi.errors import RateLimitExceeded
 
 from apps.backend.src.core.config import get_settings
-from apps.backend.src.core.database import init_database, close_database, get_async_session, check_database_health
+from apps.backend.src.core.database import (
+    init_database,
+    close_database,
+    get_async_session,
+    check_database_health,
+)
 from apps.backend.src.utils.ssh_client import cleanup_ssh_client
 from apps.backend.src.schemas.common import HealthCheckResponse
 from apps.backend.src.services.polling_service import PollingService
 from apps.backend.src.core.exceptions import (
-    InfrastructureException, DatabaseConnectionError, DatabaseOperationError,
-    SSHConnectionError, SSHCommandError, SSHTimeoutError, DeviceNotFoundError,
-    DeviceOfflineError, AuthenticationError, AuthorizationError, RateLimitError,
-    ValidationError as CustomValidationError, ServiceUnavailableError,
-    ContainerError, ZFSError, NetworkError, BackupError, ConfigurationError,
-    TimeoutError as CustomTimeoutError, PermissionError as CustomPermissionError,
-    ResourceNotFoundError, ResourceConflictError, BusinessLogicError, ExternalServiceError
+    InfrastructureException,
+    DatabaseConnectionError,
+    DatabaseOperationError,
+    SSHConnectionError,
+    SSHCommandError,
+    SSHTimeoutError,
+    DeviceNotFoundError,
+    DeviceOfflineError,
+    AuthenticationError,
+    AuthorizationError,
+    RateLimitError,
+    ValidationError as CustomValidationError,
+    ServiceUnavailableError,
+    ContainerError,
+    ZFSError,
+    NetworkError,
+    BackupError,
+    ConfigurationError,
+    TimeoutError as CustomTimeoutError,
+    PermissionError as CustomPermissionError,
+    ResourceNotFoundError,
+    ResourceConflictError,
+    BusinessLogicError,
+    ExternalServiceError,
 )
 
 # Configure logging
 logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+    level=logging.INFO, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s"
 )
 logger = logging.getLogger(__name__)
 
@@ -57,7 +78,9 @@ polling_service = None
 # Rate limiter configuration
 limiter = Limiter(
     key_func=get_remote_address,
-    default_limits=[f"{settings.api.rate_limit_requests_per_minute}/minute"] if settings.api.rate_limit_enabled else []
+    default_limits=[f"{settings.api.rate_limit_requests_per_minute}/minute"]
+    if settings.api.rate_limit_enabled
+    else [],
 )
 
 # Security
@@ -75,7 +98,7 @@ async def lifespan(app: FastAPI):
         # Initialize database
         await init_database()
         logger.info("Database initialized successfully")
-        
+
         # Initialize and start polling service if enabled
         if settings.polling.polling_enabled:
             polling_service = PollingService()
@@ -90,33 +113,35 @@ async def lifespan(app: FastAPI):
         # Log configuration
         logger.info(f"Environment: {settings.environment}")
         logger.info(f"Debug mode: {settings.debug}")
-        logger.info(f"Database: {settings.database.postgres_host}:{settings.database.postgres_port}")
+        logger.info(
+            f"Database: {settings.database.postgres_host}:{settings.database.postgres_port}"
+        )
         logger.info(f"API Server: {settings.mcp_server.mcp_host}:{settings.mcp_server.mcp_port}")
-        
+
         yield
-        
+
     except Exception as e:
         logger.error(f"Startup failed: {e}")
         raise
     finally:
         # Shutdown tasks
         logger.info("Shutting down Infrastructure Management API Server...")
-        
+
         # Stop polling service
         if polling_service is not None:
             await polling_service.stop_polling()
             logger.info("Polling service stopped")
         else:
             logger.info("Polling service was not running")
-        
+
         # Cleanup SSH connections
         await cleanup_ssh_client()
         logger.info("SSH connections cleaned up")
-        
+
         # Close database connections
         await close_database()
         logger.info("Database connections closed")
-        
+
         logger.info("Shutdown complete")
 
 
@@ -128,7 +153,7 @@ app = FastAPI(
     docs_url="/docs",
     redoc_url="/redoc",
     lifespan=lifespan,
-    debug=settings.debug
+    debug=settings.debug,
 )
 
 # Add rate limiter state to app
@@ -137,8 +162,7 @@ app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 
 # Add trusted host middleware
 app.add_middleware(
-    TrustedHostMiddleware,
-    allowed_hosts=["*"] if settings.debug else ["localhost", "127.0.0.1"]
+    TrustedHostMiddleware, allowed_hosts=["*"] if settings.debug else ["localhost", "127.0.0.1"]
 )
 
 # Add CORS middleware
@@ -156,34 +180,32 @@ app.add_middleware(
 async def timing_middleware(request: Request, call_next):
     """Add request timing and basic logging"""
     start_time = time.time()
-    
+
     # Log request
     logger.info(f"{request.method} {request.url.path} - Start")
-    
+
     try:
         response = await call_next(request)
-        
+
         # Calculate processing time
         process_time = time.time() - start_time
-        
+
         # Add timing header
         response.headers["X-Process-Time"] = str(process_time)
-        
+
         # Log response
         logger.info(
             f"{request.method} {request.url.path} - "
             f"Status: {response.status_code} - "
             f"Time: {process_time:.3f}s"
         )
-        
+
         return response
-        
+
     except Exception as e:
         process_time = time.time() - start_time
         logger.error(
-            f"{request.method} {request.url.path} - "
-            f"Error: {str(e)} - "
-            f"Time: {process_time:.3f}s"
+            f"{request.method} {request.url.path} - Error: {str(e)} - Time: {process_time:.3f}s"
         )
         raise
 
@@ -191,27 +213,29 @@ async def timing_middleware(request: Request, call_next):
 @app.middleware("http")
 async def security_middleware(request: Request, call_next):
     """Security and validation middleware"""
-    
+
     # Security headers
     response = await call_next(request)
-    
+
     # Add security headers
     response.headers["X-Content-Type-Options"] = "nosniff"
     response.headers["X-Frame-Options"] = "DENY"
     response.headers["X-XSS-Protection"] = "1; mode=block"
     response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
-    
+
     # Add API version header
     response.headers["X-API-Version"] = "1.0.0"
-    
+
     # Add rate limiting headers if enabled
     if settings.api.rate_limit_enabled:
         response.headers["X-RateLimit-Limit"] = str(settings.api.rate_limit_requests_per_minute)
         # Note: actual remaining count would require accessing limiter state
         # For now, just use the configured limit
-        response.headers["X-RateLimit-Remaining"] = str(settings.api.rate_limit_requests_per_minute - 1)
+        response.headers["X-RateLimit-Remaining"] = str(
+            settings.api.rate_limit_requests_per_minute - 1
+        )
         response.headers["X-RateLimit-Reset"] = str(int(time.time()) + 60)
-    
+
     return response
 
 
@@ -226,7 +250,7 @@ async def get_current_user(credentials: HTTPAuthorizationCredentials = Depends(s
                 headers={"WWW-Authenticate": "Bearer"},
             )
         return None  # No auth required
-    
+
     # For now, accept any valid-looking token/API key
     # In production, implement proper JWT validation or API key verification
     token = credentials.credentials
@@ -236,7 +260,7 @@ async def get_current_user(credentials: HTTPAuthorizationCredentials = Depends(s
             detail="Invalid authentication credentials",
             headers={"WWW-Authenticate": "Bearer"},
         )
-    
+
     return {"token": token}
 
 
@@ -247,7 +271,7 @@ async def http_exception_handler(request: Request, exc: StarletteHTTPException):
     logger.warning(
         f"HTTP {exc.status_code} error on {request.method} {request.url.path}: {exc.detail}"
     )
-    
+
     return JSONResponse(
         status_code=exc.status_code,
         content={
@@ -256,9 +280,9 @@ async def http_exception_handler(request: Request, exc: StarletteHTTPException):
                 "message": exc.detail,
                 "timestamp": datetime.now(timezone.utc).isoformat(),
                 "path": str(request.url.path),
-                "method": request.method
+                "method": request.method,
             }
-        }
+        },
     )
 
 
@@ -268,18 +292,20 @@ async def validation_exception_handler(request: Request, exc: ValidationError):
     logger.warning(
         f"Validation error on {request.method} {request.url.path}: {exc.error_count()} errors"
     )
-    
+
     # Format validation errors for better readability
     errors = []
     for error in exc.errors():
         field_path = " -> ".join(str(loc) for loc in error["loc"])
-        errors.append({
-            "field": field_path,
-            "message": error["msg"],
-            "type": error["type"],
-            "input": error.get("input")
-        })
-    
+        errors.append(
+            {
+                "field": field_path,
+                "message": error["msg"],
+                "type": error["type"],
+                "input": error.get("input"),
+            }
+        )
+
     return JSONResponse(
         status_code=422,
         content={
@@ -289,12 +315,9 @@ async def validation_exception_handler(request: Request, exc: ValidationError):
                 "timestamp": datetime.now(timezone.utc).isoformat(),
                 "path": str(request.url.path),
                 "method": request.method,
-                "details": {
-                    "error_count": exc.error_count(),
-                    "errors": errors
-                }
+                "details": {"error_count": exc.error_count(), "errors": errors},
             }
-        }
+        },
     )
 
 
@@ -308,10 +331,10 @@ async def infrastructure_exception_handler(request: Request, exc: Infrastructure
             "error_code": exc.error_code,
             "device_id": exc.device_id,
             "operation": exc.operation,
-            "details": exc.details
-        }
+            "details": exc.details,
+        },
     )
-    
+
     # Map error codes to HTTP status codes
     status_code_map = {
         "DEVICE_NOT_FOUND": 404,
@@ -338,9 +361,9 @@ async def infrastructure_exception_handler(request: Request, exc: Infrastructure
         "BUSINESS_LOGIC_ERROR": 422,
         "EXTERNAL_SERVICE_ERROR": 502,
     }
-    
+
     status_code = status_code_map.get(exc.error_code, 500)
-    
+
     return JSONResponse(
         status_code=status_code,
         content={
@@ -352,9 +375,9 @@ async def infrastructure_exception_handler(request: Request, exc: Infrastructure
                 "method": request.method,
                 "details": exc.details,
                 "device_id": exc.device_id,
-                "operation": exc.operation
+                "operation": exc.operation,
             }
-        }
+        },
     )
 
 
@@ -362,10 +385,9 @@ async def infrastructure_exception_handler(request: Request, exc: Infrastructure
 async def sqlalchemy_exception_handler(request: Request, exc: SQLAlchemyError):
     """Handle SQLAlchemy database errors"""
     logger.error(
-        f"Database error on {request.method} {request.url.path}: {str(exc)}",
-        exc_info=True
+        f"Database error on {request.method} {request.url.path}: {str(exc)}", exc_info=True
     )
-    
+
     # Check if it's a connection error
     error_msg = str(exc).lower()
     if any(keyword in error_msg for keyword in ["connection", "timeout", "connect"]):
@@ -374,9 +396,9 @@ async def sqlalchemy_exception_handler(request: Request, exc: SQLAlchemyError):
         message = "Database connection failed"
     else:
         status_code = 500
-        error_code = "DATABASE_OPERATION_ERROR" 
+        error_code = "DATABASE_OPERATION_ERROR"
         message = "Database operation failed"
-    
+
     return JSONResponse(
         status_code=status_code,
         content={
@@ -388,19 +410,17 @@ async def sqlalchemy_exception_handler(request: Request, exc: SQLAlchemyError):
                 "method": request.method,
                 "details": {
                     "database_error": str(exc) if settings.debug else "Database error occurred"
-                }
+                },
             }
-        }
+        },
     )
 
 
 @app.exception_handler(asyncio.TimeoutError)
 async def timeout_exception_handler(request: Request, exc: asyncio.TimeoutError):
     """Handle asyncio timeout errors"""
-    logger.error(
-        f"Timeout error on {request.method} {request.url.path}: Operation timed out"
-    )
-    
+    logger.error(f"Timeout error on {request.method} {request.url.path}: Operation timed out")
+
     return JSONResponse(
         status_code=504,
         content={
@@ -410,21 +430,17 @@ async def timeout_exception_handler(request: Request, exc: asyncio.TimeoutError)
                 "timestamp": datetime.now(timezone.utc).isoformat(),
                 "path": str(request.url.path),
                 "method": request.method,
-                "details": {
-                    "timeout_type": "asyncio_timeout"
-                }
+                "details": {"timeout_type": "asyncio_timeout"},
             }
-        }
+        },
     )
 
 
 @app.exception_handler(ConnectionError)
 async def connection_exception_handler(request: Request, exc: ConnectionError):
     """Handle connection errors (network, SSH, etc.)"""
-    logger.error(
-        f"Connection error on {request.method} {request.url.path}: {str(exc)}"
-    )
-    
+    logger.error(f"Connection error on {request.method} {request.url.path}: {str(exc)}")
+
     return JSONResponse(
         status_code=503,
         content={
@@ -436,19 +452,17 @@ async def connection_exception_handler(request: Request, exc: ConnectionError):
                 "method": request.method,
                 "details": {
                     "connection_error": str(exc) if settings.debug else "Connection error occurred"
-                }
+                },
             }
-        }
+        },
     )
 
 
 @app.exception_handler(PermissionError)
 async def permission_exception_handler(request: Request, exc: PermissionError):
     """Handle permission errors"""
-    logger.warning(
-        f"Permission error on {request.method} {request.url.path}: {str(exc)}"
-    )
-    
+    logger.warning(f"Permission error on {request.method} {request.url.path}: {str(exc)}")
+
     return JSONResponse(
         status_code=403,
         content={
@@ -460,19 +474,17 @@ async def permission_exception_handler(request: Request, exc: PermissionError):
                 "method": request.method,
                 "details": {
                     "permission_error": str(exc) if settings.debug else "Permission denied"
-                }
+                },
             }
-        }
+        },
     )
 
 
 @app.exception_handler(FileNotFoundError)
 async def file_not_found_exception_handler(request: Request, exc: FileNotFoundError):
     """Handle file not found errors"""
-    logger.warning(
-        f"File not found error on {request.method} {request.url.path}: {str(exc)}"
-    )
-    
+    logger.warning(f"File not found error on {request.method} {request.url.path}: {str(exc)}")
+
     return JSONResponse(
         status_code=404,
         content={
@@ -482,21 +494,17 @@ async def file_not_found_exception_handler(request: Request, exc: FileNotFoundEr
                 "timestamp": datetime.now(timezone.utc).isoformat(),
                 "path": str(request.url.path),
                 "method": request.method,
-                "details": {
-                    "file_error": str(exc) if settings.debug else "File not found"
-                }
+                "details": {"file_error": str(exc) if settings.debug else "File not found"},
             }
-        }
+        },
     )
 
 
 @app.exception_handler(OSError)
 async def os_exception_handler(request: Request, exc: OSError):
     """Handle OS-level errors"""
-    logger.error(
-        f"OS error on {request.method} {request.url.path}: {str(exc)}"
-    )
-    
+    logger.error(f"OS error on {request.method} {request.url.path}: {str(exc)}")
+
     # Map common OS errors to appropriate HTTP status codes
     status_code = 500
     if exc.errno == 13:  # Permission denied
@@ -507,7 +515,7 @@ async def os_exception_handler(request: Request, exc: OSError):
         status_code = 507
     elif exc.errno in [110, 111]:  # Connection timed out / Connection refused
         status_code = 503
-    
+
     return JSONResponse(
         status_code=status_code,
         content={
@@ -519,10 +527,10 @@ async def os_exception_handler(request: Request, exc: OSError):
                 "method": request.method,
                 "details": {
                     "os_error": str(exc) if settings.debug else "System error occurred",
-                    "errno": exc.errno if hasattr(exc, 'errno') and settings.debug else None
-                }
+                    "errno": exc.errno if hasattr(exc, "errno") and settings.debug else None,
+                },
             }
-        }
+        },
     )
 
 
@@ -535,10 +543,10 @@ async def general_exception_handler(request: Request, exc: Exception):
         extra={
             "exception_type": type(exc).__name__,
             "request_path": str(request.url.path),
-            "request_method": request.method
-        }
+            "request_method": request.method,
+        },
     )
-    
+
     return JSONResponse(
         status_code=500,
         content={
@@ -550,10 +558,10 @@ async def general_exception_handler(request: Request, exc: Exception):
                 "method": request.method,
                 "details": {
                     "exception_type": type(exc).__name__,
-                    "exception_message": str(exc) if settings.debug else "Internal server error"
-                }
+                    "exception_message": str(exc) if settings.debug else "Internal server error",
+                },
             }
-        }
+        },
     )
 
 
@@ -565,7 +573,7 @@ async def health_check(request: Request):
     try:
         # Test database connection and get detailed health info
         database_health = await check_database_health()
-        
+
         # Construct health check response
         response = HealthCheckResponse(
             status="healthy",
@@ -573,23 +581,25 @@ async def health_check(request: Request):
             environment=settings.environment,
             database=database_health,
             services={
-                "database": "healthy" if database_health.get("status") == "healthy" else "unhealthy",
+                "database": "healthy"
+                if database_health.get("status") == "healthy"
+                else "unhealthy",
                 "ssh_client": "healthy",
-                "api_server": "healthy"
+                "api_server": "healthy",
             },
-            timestamp=datetime.now(timezone.utc)
+            timestamp=datetime.now(timezone.utc),
         )
-        
+
         return response
-        
+
     except Exception as e:
         logger.error(f"Health check failed: {e}")
-        
+
         # Return unhealthy status using consistent error format
         raise ServiceUnavailableError(
             service_name="infrastructure_management",
             message="Health check failed",
-            details={"health_check_error": str(e)}
+            details={"health_check_error": str(e)},
         )
 
 
@@ -602,15 +612,9 @@ async def root(request: Request):
         "name": "Infrastructure Management API",
         "version": "1.0.0",
         "description": "Centralized monitoring and management system for self-hosted infrastructure",
-        "endpoints": {
-            "rest_api": "/api",
-            "health": "/health",
-            "documentation": "/docs"
-        },
-        "external_services": {
-            "mcp_server": "Independent MCP server via mcp_server.py"
-        },
-        "timestamp": datetime.now(timezone.utc).isoformat()
+        "endpoints": {"rest_api": "/api", "health": "/health", "documentation": "/docs"},
+        "external_services": {"mcp_server": "Independent MCP server via mcp_server.py"},
+        "timestamp": datetime.now(timezone.utc).isoformat(),
     }
 
 
@@ -629,9 +633,9 @@ if __name__ == "__main__":
     # Configure logging for development
     logging.basicConfig(
         level=logging.DEBUG if settings.debug else logging.INFO,
-        format="%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+        format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
     )
-    
+
     # Run development server
     uvicorn.run(
         "apps.backend.src.main:app",
@@ -639,5 +643,5 @@ if __name__ == "__main__":
         port=settings.mcp_server.mcp_port,
         reload=settings.debug,
         log_level=settings.mcp_server.mcp_log_level.lower(),
-        access_log=True
+        access_log=True,
     )

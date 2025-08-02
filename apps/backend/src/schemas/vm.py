@@ -12,6 +12,7 @@ from apps.backend.src.schemas.common import PaginatedResponse
 
 class VMStatusBase(BaseModel):
     """Base VM status schema with common fields"""
+
     vm_id: str = Field(..., min_length=1, max_length=255, description="Virtual machine ID")
     vm_name: str = Field(..., min_length=1, max_length=255, description="Virtual machine name")
     hypervisor: str = Field(..., max_length=100, description="Hypervisor type")
@@ -19,36 +20,53 @@ class VMStatusBase(BaseModel):
     vcpus: Optional[int] = Field(None, ge=1, description="Number of virtual CPUs")
     memory_mb: Optional[int] = Field(None, ge=1, description="Allocated memory in MB")
     memory_usage_mb: Optional[int] = Field(None, ge=0, description="Current memory usage in MB")
-    cpu_usage_percent: Optional[Decimal] = Field(None, ge=0, le=100, description="CPU usage percentage")
+    cpu_usage_percent: Optional[Decimal] = Field(
+        None, ge=0, le=100, description="CPU usage percentage"
+    )
     disk_usage_bytes: Optional[int] = Field(None, ge=0, description="Disk usage in bytes")
     network_bytes_sent: Optional[int] = Field(None, ge=0, description="Network bytes sent")
     network_bytes_recv: Optional[int] = Field(None, ge=0, description="Network bytes received")
     uptime_seconds: Optional[int] = Field(None, ge=0, description="VM uptime in seconds")
     boot_time: Optional[datetime] = Field(None, description="VM boot time")
     config: Dict[str, Any] = Field(default_factory=dict, description="VM configuration")
-    
+
     @field_validator("hypervisor")
     @classmethod
     def validate_hypervisor(cls, v):
         valid_hypervisors = [
-            "kvm", "qemu", "xen", "vmware", "virtualbox", 
-            "hyper-v", "bhyve", "lxc", "docker", "openvz"
+            "kvm",
+            "qemu",
+            "xen",
+            "vmware",
+            "virtualbox",
+            "hyper-v",
+            "bhyve",
+            "lxc",
+            "docker",
+            "openvz",
         ]
         if v.lower() not in valid_hypervisors:
             raise ValueError(f"Hypervisor must be one of: {', '.join(valid_hypervisors)}")
         return v.lower()
-    
+
     @field_validator("status")
     @classmethod
     def validate_status(cls, v):
         valid_statuses = [
-            "running", "paused", "shutdown", "shutoff", "crashed", 
-            "dying", "pmsuspended", "starting", "stopping"
+            "running",
+            "paused",
+            "shutdown",
+            "shutoff",
+            "crashed",
+            "dying",
+            "pmsuspended",
+            "starting",
+            "stopping",
         ]
         if v.lower() not in valid_statuses:
             raise ValueError(f"Status must be one of: {', '.join(valid_statuses)}")
         return v.lower()
-    
+
     @field_validator("vm_name")
     @classmethod
     def validate_vm_name(cls, v):
@@ -60,35 +78,39 @@ class VMStatusBase(BaseModel):
 
 class VMStatusCreate(VMStatusBase):
     """Schema for creating a new VM status record"""
+
     device_id: UUID = Field(..., description="Device UUID")
 
 
 class VMStatusResponse(VMStatusBase):
     """Schema for VM status response data"""
+
     time: datetime = Field(description="Timestamp of the VM status record")
     device_id: UUID = Field(description="Device UUID")
-    
+
     # Computed fields
     memory_usage_percent: Optional[float] = Field(None, description="Memory usage percentage")
     uptime_hours: Optional[float] = Field(None, description="Uptime in hours")
     cpu_cores_used: Optional[float] = Field(None, description="CPU cores effectively used")
-    
+
     class Config:
         from_attributes = True
         json_encoders = {
             datetime: lambda v: v.isoformat(),
             UUID: lambda v: str(v),
-            Decimal: lambda v: float(v)
+            Decimal: lambda v: float(v),
         }
 
 
 class VMStatusList(PaginatedResponse[VMStatusResponse]):
     """Paginated list of VM status records"""
+
     pass
 
 
 class VMSummary(BaseModel):
     """VM summary for dashboard"""
+
     device_id: UUID
     vm_id: str
     vm_name: str
@@ -102,13 +124,14 @@ class VMSummary(BaseModel):
     network_active: bool = Field(description="Whether VM has active network traffic")
     health_status: str = Field(description="Overall VM health status")
     last_updated: datetime = Field(description="Last status update")
-    
+
     class Config:
         from_attributes = True
 
 
 class VMHealthOverview(BaseModel):
     """VM health overview across all devices"""
+
     total_vms: int = Field(description="Total number of VMs")
     running_vms: int = Field(description="Number of running VMs")
     paused_vms: int = Field(description="Number of paused VMs")
@@ -127,6 +150,7 @@ class VMHealthOverview(BaseModel):
 
 class VMPerformanceMetrics(BaseModel):
     """VM performance metrics summary"""
+
     device_id: UUID
     vm_id: str
     vm_name: str
@@ -140,13 +164,14 @@ class VMPerformanceMetrics(BaseModel):
     alerts: List[str] = Field(description="Active VM alerts")
     recommendations: List[str] = Field(description="Performance recommendations")
     last_updated: datetime = Field(description="Last metrics update")
-    
+
     class Config:
         from_attributes = True
 
 
 class VMResourceAllocation(BaseModel):
     """VM resource allocation configuration"""
+
     vm_id: str
     vm_name: str
     vcpus: int = Field(ge=1, description="Number of virtual CPUs")
@@ -157,14 +182,14 @@ class VMResourceAllocation(BaseModel):
     memory_balloon: Optional[bool] = Field(None, description="Memory ballooning enabled")
     cpu_limit_percent: Optional[int] = Field(None, ge=1, le=100, description="CPU limit percentage")
     memory_limit_mb: Optional[int] = Field(None, description="Memory limit in MB")
-    
+
     @field_validator("vcpus")
     @classmethod
     def validate_vcpus(cls, v):
         if v > 128:  # Reasonable upper limit
             raise ValueError("vCPUs cannot exceed 128")
         return v
-    
+
     @field_validator("memory_mb")
     @classmethod
     def validate_memory_mb(cls, v):
@@ -177,18 +202,30 @@ class VMResourceAllocation(BaseModel):
 
 class VMOperation(BaseModel):
     """VM operation request/response"""
+
     vm_id: str = Field(description="VM ID")
     operation: str = Field(description="Operation type")
     parameters: Dict[str, Any] = Field(default_factory=dict, description="Operation parameters")
     initiated_by: Optional[str] = Field(None, description="User who initiated operation")
-    initiated_at: datetime = Field(default_factory=datetime.utcnow, description="Operation start time")
-    
+    initiated_at: datetime = Field(
+        default_factory=datetime.utcnow, description="Operation start time"
+    )
+
     @field_validator("operation")
     @classmethod
     def validate_operation(cls, v):
         valid_operations = [
-            "start", "stop", "restart", "pause", "resume", "suspend", 
-            "snapshot", "clone", "migrate", "backup", "restore"
+            "start",
+            "stop",
+            "restart",
+            "pause",
+            "resume",
+            "suspend",
+            "snapshot",
+            "clone",
+            "migrate",
+            "backup",
+            "restore",
         ]
         if v.lower() not in valid_operations:
             raise ValueError(f"Operation must be one of: {', '.join(valid_operations)}")
@@ -197,6 +234,7 @@ class VMOperation(BaseModel):
 
 class VMOperationResult(BaseModel):
     """VM operation result"""
+
     vm_id: str
     operation: str
     status: str = Field(description="Operation status (success/failed/pending)")
@@ -205,15 +243,16 @@ class VMOperationResult(BaseModel):
     duration_seconds: Optional[float] = Field(description="Operation duration")
     result_data: Dict[str, Any] = Field(default_factory=dict, description="Operation result data")
     completed_at: datetime = Field(default_factory=datetime.utcnow, description="Completion time")
-    
+
     class Config:
         from_attributes = True
 
 
 class VMSnapshot(BaseModel):
     """VM snapshot information"""
+
     snapshot_id: str = Field(description="Snapshot ID")
-    vm_id: str = Field(description="VM ID") 
+    vm_id: str = Field(description="VM ID")
     vm_name: str = Field(description="VM name")
     snapshot_name: str = Field(description="Snapshot name")
     description: Optional[str] = Field(description="Snapshot description")
@@ -223,13 +262,14 @@ class VMSnapshot(BaseModel):
     disk_included: bool = Field(description="Whether disk state is included")
     parent_snapshot: Optional[str] = Field(description="Parent snapshot ID")
     is_current: bool = Field(description="Whether this is the current snapshot")
-    
+
     class Config:
         from_attributes = True
 
 
 class VMFilter(BaseModel):
     """VM filtering parameters"""
+
     device_ids: Optional[List[UUID]] = Field(description="Filter by device IDs")
     hypervisors: Optional[List[str]] = Field(description="Filter by hypervisor types")
     statuses: Optional[List[str]] = Field(description="Filter by VM statuses")
@@ -244,6 +284,7 @@ class VMFilter(BaseModel):
 
 class VMBackup(BaseModel):
     """VM backup information"""
+
     backup_id: str = Field(description="Backup ID")
     vm_id: str = Field(description="VM ID")
     vm_name: str = Field(description="VM name")
@@ -255,6 +296,6 @@ class VMBackup(BaseModel):
     verification_status: str = Field(description="Backup verification status")
     retention_days: Optional[int] = Field(description="Retention period in days")
     metadata: Dict[str, Any] = Field(default_factory=dict, description="Backup metadata")
-    
+
     class Config:
         from_attributes = True

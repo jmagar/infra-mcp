@@ -25,4 +25,11 @@ api_router.include_router(containers_router, prefix="/containers", tags=["Contai
 api_router.include_router(proxy_router, prefix="/proxies", tags=["Proxy"])
 api_router.include_router(zfs_router, prefix="/zfs", tags=["ZFS"])
 
-__all__ = ["api_router", "common_router", "devices_router", "containers_router", "proxy_router", "zfs_router"]
+__all__ = [
+    "api_router",
+    "common_router",
+    "devices_router",
+    "containers_router",
+    "proxy_router",
+    "zfs_router",
+]

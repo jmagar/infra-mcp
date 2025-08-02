@@ -10,17 +10,17 @@ from .database import (
     get_db_session,
     test_database_connection,
     check_database_health,
-    Base
+    Base,
 )
 
 __all__ = [
     "get_settings",
-    "settings", 
+    "settings",
     "init_database",
     "close_database",
     "get_async_session",
     "get_db_session",
     "test_database_connection",
     "check_database_health",
-    "Base"
+    "Base",
 ]

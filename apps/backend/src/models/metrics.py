@@ -16,7 +16,12 @@ class SystemMetric(Base):
 
     # Time-series primary key
     time = Column(DateTime(timezone=True), primary_key=True, nullable=False)
-    device_id = Column(UUID(as_uuid=True), ForeignKey("devices.id", ondelete="CASCADE"), primary_key=True, nullable=False)
+    device_id = Column(
+        UUID(as_uuid=True),
+        ForeignKey("devices.id", ondelete="CASCADE"),
+        primary_key=True,
+        nullable=False,
+    )
 
     # CPU metrics
     cpu_usage_percent = Column(Numeric(5, 2))
@@ -58,8 +63,15 @@ class DriveHealth(Base):
 
     # Time-series primary key
     time = Column(DateTime(timezone=True), primary_key=True, nullable=False)
-    device_id = Column(UUID(as_uuid=True), ForeignKey("devices.id", ondelete="CASCADE"), primary_key=True, nullable=False)
-    drive_name = Column(String(100), primary_key=True, nullable=False)  # /dev/sda, /dev/nvme0n1, etc.
+    device_id = Column(
+        UUID(as_uuid=True),
+        ForeignKey("devices.id", ondelete="CASCADE"),
+        primary_key=True,
+        nullable=False,
+    )
+    drive_name = Column(
+        String(100), primary_key=True, nullable=False
+    )  # /dev/sda, /dev/nvme0n1, etc.
 
     # Drive information
     drive_type = Column(String(20))  # ssd, hdd, nvme
@@ -79,7 +91,9 @@ class DriveHealth(Base):
     # Status indicators
     smart_status = Column(String(20), index=True)  # PASSED, FAILED, UNKNOWN
     smart_attributes = Column(JSONB, default={})
-    health_status = Column(String(20), default="unknown", index=True)  # healthy, warning, critical, unknown
+    health_status = Column(
+        String(20), default="unknown", index=True
+    )  # healthy, warning, critical, unknown
 
     # Relationships
     device = relationship("Device", back_populates="drive_health")

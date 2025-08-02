@@ -17,11 +17,17 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from apps.backend.src.core.database import get_async_session
 from apps.backend.src.models.device import Device
 from apps.backend.src.core.exceptions import (
-    DeviceNotFoundError, DatabaseOperationError, ValidationError
+    DeviceNotFoundError,
+    DatabaseOperationError,
+    ValidationError,
 )
 from apps.backend.src.schemas.device import DeviceResponse, DeviceSummary, DeviceConnectionTest
 from apps.backend.src.schemas.common import DeviceStatus, PaginationParams
-from apps.backend.src.utils.ssh_client import get_ssh_client, SSHConnectionInfo, test_ssh_connectivity
+from apps.backend.src.utils.ssh_client import (
+    get_ssh_client,
+    SSHConnectionInfo,
+    test_ssh_connectivity,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -35,15 +41,15 @@ async def add_device(
     ip_address: str | None = None,
     ssh_port: int | None = None,
     ssh_username: str | None = None,
-    tags: dict[str, str] | None = None
+    tags: dict[str, str] | None = None,
 ) -> dict[str, Any]:
     """
     Add a new device to the infrastructure registry.
-    
+
     This tool creates a new device record in the registry. Only hostname is required -
     SSH config can handle connection details. The device will be available for
     monitoring and management through other MCP tools.
-    
+
     Args:
         hostname: Device hostname (required, must be unique)
         device_type: Type of device (default: "server")
@@ -54,33 +60,33 @@ async def add_device(
         ssh_port: Optional SSH port (SSH config can handle this)
         ssh_username: Optional SSH username (SSH config can handle this)
         tags: Optional key-value tags for organization
-        
+
     Returns:
         Dict containing:
         - device_info: Created device information
         - status: Creation status
         - connectivity_test: SSH connectivity test results if monitoring enabled
         - timestamp: Creation timestamp
-        
+
     Raises:
         ValidationError: If hostname already exists or validation fails
         DatabaseOperationError: If device creation fails
     """
     import httpx
     from apps.backend.src.core.config import get_settings
-    
+
     logger.info(f"Adding new device: {hostname}")
-    
+
     try:
         settings = get_settings()
-        
+
         # Prepare device data
         device_data = {
             "hostname": hostname,
             "device_type": device_type,
-            "monitoring_enabled": monitoring_enabled
+            "monitoring_enabled": monitoring_enabled,
         }
-        
+
         # Add optional fields
         if description:
             device_data["description"] = description
@@ -94,23 +100,23 @@ async def add_device(
             device_data["ssh_username"] = ssh_username
         if tags:
             device_data["tags"] = tags
-        
+
         # Make HTTP request to the API endpoint
         api_url = "http://localhost:9101/api/devices"
         headers = {
             "Authorization": f"Bearer {settings.api_key}",
-            "Content-Type": "application/json"
+            "Content-Type": "application/json",
         }
-        
+
         async with httpx.AsyncClient() as client:
             response = await client.post(api_url, json=device_data, headers=headers)
-            
+
             if response.status_code == 201:
                 # Device created successfully
                 device_info = response.json()
-                
+
                 logger.info(f"Successfully added device: {hostname} (ID: {device_info['id']})")
-                
+
                 return {
                     "device_info": device_info,
                     "status": "created",
@@ -118,25 +124,25 @@ async def add_device(
                     "connectivity_test": {
                         "performed": monitoring_enabled,
                         "status": device_info.get("status", "unknown"),
-                        "ssh_accessible": device_info.get("status") == "online"
+                        "ssh_accessible": device_info.get("status") == "online",
                     },
                     "next_steps": [
                         "Device is now available for monitoring",
                         "Use other MCP tools to manage containers, check system metrics, etc.",
-                        "Update device configuration via update_device tool if needed"
+                        "Update device configuration via update_device tool if needed",
                     ],
-                    "timestamp": datetime.now(datetime.UTC).isoformat()
+                    "timestamp": datetime.now(datetime.UTC).isoformat(),
                 }
-                
+
             elif response.status_code == 409:
                 # Device already exists
                 error_data = response.json()
                 raise ValidationError(
                     message=f"Device with hostname '{hostname}' already exists",
                     field="hostname",
-                    value=hostname
+                    value=hostname,
                 )
-                
+
             else:
                 # Other error
                 try:
@@ -144,26 +150,23 @@ async def add_device(
                     error_message = error_data.get("detail", f"HTTP {response.status_code}")
                 except Exception:
                     error_message = f"HTTP {response.status_code}: {response.text}"
-                
+
                 raise DatabaseOperationError(
                     message=f"Failed to create device: {error_message}",
                     operation="add_device",
                     details={
                         "hostname": hostname,
                         "status_code": response.status_code,
-                        "error": error_message
-                    }
+                        "error": error_message,
+                    },
                 )
-        
+
     except httpx.RequestError as e:
         logger.error(f"HTTP request error adding device {hostname}: {e}")
         raise DatabaseOperationError(
             message=f"Failed to connect to API server: {str(e)}",
             operation="add_device",
-            details={
-                "hostname": hostname,
-                "error": str(e)
-            }
+            details={"hostname": hostname, "error": str(e)},
         ) from e
     except Exception as e:
         logger.error(f"Error adding device {hostname}: {e}")
@@ -177,15 +180,15 @@ async def list_devices(
     location: str | None = None,
     search: str | None = None,
     limit: int = 50,
-    offset: int = 0
+    offset: int = 0,
 ) -> Dict[str, Any]:
     """
     List all registered infrastructure devices with optional filtering.
-    
+
     This tool retrieves devices from the device registry with support for
     various filtering options including type, status, location, and search.
     It provides essential device information for infrastructure monitoring.
-    
+
     Args:
         device_type: Optional device type filter (server, workstation, etc.)
         status: Optional status filter (online, offline, unknown)
@@ -194,7 +197,7 @@ async def list_devices(
         search: Search in hostname and description
         limit: Maximum number of devices to return (default: 50)
         offset: Pagination offset (default: 0)
-        
+
     Returns:
         Dict containing:
         - devices: List of device information dictionaries
@@ -202,18 +205,18 @@ async def list_devices(
         - filters_applied: Applied filter information
         - summary: Device count summary
         - timestamp: Query timestamp
-        
+
     Raises:
         DatabaseOperationError: If database query fails
     """
     logger.info("Listing devices from registry")
-    
+
     try:
         # Get database session
         async with get_async_session() as db:
             # Build query with filters
             query = select(Device)
-            
+
             # Apply filters
             filters = []
             if device_type:
@@ -227,29 +230,32 @@ async def list_devices(
             if search:
                 search_filter = f"%{search}%"
                 filters.append(
-                    Device.hostname.ilike(search_filter) |
-                    Device.description.ilike(search_filter)
+                    Device.hostname.ilike(search_filter) | Device.description.ilike(search_filter)
                 )
-            
+
             if filters:
                 query = query.where(*filters)
-            
+
             # Get total count
-            count_query = select(func.count(Device.id)).where(*filters) if filters else select(func.count(Device.id))
+            count_query = (
+                select(func.count(Device.id)).where(*filters)
+                if filters
+                else select(func.count(Device.id))
+            )
             total_count_result = await db.execute(count_query)
             total_count = total_count_result.scalar()
-            
+
             # Apply pagination and ordering
             query = query.order_by(Device.hostname).offset(offset).limit(limit)
-            
+
             # Execute query
             result = await db.execute(query)
             devices = result.scalars().all()
-            
+
             # Transform devices to response format
             device_list = []
             status_counts = {"online": 0, "offline": 0, "unknown": 0}
-            
+
             for device in devices:
                 device_info = {
                     "id": str(device.id),
@@ -265,14 +271,14 @@ async def list_devices(
                     "ssh_config": {
                         "port": device.ssh_port,
                         "username": device.ssh_username,
-                        "key_based_auth": bool(device.ssh_private_key_path)
-                    }
+                        "key_based_auth": bool(device.ssh_private_key_path),
+                    },
                 }
                 device_list.append(device_info)
-                
+
                 # Count statuses
                 status_counts[device.status.value] += 1
-            
+
             # Prepare response
             response = {
                 "devices": device_list,
@@ -281,31 +287,31 @@ async def list_devices(
                     "returned_count": len(device_list),
                     "limit": limit,
                     "offset": offset,
-                    "has_more": offset + len(device_list) < total_count
+                    "has_more": offset + len(device_list) < total_count,
                 },
                 "filters_applied": {
                     "device_type": device_type,
                     "status": status,
                     "monitoring_enabled": monitoring_enabled,
                     "location": location,
-                    "search": search
+                    "search": search,
                 },
                 "summary": {
                     "total_devices": total_count,
                     "online": status_counts["online"],
                     "offline": status_counts["offline"],
                     "unknown": status_counts["unknown"],
-                    "monitoring_enabled": sum(1 for d in device_list if d["monitoring_enabled"])
+                    "monitoring_enabled": sum(1 for d in device_list if d["monitoring_enabled"]),
                 },
                 "query_info": {
                     "timestamp": datetime.now(datetime.UTC).isoformat(),
-                    "execution_time_ms": 0  # Database queries are typically fast
-                }
+                    "execution_time_ms": 0,  # Database queries are typically fast
+                },
             }
-            
+
             logger.info(f"Listed {len(device_list)} devices (total: {total_count})")
             return response
-            
+
     except Exception as e:
         logger.error(f"Error listing devices: {e}")
         raise DatabaseOperationError(
@@ -317,32 +323,30 @@ async def list_devices(
                     "status": status,
                     "monitoring_enabled": monitoring_enabled,
                     "location": location,
-                    "search": search
-                }
-            }
+                    "search": search,
+                },
+            },
         )
 
 
 async def get_device_info(
-    device: str,
-    test_connectivity: bool = True,
-    timeout: int = 30
+    device: str, test_connectivity: bool = True, timeout: int = 30
 ) -> Dict[str, Any]:
     """
     Get comprehensive information about a specific device.
-    
+
     This tool retrieves detailed device information from the registry
     and optionally tests SSH connectivity. It provides both static
     configuration data and dynamic connectivity status.
-    
-    NOTE: This tool is OPTIONAL - the core MCP monitoring tools work 
+
+    NOTE: This tool is OPTIONAL - the core MCP monitoring tools work
     directly with hostnames from SSH config without requiring device registration.
-    
+
     Args:
         device: Device hostname (must match SSH config)
         test_connectivity: Whether to test SSH connectivity (default: True)
         timeout: SSH connection timeout in seconds (default: 30)
-        
+
     Returns:
         Dict containing:
         - device_info: Complete device configuration
@@ -351,25 +355,25 @@ async def get_device_info(
         - network_info: Network configuration details
         - monitoring_status: Monitoring configuration
         - timestamp: Query timestamp
-        
+
     Raises:
         DeviceNotFoundError: If device not found in registry
         DatabaseOperationError: If database query fails
     """
     logger.info(f"Getting device info for: {device}")
-    
+
     try:
         # Get database session
         async with get_async_session() as db:
             # Find device by hostname only (simplified approach)
             query = select(Device).where(Device.hostname == device)
-            
+
             result = await db.execute(query)
             device_record = result.scalar_one_or_none()
-            
+
             if not device_record:
                 raise DeviceNotFoundError(device, "hostname")
-            
+
             # Build device info
             device_info = {
                 "id": str(device_record.id),
@@ -382,10 +386,12 @@ async def get_device_info(
                 "monitoring_enabled": device_record.monitoring_enabled,
                 "created_at": device_record.created_at.isoformat(),
                 "updated_at": device_record.updated_at.isoformat(),
-                "last_seen": device_record.last_seen.isoformat() if device_record.last_seen else None,
-                "metadata": device_record.metadata or {}
+                "last_seen": device_record.last_seen.isoformat()
+                if device_record.last_seen
+                else None,
+                "metadata": device_record.metadata or {},
             }
-            
+
             # SSH configuration
             ssh_config = {
                 "port": device_record.ssh_port,
@@ -394,9 +400,9 @@ async def get_device_info(
                 "key_based_auth": bool(device_record.ssh_private_key_path),
                 "private_key_path": device_record.ssh_private_key_path,
                 "connect_timeout": 30,
-                "command_timeout": 120
+                "command_timeout": 120,
             }
-            
+
             # Initialize connectivity info
             connectivity_info = {
                 "test_performed": test_connectivity,
@@ -404,26 +410,26 @@ async def get_device_info(
                 "ssh_accessible": False,
                 "response_time_ms": None,
                 "error_message": None,
-                "last_test": datetime.now(datetime.UTC).isoformat()
+                "last_test": datetime.now(datetime.UTC).isoformat(),
             }
-            
+
             # System info (only available if connected)
             system_info = None
-            
+
             # Test connectivity if requested
             if test_connectivity:
                 try:
                     start_time = time.time()
-                    
+
                     connection_info = SSHConnectionInfo(
                         host=device_record.hostname,
                         port=device_record.ssh_port,
                         username=device_record.ssh_username,
                         password=device_record.ssh_password,
                         private_key_path=device_record.ssh_private_key_path,
-                        connect_timeout=timeout
+                        connect_timeout=timeout,
                     )
-                    
+
                     # Test basic connectivity
                     is_connected = await test_ssh_connectivity(
                         host=device_record.hostname,
@@ -431,69 +437,79 @@ async def get_device_info(
                         username=device_record.ssh_username,
                         password=device_record.ssh_password,
                         private_key_path=device_record.ssh_private_key_path,
-                        timeout=timeout
+                        timeout=timeout,
                     )
-                    
+
                     connectivity_info["is_reachable"] = is_connected
                     connectivity_info["ssh_accessible"] = is_connected
                     connectivity_info["response_time_ms"] = int((time.time() - start_time) * 1000)
-                    
+
                     # If connected, get basic system info
                     if is_connected:
                         ssh_client = get_ssh_client()
-                        
+
                         # Get system information
                         uname_result = await ssh_client.execute_command(
                             connection_info, "uname -a", timeout=10
                         )
-                        
+
                         uptime_result = await ssh_client.execute_command(
                             connection_info, "uptime", timeout=10
                         )
-                        
+
                         df_result = await ssh_client.execute_command(
                             connection_info, "df -h / | tail -1", timeout=10
                         )
-                        
+
                         free_result = await ssh_client.execute_command(
                             connection_info, "free -h | head -n 2 | tail -1", timeout=10
                         )
-                        
+
                         system_info = {
-                            "kernel": uname_result.stdout.strip() if uname_result.return_code == 0 else None,
-                            "uptime": uptime_result.stdout.strip() if uptime_result.return_code == 0 else None,
-                            "disk_usage": df_result.stdout.strip() if df_result.return_code == 0 else None,
-                            "memory_usage": free_result.stdout.strip() if free_result.return_code == 0 else None,
-                            "timestamp": datetime.now(datetime.UTC).isoformat()
+                            "kernel": uname_result.stdout.strip()
+                            if uname_result.return_code == 0
+                            else None,
+                            "uptime": uptime_result.stdout.strip()
+                            if uptime_result.return_code == 0
+                            else None,
+                            "disk_usage": df_result.stdout.strip()
+                            if df_result.return_code == 0
+                            else None,
+                            "memory_usage": free_result.stdout.strip()
+                            if free_result.return_code == 0
+                            else None,
+                            "timestamp": datetime.now(datetime.UTC).isoformat(),
                         }
-                        
+
                         # Update device last_seen in database
                         device_record.last_seen = datetime.now(datetime.UTC)
                         device_record.status = DeviceStatus.online
                         await db.commit()
-                        
+
                 except Exception as e:
                     logger.warning(f"Connectivity test failed for {device}: {e}")
                     connectivity_info["error_message"] = str(e)
                     connectivity_info["is_reachable"] = False
                     connectivity_info["ssh_accessible"] = False
-            
+
             # Network information
             network_info = {
                 "primary_ip": device_record.ip_address,
                 "ssh_port": device_record.ssh_port,
                 "hostname": device_record.hostname,
-                "fqdn": f"{device_record.hostname}.local" if device_record.hostname else None
+                "fqdn": f"{device_record.hostname}.local" if device_record.hostname else None,
             }
-            
+
             # Monitoring status
             monitoring_status = {
                 "enabled": device_record.monitoring_enabled,
-                "last_check": device_record.last_seen.isoformat() if device_record.last_seen else None,
+                "last_check": device_record.last_seen.isoformat()
+                if device_record.last_seen
+                else None,
                 "status": device_record.status.value,
-                "health_checks": []  # Could be expanded with specific health checks
+                "health_checks": [],  # Could be expanded with specific health checks
             }
-            
+
             # Prepare response
             response = {
                 "device_info": device_info,
@@ -504,43 +520,40 @@ async def get_device_info(
                 "monitoring_status": monitoring_status,
                 "query_info": {
                     "queried_identifier": device,
-                    "found_by": "uuid" if (device.count('-') == 4 and len(device) == 36) else "hostname_or_ip",
-                    "timestamp": datetime.now(timezone.utc).isoformat()
-                }
+                    "found_by": "uuid"
+                    if (device.count("-") == 4 and len(device) == 36)
+                    else "hostname_or_ip",
+                    "timestamp": datetime.now(timezone.utc).isoformat(),
+                },
             }
-            
-            logger.info(f"Retrieved device info for {device_record.hostname} (Status: {device_record.status.value})")
+
+            logger.info(
+                f"Retrieved device info for {device_record.hostname} (Status: {device_record.status.value})"
+            )
             return response
-            
+
     except DeviceNotFoundError:
         # Re-raise known exceptions
         raise
     except Exception as e:
         logger.error(f"Error getting device info for {device}: {e}")
         raise DatabaseOperationError(
-            operation="get_device_info",
-            details={
-                "device": device,
-                "error": str(e)
-            }
+            operation="get_device_info", details={"device": device, "error": str(e)}
         )
 
 
-async def get_device_summary(
-    device: str,
-    timeout: int = 30
-) -> Dict[str, Any]:
+async def get_device_summary(device: str, timeout: int = 30) -> Dict[str, Any]:
     """
     Get a comprehensive summary of device status and health.
-    
+
     This tool provides a high-level overview of device health including
     connectivity status, basic system metrics, Docker status, and
     recent activity summary. Optimized for dashboard display.
-    
+
     Args:
         device: Device hostname, IP address, or UUID
         timeout: SSH connection timeout in seconds (default: 30)
-        
+
     Returns:
         Dict containing:
         - device_summary: Basic device identification
@@ -550,13 +563,13 @@ async def get_device_summary(
         - docker_summary: Container count and status
         - recent_activity: Recent events and changes
         - timestamp: Query timestamp
-        
+
     Raises:
         DeviceNotFoundError: If device not found in registry
         DatabaseOperationError: If database query fails
     """
     logger.info(f"Getting device summary for: {device}")
-    
+
     try:
         # Get database session
         async with get_async_session() as db:
@@ -568,16 +581,14 @@ async def get_device_summary(
                 query = query.where(Device.id == device_uuid)
             except ValueError:
                 # Not a UUID, try hostname or IP
-                query = query.where(
-                    (Device.hostname == device) | (Device.ip_address == device)
-                )
-            
+                query = query.where((Device.hostname == device) | (Device.ip_address == device))
+
             result = await db.execute(query)
             device_record = result.scalar_one_or_none()
-            
+
             if not device_record:
                 raise DeviceNotFoundError(device, "hostname/ip/uuid")
-            
+
             # Build device summary
             device_summary = {
                 "id": str(device_record.id),
@@ -585,67 +596,69 @@ async def get_device_summary(
                 "ip_address": device_record.ip_address,
                 "device_type": device_record.device_type,
                 "location": device_record.location,
-                "status": device_record.status.value
+                "status": device_record.status.value,
             }
-            
+
             # Initialize health status
             health_status = {
                 "overall_health": "unknown",
                 "health_score": 0,
                 "issues": [],
                 "warnings": [],
-                "last_assessment": datetime.now(datetime.UTC).isoformat()
+                "last_assessment": datetime.now(datetime.UTC).isoformat(),
             }
-            
+
             # Initialize connectivity status
             connectivity_status = {
                 "is_online": False,
                 "ssh_accessible": False,
-                "last_seen": device_record.last_seen.isoformat() if device_record.last_seen else None,
+                "last_seen": device_record.last_seen.isoformat()
+                if device_record.last_seen
+                else None,
                 "uptime": None,
-                "ping_response_ms": None
+                "ping_response_ms": None,
             }
-            
+
             # Initialize system summary
             system_summary = {
                 "cpu_usage_percent": None,
                 "memory_usage_percent": None,
                 "disk_usage_percent": None,
                 "load_average": None,
-                "processes_count": None
+                "processes_count": None,
             }
-            
+
             # Initialize Docker summary
             docker_summary = {
                 "docker_available": False,
                 "containers_total": 0,
                 "containers_running": 0,
                 "containers_stopped": 0,
-                "images_count": 0
+                "images_count": 0,
             }
-            
+
             # Initialize recent activity
             recent_activity = {
                 "last_update": device_record.updated_at.isoformat(),
                 "monitoring_events": [],
                 "status_changes": [],
-                "error_count_24h": 0
+                "error_count_24h": 0,
             }
-            
+
             # Test connectivity and gather system info if device is online
             if device_record.monitoring_enabled:
                 try:
                     start_time = time.time()
-                    
+
                     connection_info = SSHConnectionInfo(
                         host=device_record.hostname,
                         port=device_record.ssh_port,
                         username=device_record.ssh_username,
                         password=device_record.ssh_password,
                         private_key_path=device_record.ssh_private_key_path,
-                        connect_timeout=timeout
+                        connect_timeout=timeout,
                     )
-                    
+
                     # Test SSH connectivity
                     is_connected = await test_ssh_connectivity(
                         host=device_record.hostname,
@@ -653,65 +666,71 @@ async def get_device_summary(
                         username=device_record.ssh_username,
                         password=device_record.ssh_password,
                         private_key_path=device_record.ssh_private_key_path,
-                        timeout=timeout
+                        timeout=timeout,
                     )
-                    
+
                     connectivity_status["is_online"] = is_connected
                     connectivity_status["ssh_accessible"] = is_connected
                     connectivity_status["ping_response_ms"] = int((time.time() - start_time) * 1000)
-                    
+
                     if is_connected:
                         ssh_client = get_ssh_client()
-                        
+
                         # Get system metrics
                         try:
                             # CPU usage (1-minute average)
                             cpu_result = await ssh_client.execute_command(
-                                connection_info, 
+                                connection_info,
                                 "top -bn1 | grep 'Cpu(s)' | awk '{print $2}' | sed 's/%us,//'",
-                                timeout=10
+                                timeout=10,
                             )
                             if cpu_result.return_code == 0 and cpu_result.stdout.strip():
-                                system_summary["cpu_usage_percent"] = float(cpu_result.stdout.strip())
+                                system_summary["cpu_usage_percent"] = float(
+                                    cpu_result.stdout.strip()
+                                )
                         except Exception:
                             pass
-                        
+
                         # Memory usage
                         try:
                             mem_result = await ssh_client.execute_command(
                                 connection_info,
                                 "free | grep Mem | awk '{printf \"%.1f\", $3/$2 * 100.0}'",
-                                timeout=10
+                                timeout=10,
                             )
                             if mem_result.return_code == 0 and mem_result.stdout.strip():
-                                system_summary["memory_usage_percent"] = float(mem_result.stdout.strip())
+                                system_summary["memory_usage_percent"] = float(
+                                    mem_result.stdout.strip()
+                                )
                         except Exception:
                             pass
-                        
+
                         # Disk usage for root filesystem
                         try:
                             disk_result = await ssh_client.execute_command(
                                 connection_info,
                                 "df / | tail -1 | awk '{print $5}' | sed 's/%//'",
-                                timeout=10
+                                timeout=10,
                             )
                             if disk_result.return_code == 0 and disk_result.stdout.strip():
-                                system_summary["disk_usage_percent"] = int(disk_result.stdout.strip())
+                                system_summary["disk_usage_percent"] = int(
+                                    disk_result.stdout.strip()
+                                )
                         except Exception:
                             pass
-                        
+
                         # Load average
                         try:
                             load_result = await ssh_client.execute_command(
                                 connection_info,
                                 "uptime | awk -F'load average:' '{print $2}' | awk '{print $1}' | sed 's/,//'",
-                                timeout=10
+                                timeout=10,
                             )
                             if load_result.return_code == 0 and load_result.stdout.strip():
                                 system_summary["load_average"] = float(load_result.stdout.strip())
                         except Exception:
                             pass
-                        
+
                         # Uptime
                         try:
                             uptime_result = await ssh_client.execute_command(
@@ -721,17 +740,19 @@ async def get_device_summary(
                                 connectivity_status["uptime"] = uptime_result.stdout.strip()
                         except Exception:
                             pass
-                        
+
                         # Process count
                         try:
                             proc_result = await ssh_client.execute_command(
                                 connection_info, "ps aux | wc -l", timeout=10
                             )
                             if proc_result.return_code == 0 and proc_result.stdout.strip():
-                                system_summary["processes_count"] = int(proc_result.stdout.strip()) - 1  # Subtract header
+                                system_summary["processes_count"] = (
+                                    int(proc_result.stdout.strip()) - 1
+                                )  # Subtract header
                         except Exception:
                             pass
-                        
+
                         # Docker status
                         try:
                             docker_version_result = await ssh_client.execute_command(
@@ -739,15 +760,15 @@ async def get_device_summary(
                             )
                             if docker_version_result.return_code == 0:
                                 docker_summary["docker_available"] = True
-                                
+
                                 # Get container counts
                                 container_stats_result = await ssh_client.execute_command(
-                                    connection_info, 
+                                    connection_info,
                                     "docker ps -a --format '{{.Status}}' | sort | uniq -c",
-                                    timeout=15
+                                    timeout=15,
                                 )
                                 if container_stats_result.return_code == 0:
-                                    lines = container_stats_result.stdout.strip().split('\n')
+                                    lines = container_stats_result.stdout.strip().split("\n")
                                     for line in lines:
                                         if line.strip():
                                             parts = line.strip().split(None, 1)
@@ -759,48 +780,68 @@ async def get_device_summary(
                                                     docker_summary["containers_running"] += count
                                                 else:
                                                     docker_summary["containers_stopped"] += count
-                                
+
                                 # Get image count
                                 images_result = await ssh_client.execute_command(
                                     connection_info, "docker images -q | wc -l", timeout=10
                                 )
                                 if images_result.return_code == 0 and images_result.stdout.strip():
-                                    docker_summary["images_count"] = int(images_result.stdout.strip())
+                                    docker_summary["images_count"] = int(
+                                        images_result.stdout.strip()
+                                    )
                         except Exception:
                             pass
-                        
+
                         # Update device status
                         device_record.last_seen = datetime.now(datetime.UTC)
                         device_record.status = DeviceStatus.online
                         await db.commit()
-                        
+
                         # Calculate health score
                         health_score = 100
                         issues = []
                         warnings = []
-                        
+
                         # Check system metrics for issues
-                        if system_summary["cpu_usage_percent"] and system_summary["cpu_usage_percent"] > 90:
+                        if (
+                            system_summary["cpu_usage_percent"]
+                            and system_summary["cpu_usage_percent"] > 90
+                        ):
                             issues.append("High CPU usage")
                             health_score -= 20
-                        elif system_summary["cpu_usage_percent"] and system_summary["cpu_usage_percent"] > 70:
+                        elif (
+                            system_summary["cpu_usage_percent"]
+                            and system_summary["cpu_usage_percent"] > 70
+                        ):
                             warnings.append("Elevated CPU usage")
                             health_score -= 10
-                            
-                        if system_summary["memory_usage_percent"] and system_summary["memory_usage_percent"] > 90:
+
+                        if (
+                            system_summary["memory_usage_percent"]
+                            and system_summary["memory_usage_percent"] > 90
+                        ):
                             issues.append("High memory usage")
                             health_score -= 20
-                        elif system_summary["memory_usage_percent"] and system_summary["memory_usage_percent"] > 75:
+                        elif (
+                            system_summary["memory_usage_percent"]
+                            and system_summary["memory_usage_percent"] > 75
+                        ):
                             warnings.append("Elevated memory usage")
                             health_score -= 10
-                            
-                        if system_summary["disk_usage_percent"] and system_summary["disk_usage_percent"] > 90:
+
+                        if (
+                            system_summary["disk_usage_percent"]
+                            and system_summary["disk_usage_percent"] > 90
+                        ):
                             issues.append("High disk usage")
                             health_score -= 25
-                        elif system_summary["disk_usage_percent"] and system_summary["disk_usage_percent"] > 80:
+                        elif (
+                            system_summary["disk_usage_percent"]
+                            and system_summary["disk_usage_percent"] > 80
+                        ):
                             warnings.append("Elevated disk usage")
                             health_score -= 10
-                        
+
                         # Determine overall health
                         if health_score >= 90:
                             overall_health = "excellent"
@@ -812,32 +853,38 @@ async def get_device_summary(
                             overall_health = "poor"
                         else:
                             overall_health = "critical"
-                        
-                        health_status.update({
-                            "overall_health": overall_health,
-                            "health_score": health_score,
-                            "issues": issues,
-                            "warnings": warnings
-                        })
-                        
+
+                        health_status.update(
+                            {
+                                "overall_health": overall_health,
+                                "health_score": health_score,
+                                "issues": issues,
+                                "warnings": warnings,
+                            }
+                        )
+
                     else:
                         # Device is offline
-                        health_status.update({
-                            "overall_health": "offline",
-                            "health_score": 0,
-                            "issues": ["Device is not accessible via SSH"],
-                            "warnings": []
-                        })
-                        
+                        health_status.update(
+                            {
+                                "overall_health": "offline",
+                                "health_score": 0,
+                                "issues": ["Device is not accessible via SSH"],
+                                "warnings": [],
+                            }
+                        )
+
                 except Exception as e:
                     logger.warning(f"Error gathering system info for {device}: {e}")
-                    health_status.update({
-                        "overall_health": "error",
-                        "health_score": 0,
-                        "issues": [f"Failed to gather system information: {str(e)}"],
-                        "warnings": []
-                    })
-            
+                    health_status.update(
+                        {
+                            "overall_health": "error",
+                            "health_score": 0,
+                            "issues": [f"Failed to gather system information: {str(e)}"],
+                            "warnings": [],
+                        }
+                    )
+
             # Prepare response
             response = {
                 "device_summary": device_summary,
@@ -849,28 +896,24 @@ async def get_device_summary(
                 "query_info": {
                     "queried_identifier": device,
                     "monitoring_enabled": device_record.monitoring_enabled,
-                    "timestamp": datetime.now(datetime.UTC).isoformat()
-                }
+                    "timestamp": datetime.now(datetime.UTC).isoformat(),
+                },
             }
-            
+
             logger.info(
                 f"Generated summary for {device_record.hostname} "
                 f"(Health: {health_status['overall_health']}, Score: {health_status['health_score']})"
             )
-            
+
             return response
-            
+
     except DeviceNotFoundError:
         # Re-raise known exceptions
         raise
     except Exception as e:
         logger.error(f"Error getting device summary for {device}: {e}")
         raise DatabaseOperationError(
-            operation="get_device_summary",
-            details={
-                "device": device,
-                "error": str(e)
-            }
+            operation="get_device_summary", details={"device": device, "error": str(e)}
         )
 
 
@@ -884,50 +927,44 @@ DEVICE_TOOLS = {
             "properties": {
                 "hostname": {
                     "type": "string",
-                    "description": "Device hostname (required, must be unique)"
+                    "description": "Device hostname (required, must be unique)",
                 },
                 "device_type": {
                     "type": "string",
                     "description": "Type of device",
                     "enum": ["server", "workstation", "router", "switch", "nas", "iot", "other"],
-                    "default": "server"
+                    "default": "server",
                 },
-                "description": {
-                    "type": "string",
-                    "description": "Optional device description"
-                },
-                "location": {
-                    "type": "string",
-                    "description": "Optional physical location"
-                },
+                "description": {"type": "string", "description": "Optional device description"},
+                "location": {"type": "string", "description": "Optional physical location"},
                 "monitoring_enabled": {
                     "type": "boolean",
                     "description": "Enable monitoring for this device",
-                    "default": True
+                    "default": True,
                 },
                 "ip_address": {
                     "type": "string",
-                    "description": "Optional IP address (SSH config can handle this)"
+                    "description": "Optional IP address (SSH config can handle this)",
                 },
                 "ssh_port": {
                     "type": "integer",
                     "description": "Optional SSH port (SSH config can handle this)",
                     "minimum": 1,
-                    "maximum": 65535
+                    "maximum": 65535,
                 },
                 "ssh_username": {
                     "type": "string",
-                    "description": "Optional SSH username (SSH config can handle this)"
+                    "description": "Optional SSH username (SSH config can handle this)",
                 },
                 "tags": {
                     "type": "object",
                     "description": "Optional key-value tags for organization",
-                    "additionalProperties": {"type": "string"}
-                }
+                    "additionalProperties": {"type": "string"},
+                },
             },
-            "required": ["hostname"]
+            "required": ["hostname"],
         },
-        "function": add_device
+        "function": add_device,
     },
     "list_devices": {
         "name": "list_devices",
@@ -938,42 +975,36 @@ DEVICE_TOOLS = {
                 "device_type": {
                     "type": "string",
                     "description": "Filter by device type",
-                    "enum": ["server", "workstation", "router", "switch", "nas", "iot", "other"]
+                    "enum": ["server", "workstation", "router", "switch", "nas", "iot", "other"],
                 },
                 "status": {
                     "type": "string",
                     "description": "Filter by device status",
-                    "enum": ["online", "offline", "unknown"]
+                    "enum": ["online", "offline", "unknown"],
                 },
                 "monitoring_enabled": {
                     "type": "boolean",
-                    "description": "Filter by monitoring status"
+                    "description": "Filter by monitoring status",
                 },
-                "location": {
-                    "type": "string",
-                    "description": "Filter by location (partial match)"
-                },
-                "search": {
-                    "type": "string",
-                    "description": "Search in hostname and description"
-                },
+                "location": {"type": "string", "description": "Filter by location (partial match)"},
+                "search": {"type": "string", "description": "Search in hostname and description"},
                 "limit": {
                     "type": "integer",
                     "description": "Maximum number of devices to return",
                     "default": 50,
                     "minimum": 1,
-                    "maximum": 200
+                    "maximum": 200,
                 },
                 "offset": {
                     "type": "integer",
                     "description": "Pagination offset",
                     "default": 0,
-                    "minimum": 0
-                }
+                    "minimum": 0,
+                },
             },
-            "required": []
+            "required": [],
         },
-        "function": list_devices
+        "function": list_devices,
     },
     "get_device_info": {
         "name": "get_device_info",
@@ -981,26 +1012,23 @@ DEVICE_TOOLS = {
         "parameters": {
             "type": "object",
             "properties": {
-                "device": {
-                    "type": "string",
-                    "description": "Device hostname, IP address, or UUID"
-                },
+                "device": {"type": "string", "description": "Device hostname, IP address, or UUID"},
                 "test_connectivity": {
                     "type": "boolean",
                     "description": "Whether to test SSH connectivity",
-                    "default": True
+                    "default": True,
                 },
                 "timeout": {
                     "type": "integer",
                     "description": "SSH connection timeout in seconds",
                     "default": 30,
                     "minimum": 5,
-                    "maximum": 120
-                }
+                    "maximum": 120,
+                },
             },
-            "required": ["device"]
+            "required": ["device"],
         },
-        "function": get_device_info
+        "function": get_device_info,
     },
     "get_device_summary": {
         "name": "get_device_summary",
@@ -1008,20 +1036,17 @@ DEVICE_TOOLS = {
         "parameters": {
             "type": "object",
             "properties": {
-                "device": {
-                    "type": "string",
-                    "description": "Device hostname, IP address, or UUID"
-                },
+                "device": {"type": "string", "description": "Device hostname, IP address, or UUID"},
                 "timeout": {
                     "type": "integer",
                     "description": "SSH connection timeout in seconds",
                     "default": 30,
                     "minimum": 5,
-                    "maximum": 120
-                }
+                    "maximum": 120,
+                },
             },
-            "required": ["device"]
+            "required": ["device"],
         },
-        "function": get_device_summary
-    }
+        "function": get_device_summary,
+    },
 }

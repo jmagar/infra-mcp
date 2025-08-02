@@ -1,7 +1,7 @@
 """
 Infrastructure Management MCP Server
 
-A comprehensive infrastructure monitoring system that provides both traditional 
+A comprehensive infrastructure monitoring system that provides both traditional
 REST APIs and optimized MCP (Model Context Protocol) interfaces for LLM interactions.
 """
 

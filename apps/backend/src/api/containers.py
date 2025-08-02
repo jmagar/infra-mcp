@@ -18,57 +18,75 @@ from apps.backend.src.api.common import get_current_user
 logger = logging.getLogger(__name__)
 router = APIRouter()
 
+
 @router.get("/{hostname}")
 async def list_device_containers(
     hostname: str = Path(..., description="Device hostname"),
     status: Optional[str] = Query(None, description="Filter by container status"),
     all_containers: bool = Query(True, description="Include stopped containers"),
     timeout: int = Query(60, description="SSH timeout in seconds"),
-    limit: Optional[int] = Query(None, description="Maximum number of containers to return", ge=1, le=1000),
+    limit: Optional[int] = Query(
+        None, description="Maximum number of containers to return", ge=1, le=1000
+    ),
     offset: int = Query(0, description="Number of containers to skip", ge=0),
-    current_user=Depends(get_current_user)
+    current_user=Depends(get_current_user),
 ):
     try:
         return await mcp_list_containers(hostname, status, all_containers, timeout, limit, offset)
     except Exception as e:
         logger.error(f"Error listing containers on {hostname}: {e}")
-        raise HTTPException(status_code=500, detail=f"Failed to list containers on {hostname}: {str(e)}")
+        raise HTTPException(
+            status_code=500, detail=f"Failed to list containers on {hostname}: {str(e)}"
+        )
+
 
 @router.get("/{hostname}/{container_name}")
 async def get_container_info(
     hostname: str = Path(..., description="Device hostname"),
     container_name: str = Path(..., description="Container name"),
     timeout: int = Query(60, description="SSH timeout in seconds"),
-    current_user=Depends(get_current_user)
+    current_user=Depends(get_current_user),
 ):
     try:
-        result = await execute_ssh_command_simple(hostname, f"docker inspect {container_name}", timeout)
+        result = await execute_ssh_command_simple(
+            hostname, f"docker inspect {container_name}", timeout
+        )
         if not result.success:
-            raise HTTPException(status_code=404, detail=f"Container {container_name} not found on {hostname}")
-        
+            raise HTTPException(
+                status_code=404, detail=f"Container {container_name} not found on {hostname}"
+            )
+
         import json
+
         container_data = json.loads(result.stdout)
         return {
             "container": container_data[0] if container_data else {},
             "hostname": hostname,
             "container_name": container_name,
-            "timestamp": result.execution_time
+            "timestamp": result.execution_time,
         }
     except json.JSONDecodeError:
-        raise HTTPException(status_code=500, detail=f"Failed to parse container data from {hostname}")
+        raise HTTPException(
+            status_code=500, detail=f"Failed to parse container data from {hostname}"
+        )
     except Exception as e:
         logger.error(f"Error getting container info for {container_name} on {hostname}: {e}")
         raise HTTPException(status_code=500, detail=f"Failed to get container info: {str(e)}")
+
 
 @router.get("/{hostname}/{container_name}/logs")
 async def get_container_logs(
     hostname: str = Path(..., description="Device hostname"),
     container_name: str = Path(..., description="Container name"),
-    since: Optional[str] = Query(None, description="Show logs since timestamp or duration (e.g., '1h', '30m')"),
-    tail: Optional[int] = Query(100, description="Number of lines to show from the end", ge=1, le=10000),
+    since: Optional[str] = Query(
+        None, description="Show logs since timestamp or duration (e.g., '1h', '30m')"
+    ),
+    tail: Optional[int] = Query(
+        100, description="Number of lines to show from the end", ge=1, le=10000
+    ),
     timestamps: bool = Query(True, description="Include timestamps in log output"),
     timeout: int = Query(60, description="SSH timeout in seconds"),
-    current_user=Depends(get_current_user)
+    current_user=Depends(get_current_user),
 ):
     try:
         # Build docker logs command
@@ -79,11 +97,13 @@ async def get_container_logs(
             cmd += f" --tail {tail}"
         if timestamps:
             cmd += " --timestamps"
-            
+
         result = await execute_ssh_command_simple(hostname, cmd, timeout)
         if not result.success:
-            raise HTTPException(status_code=404, detail=f"Container {container_name} not found on {hostname}")
-        
+            raise HTTPException(
+                status_code=404, detail=f"Container {container_name} not found on {hostname}"
+            )
+
         return {
             "logs": result.stdout,
             "hostname": hostname,
@@ -91,7 +111,7 @@ async def get_container_logs(
             "since": since,
             "tail": tail,
             "timestamps": timestamps,
-            "execution_time": result.execution_time
+            "execution_time": result.execution_time,
         }
     except Exception as e:
         logger.error(f"Error getting container logs for {container_name} on {hostname}: {e}")

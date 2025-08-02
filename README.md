@@ -68,7 +68,7 @@ This architecture ensures that all operations, whether initiated from the API or
 5.  **Run the database migrations:**
 
     ```bash
-    alembic upgrade head
+    cd apps/backend && alembic upgrade head
     ```
 6.  **Start the servers:**
 

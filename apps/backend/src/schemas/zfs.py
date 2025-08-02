@@ -12,6 +12,7 @@ from apps.backend.src.schemas.common import PaginatedResponse, TimeRangeParams
 
 class ZFSStatusBase(BaseModel):
     """Base ZFS status schema with common fields"""
+
     pool_name: str = Field(..., min_length=1, max_length=255, description="ZFS pool name")
     dataset_name: Optional[str] = Field(None, max_length=255, description="ZFS dataset name")
     pool_state: str = Field(..., description="Pool state (ONLINE, DEGRADED, FAULTED, etc.)")
@@ -19,15 +20,23 @@ class ZFSStatusBase(BaseModel):
     capacity_bytes: Optional[int] = Field(None, ge=0, description="Total pool capacity in bytes")
     allocated_bytes: Optional[int] = Field(None, ge=0, description="Allocated space in bytes")
     free_bytes: Optional[int] = Field(None, ge=0, description="Free space in bytes")
-    fragmentation_percent: Optional[Decimal] = Field(None, ge=0, le=100, description="Fragmentation percentage")
+    fragmentation_percent: Optional[Decimal] = Field(
+        None, ge=0, le=100, description="Fragmentation percentage"
+    )
     dedup_ratio: Optional[Decimal] = Field(None, ge=1, description="Deduplication ratio")
     compression_ratio: Optional[Decimal] = Field(None, ge=1, description="Compression ratio")
-    scrub_state: Optional[str] = Field(None, description="Scrub state (none, scanning, finished, etc.)")
-    scrub_progress_percent: Optional[Decimal] = Field(None, ge=0, le=100, description="Scrub progress percentage")
+    scrub_state: Optional[str] = Field(
+        None, description="Scrub state (none, scanning, finished, etc.)"
+    )
+    scrub_progress_percent: Optional[Decimal] = Field(
+        None, ge=0, le=100, description="Scrub progress percentage"
+    )
     scrub_errors: int = Field(default=0, ge=0, description="Number of scrub errors")
     last_scrub: Optional[datetime] = Field(None, description="Last scrub timestamp")
-    properties: Dict[str, Any] = Field(default_factory=dict, description="Additional ZFS properties")
-    
+    properties: Dict[str, Any] = Field(
+        default_factory=dict, description="Additional ZFS properties"
+    )
+
     @field_validator("pool_state")
     @classmethod
     def validate_pool_state(cls, v):
@@ -35,7 +44,7 @@ class ZFSStatusBase(BaseModel):
         if v.upper() not in valid_states:
             raise ValueError(f"Pool state must be one of: {', '.join(valid_states)}")
         return v.upper()
-    
+
     @field_validator("scrub_state")
     @classmethod
     def validate_scrub_state(cls, v):
@@ -49,40 +58,46 @@ class ZFSStatusBase(BaseModel):
 
 class ZFSStatusCreate(ZFSStatusBase):
     """Schema for creating a new ZFS status record"""
+
     device_id: UUID = Field(..., description="Device UUID")
 
 
 class ZFSStatusResponse(ZFSStatusBase):
     """Schema for ZFS status response data"""
+
     time: datetime = Field(description="Timestamp of the status record")
     device_id: UUID = Field(description="Device UUID")
-    
+
     # Computed fields
     usage_percent: Optional[float] = Field(None, description="Storage usage percentage")
-    
+
     class Config:
         from_attributes = True
         json_encoders = {
             datetime: lambda v: v.isoformat(),
             UUID: lambda v: str(v),
-            Decimal: lambda v: float(v)
+            Decimal: lambda v: float(v),
         }
 
 
 class ZFSStatusList(PaginatedResponse[ZFSStatusResponse]):
     """Paginated list of ZFS status records"""
+
     pass
 
 
 class ZFSSnapshotBase(BaseModel):
     """Base ZFS snapshot schema with common fields"""
+
     dataset_name: str = Field(..., min_length=1, max_length=255, description="Dataset name")
     snapshot_name: str = Field(..., min_length=1, max_length=255, description="Snapshot name")
     creation_time: datetime = Field(..., description="Snapshot creation time")
     used_bytes: Optional[int] = Field(None, ge=0, description="Space used by snapshot in bytes")
-    referenced_bytes: Optional[int] = Field(None, ge=0, description="Space referenced by snapshot in bytes")
+    referenced_bytes: Optional[int] = Field(
+        None, ge=0, description="Space referenced by snapshot in bytes"
+    )
     properties: Dict[str, Any] = Field(default_factory=dict, description="Snapshot properties")
-    
+
     @field_validator("snapshot_name")
     @classmethod
     def validate_snapshot_name(cls, v):
@@ -94,32 +109,33 @@ class ZFSSnapshotBase(BaseModel):
 
 class ZFSSnapshotCreate(ZFSSnapshotBase):
     """Schema for creating a new ZFS snapshot record"""
+
     device_id: UUID = Field(..., description="Device UUID")
 
 
 class ZFSSnapshotResponse(ZFSSnapshotBase):
     """Schema for ZFS snapshot response data"""
+
     time: datetime = Field(description="Timestamp when snapshot was recorded")
     device_id: UUID = Field(description="Device UUID")
-    
+
     # Computed fields
     age_days: Optional[int] = Field(None, description="Age of snapshot in days")
-    
+
     class Config:
         from_attributes = True
-        json_encoders = {
-            datetime: lambda v: v.isoformat(),
-            UUID: lambda v: str(v)
-        }
+        json_encoders = {datetime: lambda v: v.isoformat(), UUID: lambda v: str(v)}
 
 
 class ZFSSnapshotList(PaginatedResponse[ZFSSnapshotResponse]):
     """Paginated list of ZFS snapshots"""
+
     pass
 
 
 class ZFSPoolSummary(BaseModel):
     """ZFS pool summary for dashboard"""
+
     device_id: UUID
     pool_name: str
     pool_state: str
@@ -135,13 +151,14 @@ class ZFSPoolSummary(BaseModel):
     dataset_count: Optional[int] = Field(description="Number of datasets in pool")
     snapshot_count: Optional[int] = Field(description="Number of snapshots in pool")
     last_updated: datetime = Field(description="Last update timestamp")
-    
+
     class Config:
         from_attributes = True
 
 
 class ZFSHealthOverview(BaseModel):
     """ZFS health overview across all devices"""
+
     total_pools: int = Field(description="Total number of ZFS pools")
     healthy_pools: int = Field(description="Number of healthy pools")
     degraded_pools: int = Field(description="Number of degraded pools")
@@ -158,6 +175,7 @@ class ZFSHealthOverview(BaseModel):
 
 class ZFSDatasetInfo(BaseModel):
     """ZFS dataset information"""
+
     name: str = Field(description="Dataset name")
     pool_name: str = Field(description="Parent pool name")
     type: str = Field(description="Dataset type (filesystem, volume, snapshot)")
@@ -175,6 +193,7 @@ class ZFSDatasetInfo(BaseModel):
 
 class ZFSIntegrityCheck(BaseModel):
     """ZFS integrity check result"""
+
     device_id: UUID
     pool_name: str
     check_type: str = Field(description="Type of integrity check (scrub, verify)")
@@ -186,13 +205,14 @@ class ZFSIntegrityCheck(BaseModel):
     errors_found: int = Field(default=0, description="Number of errors found")
     errors_repaired: int = Field(default=0, description="Number of errors repaired")
     error_details: List[str] = Field(default_factory=list, description="Detailed error information")
-    
+
     class Config:
         from_attributes = True
 
 
 class ZFSFilter(BaseModel):
     """ZFS filtering parameters"""
+
     device_ids: Optional[List[UUID]] = Field(description="Filter by device IDs")
     pool_names: Optional[List[str]] = Field(description="Filter by pool names")
     pool_states: Optional[List[str]] = Field(description="Filter by pool states")
@@ -205,6 +225,7 @@ class ZFSFilter(BaseModel):
 
 class ZFSAggregatedMetrics(BaseModel):
     """Aggregated ZFS metrics for time-series analysis"""
+
     time_bucket: datetime = Field(description="Time bucket for aggregation")
     device_id: UUID = Field(description="Device ID")
     pool_name: str = Field(description="Pool name")
@@ -214,6 +235,6 @@ class ZFSAggregatedMetrics(BaseModel):
     dedup_ratio: Optional[float] = Field(description="Deduplication ratio")
     compression_ratio: Optional[float] = Field(description="Compression ratio")
     scrub_error_count: int = Field(description="Total scrub errors in period")
-    
+
     class Config:
         from_attributes = True

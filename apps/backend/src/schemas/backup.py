@@ -11,6 +11,7 @@ from apps.backend.src.schemas.common import PaginatedResponse
 
 class BackupStatusBase(BaseModel):
     """Base backup status schema with common fields"""
+
     backup_type: str = Field(..., max_length=100, description="Backup type")
     backup_name: str = Field(..., min_length=1, max_length=255, description="Backup name")
     source_path: Optional[str] = Field(None, description="Source path for backup")
@@ -27,18 +28,27 @@ class BackupStatusBase(BaseModel):
     warning_count: Optional[int] = Field(None, ge=0, description="Number of warnings")
     error_message: Optional[str] = Field(None, description="Error message if backup failed")
     extra_metadata: Dict[str, Any] = Field(default_factory=dict, description="Additional metadata")
-    
+
     @field_validator("backup_type")
     @classmethod
     def validate_backup_type(cls, v):
         valid_types = [
-            "system", "database", "container", "zfs", "file", "config", 
-            "docker-volume", "vm", "snapshot", "incremental", "full"
+            "system",
+            "database",
+            "container",
+            "zfs",
+            "file",
+            "config",
+            "docker-volume",
+            "vm",
+            "snapshot",
+            "incremental",
+            "full",
         ]
         if v.lower() not in valid_types:
             raise ValueError(f"Backup type must be one of: {', '.join(valid_types)}")
         return v.lower()
-    
+
     @field_validator("status")
     @classmethod
     def validate_status(cls, v):
@@ -46,7 +56,7 @@ class BackupStatusBase(BaseModel):
         if v.lower() not in valid_statuses:
             raise ValueError(f"Status must be one of: {', '.join(valid_statuses)}")
         return v.lower()
-    
+
     @field_validator("end_time")
     @classmethod
     def validate_time_range(cls, v, info):
@@ -58,11 +68,13 @@ class BackupStatusBase(BaseModel):
 
 class BackupStatusCreate(BackupStatusBase):
     """Schema for creating a new backup status record"""
+
     device_id: UUID = Field(..., description="Device UUID")
 
 
 class BackupStatusUpdate(BaseModel):
     """Schema for updating backup status"""
+
     status: Optional[str] = Field(None, description="Updated backup status")
     end_time: Optional[datetime] = Field(None, description="Backup end time")
     duration_seconds: Optional[int] = Field(None, ge=0, description="Backup duration")
@@ -78,31 +90,31 @@ class BackupStatusUpdate(BaseModel):
 
 class BackupStatusResponse(BackupStatusBase):
     """Schema for backup status response data"""
+
     id: UUID = Field(description="Backup record UUID")
     device_id: UUID = Field(description="Device UUID")
     created_at: datetime = Field(description="Record creation timestamp")
-    
+
     # Computed fields
     hostname: Optional[str] = Field(None, description="Device hostname")
     compression_ratio: Optional[float] = Field(None, description="Compression ratio")
     success_rate: Optional[float] = Field(None, description="Success rate percentage")
     throughput_mbps: Optional[float] = Field(None, description="Backup throughput in Mbps")
-    
+
     class Config:
         from_attributes = True
-        json_encoders = {
-            datetime: lambda v: v.isoformat(),
-            UUID: lambda v: str(v)
-        }
+        json_encoders = {datetime: lambda v: v.isoformat(), UUID: lambda v: str(v)}
 
 
 class BackupStatusList(PaginatedResponse[BackupStatusResponse]):
     """Paginated list of backup status records"""
+
     pass
 
 
 class BackupSchedule(BaseModel):
     """Backup schedule configuration"""
+
     schedule_id: str = Field(description="Schedule identifier")
     schedule_name: str = Field(description="Schedule name")
     device_id: UUID = Field(description="Target device UUID")
@@ -113,15 +125,23 @@ class BackupSchedule(BaseModel):
     retention_days: int = Field(ge=1, description="Retention period in days")
     compression_enabled: bool = Field(default=True, description="Enable compression")
     encryption_enabled: bool = Field(default=False, description="Enable encryption")
-    exclude_patterns: List[str] = Field(default_factory=list, description="File patterns to exclude")
-    pre_backup_commands: List[str] = Field(default_factory=list, description="Commands to run before backup")
-    post_backup_commands: List[str] = Field(default_factory=list, description="Commands to run after backup")
+    exclude_patterns: List[str] = Field(
+        default_factory=list, description="File patterns to exclude"
+    )
+    pre_backup_commands: List[str] = Field(
+        default_factory=list, description="Commands to run before backup"
+    )
+    post_backup_commands: List[str] = Field(
+        default_factory=list, description="Commands to run after backup"
+    )
     notification_emails: List[str] = Field(default_factory=list, description="Email notifications")
     is_active: bool = Field(default=True, description="Whether schedule is active")
-    created_at: datetime = Field(default_factory=datetime.utcnow, description="Schedule creation time")
+    created_at: datetime = Field(
+        default_factory=datetime.utcnow, description="Schedule creation time"
+    )
     last_run: Optional[datetime] = Field(None, description="Last execution time")
     next_run: Optional[datetime] = Field(None, description="Next scheduled execution")
-    
+
     @field_validator("cron_expression")
     @classmethod
     def validate_cron_expression(cls, v):
@@ -134,6 +154,7 @@ class BackupSchedule(BaseModel):
 
 class BackupPolicy(BaseModel):
     """Backup policy configuration"""
+
     policy_id: str = Field(description="Policy identifier")
     policy_name: str = Field(description="Policy name")
     description: str = Field(description="Policy description")
@@ -150,11 +171,14 @@ class BackupPolicy(BaseModel):
     excluded_days: List[str] = Field(default_factory=list, description="Excluded days of week")
     notification_settings: Dict[str, bool] = Field(description="Notification preferences")
     is_active: bool = Field(default=True, description="Whether policy is active")
-    created_at: datetime = Field(default_factory=datetime.utcnow, description="Policy creation time")
+    created_at: datetime = Field(
+        default_factory=datetime.utcnow, description="Policy creation time"
+    )
 
 
 class BackupHealthOverview(BaseModel):
     """Backup health overview across all devices"""
+
     total_backup_jobs: int = Field(description="Total number of backup jobs")
     successful_backups_24h: int = Field(description="Successful backups in last 24 hours")
     failed_backups_24h: int = Field(description="Failed backups in last 24 hours")
@@ -172,6 +196,7 @@ class BackupHealthOverview(BaseModel):
 
 class BackupMetrics(BaseModel):
     """Backup metrics summary for a device"""
+
     device_id: UUID
     hostname: str
     total_backups: int = Field(description="Total number of backups")
@@ -187,13 +212,14 @@ class BackupMetrics(BaseModel):
     alerts: List[str] = Field(description="Active backup alerts")
     recommendations: List[str] = Field(description="Backup recommendations")
     last_updated: datetime = Field(description="Last metrics update")
-    
+
     class Config:
         from_attributes = True
 
 
 class BackupVerification(BaseModel):
     """Backup verification result"""
+
     verification_id: str = Field(description="Verification identifier")
     backup_id: UUID = Field(description="Backup record UUID")
     verification_type: str = Field(description="Type of verification")
@@ -206,7 +232,7 @@ class BackupVerification(BaseModel):
     checksum_mismatches: Optional[int] = Field(None, description="Number of checksum mismatches")
     verification_details: Dict[str, Any] = Field(description="Detailed verification results")
     error_message: Optional[str] = Field(None, description="Error message if verification failed")
-    
+
     @field_validator("verification_type")
     @classmethod
     def validate_verification_type(cls, v):
@@ -214,7 +240,7 @@ class BackupVerification(BaseModel):
         if v.lower() not in valid_types:
             raise ValueError(f"Verification type must be one of: {', '.join(valid_types)}")
         return v.lower()
-    
+
     @field_validator("status")
     @classmethod
     def validate_status(cls, v):
@@ -226,6 +252,7 @@ class BackupVerification(BaseModel):
 
 class BackupRestore(BaseModel):
     """Backup restore operation"""
+
     restore_id: str = Field(description="Restore operation identifier")
     backup_id: UUID = Field(description="Source backup UUID")
     restore_type: str = Field(description="Type of restore operation")
@@ -236,8 +263,10 @@ class BackupRestore(BaseModel):
     files_to_restore: Optional[List[str]] = Field(None, description="Specific files to restore")
     exclude_patterns: List[str] = Field(default_factory=list, description="Patterns to exclude")
     initiated_by: str = Field(description="User who initiated restore")
-    initiated_at: datetime = Field(default_factory=datetime.utcnow, description="Restore initiation time")
-    
+    initiated_at: datetime = Field(
+        default_factory=datetime.utcnow, description="Restore initiation time"
+    )
+
     @field_validator("restore_type")
     @classmethod
     def validate_restore_type(cls, v):
@@ -249,6 +278,7 @@ class BackupRestore(BaseModel):
 
 class BackupRestoreResult(BaseModel):
     """Backup restore operation result"""
+
     restore_id: str = Field(description="Restore operation identifier")
     status: str = Field(description="Restore status")
     start_time: datetime = Field(description="Restore start time")
@@ -261,13 +291,14 @@ class BackupRestoreResult(BaseModel):
     success_rate: Optional[float] = Field(description="Restore success rate")
     error_message: Optional[str] = Field(description="Error message if restore failed")
     restore_log: List[str] = Field(default_factory=list, description="Detailed restore log")
-    
+
     class Config:
         from_attributes = True
 
 
 class BackupFilter(BaseModel):
     """Backup filtering parameters"""
+
     device_ids: Optional[List[UUID]] = Field(description="Filter by device IDs")
     backup_types: Optional[List[str]] = Field(description="Filter by backup types")
     statuses: Optional[List[str]] = Field(description="Filter by backup statuses")

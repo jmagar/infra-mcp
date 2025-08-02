@@ -11,6 +11,7 @@ from apps.backend.src.schemas.common import PaginatedResponse, LogLevel
 
 class SystemLogBase(BaseModel):
     """Base system log schema with common fields"""
+
     service_name: Optional[str] = Field(None, max_length=255, description="Service name")
     log_level: LogLevel = Field(..., description="Log severity level")
     source: str = Field(..., max_length=255, description="Log source")
@@ -20,33 +21,60 @@ class SystemLogBase(BaseModel):
     message: str = Field(..., description="Log message content")
     raw_message: Optional[str] = Field(None, description="Raw log message")
     extra_metadata: Dict[str, Any] = Field(default_factory=dict, description="Additional metadata")
-    
+
     @field_validator("source")
     @classmethod
     def validate_source(cls, v):
         valid_sources = [
-            "systemd", "syslog", "kernel", "application", "security", 
-            "cron", "auth", "mail", "daemon", "docker", "nginx", "ssh"
+            "systemd",
+            "syslog",
+            "kernel",
+            "application",
+            "security",
+            "cron",
+            "auth",
+            "mail",
+            "daemon",
+            "docker",
+            "nginx",
+            "ssh",
         ]
         if v.lower() not in valid_sources:
             # Allow custom sources, just log a warning
             pass
         return v.lower()
-    
+
     @field_validator("facility")
     @classmethod
     def validate_facility(cls, v):
         if v is not None:
             valid_facilities = [
-                "kern", "user", "mail", "daemon", "auth", "syslog", 
-                "lpr", "news", "uucp", "cron", "authpriv", "ftp",
-                "local0", "local1", "local2", "local3", "local4", "local5", "local6", "local7"
+                "kern",
+                "user",
+                "mail",
+                "daemon",
+                "auth",
+                "syslog",
+                "lpr",
+                "news",
+                "uucp",
+                "cron",
+                "authpriv",
+                "ftp",
+                "local0",
+                "local1",
+                "local2",
+                "local3",
+                "local4",
+                "local5",
+                "local6",
+                "local7",
             ]
             if v.lower() not in valid_facilities:
                 raise ValueError(f"Facility must be one of: {', '.join(valid_facilities)}")
             return v.lower()
         return v
-    
+
     @field_validator("message")
     @classmethod
     def validate_message(cls, v):
@@ -57,34 +85,35 @@ class SystemLogBase(BaseModel):
 
 class SystemLogCreate(SystemLogBase):
     """Schema for creating a new system log record"""
+
     device_id: UUID = Field(..., description="Device UUID")
 
 
 class SystemLogResponse(SystemLogBase):
     """Schema for system log response data"""
+
     time: datetime = Field(description="Log timestamp")
     device_id: UUID = Field(description="Device UUID")
-    
+
     # Computed fields
     hostname: Optional[str] = Field(None, description="Device hostname")
     age_minutes: Optional[int] = Field(None, description="Age of log entry in minutes")
     severity_score: Optional[int] = Field(None, description="Severity score (0-10)")
-    
+
     class Config:
         from_attributes = True
-        json_encoders = {
-            datetime: lambda v: v.isoformat(),
-            UUID: lambda v: str(v)
-        }
+        json_encoders = {datetime: lambda v: v.isoformat(), UUID: lambda v: str(v)}
 
 
 class SystemLogList(PaginatedResponse[SystemLogResponse]):
     """Paginated list of system logs"""
+
     pass
 
 
 class LogAnalytics(BaseModel):
     """Log analytics and statistics"""
+
     device_id: Optional[UUID] = Field(None, description="Device ID (None for all devices)")
     time_range: str = Field(description="Time range analyzed")
     total_logs: int = Field(description="Total number of log entries")
@@ -96,11 +125,14 @@ class LogAnalytics(BaseModel):
     top_error_messages: List[Dict[str, Any]] = Field(description="Most common error messages")
     anomalies_detected: List[Dict[str, Any]] = Field(description="Detected log anomalies")
     trends: Dict[str, List[float]] = Field(description="Log volume trends")
-    generated_at: datetime = Field(default_factory=datetime.utcnow, description="Analysis timestamp")
+    generated_at: datetime = Field(
+        default_factory=datetime.utcnow, description="Analysis timestamp"
+    )
 
 
 class LogPattern(BaseModel):
     """Log pattern analysis result"""
+
     pattern_id: str = Field(description="Pattern identifier")
     pattern_regex: str = Field(description="Regular expression pattern")
     pattern_description: str = Field(description="Human-readable pattern description")
@@ -115,6 +147,7 @@ class LogPattern(BaseModel):
 
 class LogAlert(BaseModel):
     """Log-based alert configuration"""
+
     alert_id: str = Field(description="Alert identifier")
     alert_name: str = Field(description="Alert name")
     description: str = Field(description="Alert description")
@@ -132,6 +165,7 @@ class LogAlert(BaseModel):
 
 class LogAlertTrigger(BaseModel):
     """Log alert trigger event"""
+
     alert_id: str = Field(description="Alert identifier")
     alert_name: str = Field(description="Alert name")
     trigger_time: datetime = Field(description="Trigger timestamp")
@@ -143,13 +177,14 @@ class LogAlertTrigger(BaseModel):
     resolution_status: str = Field(default="open", description="Resolution status")
     acknowledged_by: Optional[str] = Field(None, description="User who acknowledged alert")
     acknowledged_at: Optional[datetime] = Field(None, description="Acknowledgment timestamp")
-    
+
     class Config:
         from_attributes = True
 
 
 class LogSearch(BaseModel):
     """Log search parameters"""
+
     query: Optional[str] = Field(None, description="Search query (supports regex)")
     device_ids: Optional[List[UUID]] = Field(None, description="Device IDs to search")
     log_levels: Optional[List[LogLevel]] = Field(None, description="Log levels to include")
@@ -159,7 +194,7 @@ class LogSearch(BaseModel):
     end_time: Optional[datetime] = Field(None, description="Search end time")
     include_raw: bool = Field(default=False, description="Include raw log messages")
     highlight_matches: bool = Field(default=True, description="Highlight search matches")
-    
+
     @field_validator("end_time")
     @classmethod
     def validate_time_range(cls, v, info):
@@ -171,12 +206,13 @@ class LogSearch(BaseModel):
 
 class LogExport(BaseModel):
     """Log export configuration"""
+
     export_format: str = Field(description="Export format (json/csv/syslog)")
     compression: str = Field(default="gzip", description="Compression format")
     include_metadata: bool = Field(default=True, description="Include metadata fields")
     filter_params: LogSearch = Field(description="Filter parameters for export")
     max_entries: Optional[int] = Field(None, ge=1, description="Maximum entries to export")
-    
+
     @field_validator("export_format")
     @classmethod
     def validate_export_format(cls, v):
@@ -184,7 +220,7 @@ class LogExport(BaseModel):
         if v.lower() not in valid_formats:
             raise ValueError(f"Export format must be one of: {', '.join(valid_formats)}")
         return v.lower()
-    
+
     @field_validator("compression")
     @classmethod
     def validate_compression(cls, v):
@@ -196,6 +232,7 @@ class LogExport(BaseModel):
 
 class LogRetentionPolicy(BaseModel):
     """Log retention policy configuration"""
+
     policy_id: str = Field(description="Policy identifier")
     policy_name: str = Field(description="Policy name")
     retention_days: int = Field(ge=1, description="Retention period in days")
@@ -204,14 +241,19 @@ class LogRetentionPolicy(BaseModel):
     devices: List[UUID] = Field(default_factory=list, description="Devices affected by policy")
     archive_before_delete: bool = Field(default=False, description="Archive logs before deletion")
     archive_location: Optional[str] = Field(None, description="Archive storage location")
-    compression_enabled: bool = Field(default=True, description="Enable compression for archived logs")
+    compression_enabled: bool = Field(
+        default=True, description="Enable compression for archived logs"
+    )
     is_active: bool = Field(default=True, description="Whether policy is active")
-    created_at: datetime = Field(default_factory=datetime.utcnow, description="Policy creation time")
+    created_at: datetime = Field(
+        default_factory=datetime.utcnow, description="Policy creation time"
+    )
     last_applied: Optional[datetime] = Field(None, description="Last policy application time")
 
 
 class LogAggregation(BaseModel):
     """Log aggregation result"""
+
     time_bucket: datetime = Field(description="Time bucket for aggregation")
     device_id: Optional[UUID] = Field(None, description="Device ID (None for all devices)")
     service_name: Optional[str] = Field(None, description="Service name (None for all services)")
@@ -219,13 +261,14 @@ class LogAggregation(BaseModel):
     count: int = Field(description="Number of log entries")
     error_rate: Optional[float] = Field(None, description="Error rate in this bucket")
     unique_messages: Optional[int] = Field(None, description="Number of unique messages")
-    
+
     class Config:
         from_attributes = True
 
 
 class LogHealthMetrics(BaseModel):
     """Log health metrics summary"""
+
     device_id: UUID
     hostname: str
     total_logs_24h: int = Field(description="Total logs in last 24 hours")
@@ -238,6 +281,6 @@ class LogHealthMetrics(BaseModel):
     anomalies_detected: int = Field(description="Number of anomalies detected")
     health_score: float = Field(ge=0, le=10, description="Overall log health score")
     last_updated: datetime = Field(description="Last metrics update")
-    
+
     class Config:
         from_attributes = True

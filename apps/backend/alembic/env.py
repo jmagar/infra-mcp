@@ -16,7 +16,8 @@ from alembic import context
 
 # Import standalone models file for Alembic
 import importlib.util
-models_path = os.path.join(os.path.dirname(__file__), 'models.py')
+
+models_path = os.path.join(os.path.dirname(__file__), "models.py")
 spec = importlib.util.spec_from_file_location("alembic_models", models_path)
 models = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(models)
@@ -57,7 +58,7 @@ target_metadata = Base.metadata
 def include_name(name, type_, parent_names):
     """
     Filter function to control which database objects are included in autogenerate.
-    
+
     This function excludes TimescaleDB internal objects and focuses on our application tables.
     """
     if type_ == "table":
@@ -68,36 +69,45 @@ def include_name(name, type_, parent_names):
             "_timescaledb_config",
             "_timescaledb_cache",
             "timescaledb_information",
-            "timescaledb_experimental"
+            "timescaledb_experimental",
         ]
-        
+
         for ts_table in timescaledb_tables:
             if name.startswith(ts_table):
                 return False
-        
+
         # Include our application tables
         app_tables = [
-            "devices", "system_metrics", "drive_health", "container_snapshots",
-            "zfs_status", "zfs_snapshots", "network_interfaces", "docker_networks",
-            "vm_status", "system_logs", "backup_status", "system_updates"
+            "devices",
+            "system_metrics",
+            "drive_health",
+            "container_snapshots",
+            "zfs_status",
+            "zfs_snapshots",
+            "network_interfaces",
+            "docker_networks",
+            "vm_status",
+            "system_logs",
+            "backup_status",
+            "system_updates",
         ]
-        
+
         return name in app_tables
-    
+
     return True
 
 
 def include_object(object, name, type_, reflected, compare_to):
     """
     Filter function for more detailed object inclusion control.
-    
+
     This ensures we only manage our application objects in migrations.
     """
     if type_ == "table" and reflected and compare_to is not None:
         # Skip TimescaleDB system tables
         if name.startswith(("_timescaledb", "timescaledb_")):
             return False
-    
+
     return True
 
 
@@ -156,7 +166,7 @@ async def run_async_migrations() -> None:
     """Run migrations in async mode."""
     configuration = config.get_section(config.config_ini_section)
     configuration["sqlalchemy.url"] = ASYNC_DATABASE_URL
-    
+
     # Create async engine
     connectable = create_async_engine(
         ASYNC_DATABASE_URL,

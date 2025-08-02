@@ -11,30 +11,48 @@ from apps.backend.src.schemas.common import PaginatedResponse
 
 class SystemUpdateBase(BaseModel):
     """Base system update schema with common fields"""
+
     package_type: str = Field(..., max_length=50, description="Package type")
     package_name: str = Field(..., min_length=1, max_length=255, description="Package name")
-    current_version: Optional[str] = Field(None, max_length=255, description="Current package version")
-    available_version: Optional[str] = Field(None, max_length=255, description="Available package version")
+    current_version: Optional[str] = Field(
+        None, max_length=255, description="Current package version"
+    )
+    available_version: Optional[str] = Field(
+        None, max_length=255, description="Available package version"
+    )
     update_priority: str = Field(default="normal", description="Update priority level")
     security_update: bool = Field(default=False, description="Whether this is a security update")
     release_date: Optional[date] = Field(None, description="Package release date")
     description: Optional[str] = Field(None, description="Update description")
     changelog: Optional[str] = Field(None, description="Package changelog")
     update_status: str = Field(default="available", description="Update status")
-    last_checked: datetime = Field(default_factory=datetime.utcnow, description="Last check timestamp")
+    last_checked: datetime = Field(
+        default_factory=datetime.utcnow, description="Last check timestamp"
+    )
     extra_metadata: Dict[str, Any] = Field(default_factory=dict, description="Additional metadata")
-    
+
     @field_validator("package_type")
     @classmethod
     def validate_package_type(cls, v):
         valid_types = [
-            "system", "container", "snap", "flatpak", "pip", "npm", 
-            "apt", "yum", "dnf", "zypper", "pacman", "homebrew", "custom"
+            "system",
+            "container",
+            "snap",
+            "flatpak",
+            "pip",
+            "npm",
+            "apt",
+            "yum",
+            "dnf",
+            "zypper",
+            "pacman",
+            "homebrew",
+            "custom",
         ]
         if v.lower() not in valid_types:
             raise ValueError(f"Package type must be one of: {', '.join(valid_types)}")
         return v.lower()
-    
+
     @field_validator("update_priority")
     @classmethod
     def validate_update_priority(cls, v):
@@ -42,7 +60,7 @@ class SystemUpdateBase(BaseModel):
         if v.lower() not in valid_priorities:
             raise ValueError(f"Update priority must be one of: {', '.join(valid_priorities)}")
         return v.lower()
-    
+
     @field_validator("update_status")
     @classmethod
     def validate_update_status(cls, v):
@@ -54,11 +72,13 @@ class SystemUpdateBase(BaseModel):
 
 class SystemUpdateCreate(SystemUpdateBase):
     """Schema for creating a new system update record"""
+
     device_id: UUID = Field(..., description="Device UUID")
 
 
 class SystemUpdateUpdate(BaseModel):
     """Schema for updating system update record"""
+
     current_version: Optional[str] = Field(None, description="Updated current version")
     available_version: Optional[str] = Field(None, description="Updated available version")
     update_priority: Optional[str] = Field(None, description="Updated priority")
@@ -71,32 +91,35 @@ class SystemUpdateUpdate(BaseModel):
 
 class SystemUpdateResponse(SystemUpdateBase):
     """Schema for system update response data"""
+
     id: UUID = Field(description="Update record UUID")
     device_id: UUID = Field(description="Device UUID")
-    
+
     # Computed fields
     hostname: Optional[str] = Field(None, description="Device hostname")
     days_since_release: Optional[int] = Field(None, description="Days since package release")
     update_size_mb: Optional[float] = Field(None, description="Update size in MB")
     requires_reboot: Optional[bool] = Field(None, description="Whether update requires reboot")
     has_dependencies: Optional[bool] = Field(None, description="Whether update has dependencies")
-    
+
     class Config:
         from_attributes = True
         json_encoders = {
             datetime: lambda v: v.isoformat(),
             date: lambda v: v.isoformat(),
-            UUID: lambda v: str(v)
+            UUID: lambda v: str(v),
         }
 
 
 class SystemUpdateList(PaginatedResponse[SystemUpdateResponse]):
     """Paginated list of system updates"""
+
     pass
 
 
 class UpdateSummary(BaseModel):
     """Update summary for a device"""
+
     device_id: UUID
     hostname: str
     total_updates: int = Field(description="Total available updates")
@@ -109,13 +132,14 @@ class UpdateSummary(BaseModel):
     last_update_installed: Optional[datetime] = Field(description="Last update installation")
     update_policy: Optional[str] = Field(description="Device update policy")
     auto_updates_enabled: bool = Field(description="Whether auto-updates are enabled")
-    
+
     class Config:
         from_attributes = True
 
 
 class UpdateHealthOverview(BaseModel):
     """Update health overview across all devices"""
+
     total_devices: int = Field(description="Total number of devices")
     devices_with_updates: int = Field(description="Devices with available updates")
     devices_up_to_date: int = Field(description="Devices that are up to date")
@@ -133,17 +157,22 @@ class UpdateHealthOverview(BaseModel):
 
 class UpdateInstallation(BaseModel):
     """Update installation request"""
+
     installation_id: str = Field(description="Installation identifier")
     device_id: UUID = Field(description="Target device UUID")
     update_ids: List[UUID] = Field(description="List of update record UUIDs to install")
     install_type: str = Field(default="standard", description="Installation type")
     schedule_time: Optional[datetime] = Field(None, description="Scheduled installation time")
     reboot_if_required: bool = Field(default=False, description="Reboot if required")
-    backup_before_install: bool = Field(default=True, description="Create backup before installation")
+    backup_before_install: bool = Field(
+        default=True, description="Create backup before installation"
+    )
     test_mode: bool = Field(default=False, description="Run in test mode")
     initiated_by: str = Field(description="User who initiated installation")
-    initiated_at: datetime = Field(default_factory=datetime.utcnow, description="Installation request time")
-    
+    initiated_at: datetime = Field(
+        default_factory=datetime.utcnow, description="Installation request time"
+    )
+
     @field_validator("install_type")
     @classmethod
     def validate_install_type(cls, v):
@@ -155,6 +184,7 @@ class UpdateInstallation(BaseModel):
 
 class UpdateInstallationResult(BaseModel):
     """Update installation result"""
+
     installation_id: str = Field(description="Installation identifier")
     device_id: UUID = Field(description="Device UUID")
     status: str = Field(description="Installation status")
@@ -169,14 +199,17 @@ class UpdateInstallationResult(BaseModel):
     reboot_performed: bool = Field(description="Whether reboot was performed")
     backup_created: bool = Field(description="Whether backup was created")
     error_message: Optional[str] = Field(description="Error message if installation failed")
-    installation_log: List[str] = Field(default_factory=list, description="Detailed installation log")
-    
+    installation_log: List[str] = Field(
+        default_factory=list, description="Detailed installation log"
+    )
+
     class Config:
         from_attributes = True
 
 
 class UpdatePolicy(BaseModel):
     """Update policy configuration"""
+
     policy_id: str = Field(description="Policy identifier")
     policy_name: str = Field(description="Policy name")
     description: str = Field(description="Policy description")
@@ -184,8 +217,12 @@ class UpdatePolicy(BaseModel):
     auto_install_critical: bool = Field(default=False, description="Auto-install critical updates")
     auto_install_normal: bool = Field(default=False, description="Auto-install normal updates")
     allowed_update_windows: List[str] = Field(description="Allowed update time windows")
-    excluded_packages: List[str] = Field(default_factory=list, description="Packages to exclude from updates")
-    required_packages: List[str] = Field(default_factory=list, description="Packages that must be updated")
+    excluded_packages: List[str] = Field(
+        default_factory=list, description="Packages to exclude from updates"
+    )
+    required_packages: List[str] = Field(
+        default_factory=list, description="Packages that must be updated"
+    )
     max_concurrent_updates: int = Field(ge=1, description="Maximum concurrent updates")
     backup_before_update: bool = Field(default=True, description="Create backup before updates")
     reboot_window: Optional[str] = Field(None, description="Allowed reboot window")
@@ -195,31 +232,45 @@ class UpdatePolicy(BaseModel):
     testing_period_days: int = Field(default=0, description="Testing period before installation")
     compliance_reporting: bool = Field(default=True, description="Enable compliance reporting")
     is_active: bool = Field(default=True, description="Whether policy is active")
-    created_at: datetime = Field(default_factory=datetime.utcnow, description="Policy creation time")
+    created_at: datetime = Field(
+        default_factory=datetime.utcnow, description="Policy creation time"
+    )
 
 
 class UpdateSchedule(BaseModel):
     """Update schedule configuration"""
+
     schedule_id: str = Field(description="Schedule identifier")
     schedule_name: str = Field(description="Schedule name")
     device_ids: List[UUID] = Field(description="Target device UUIDs")
     update_types: List[str] = Field(description="Types of updates to include")
     cron_expression: str = Field(description="Cron schedule expression")
-    max_updates_per_run: Optional[int] = Field(None, description="Maximum updates per scheduled run")
-    stagger_installations: bool = Field(default=True, description="Stagger installations across devices")
+    max_updates_per_run: Optional[int] = Field(
+        None, description="Maximum updates per scheduled run"
+    )
+    stagger_installations: bool = Field(
+        default=True, description="Stagger installations across devices"
+    )
     maintenance_window_hours: int = Field(ge=1, description="Maintenance window duration")
-    pre_update_commands: List[str] = Field(default_factory=list, description="Commands to run before updates")
-    post_update_commands: List[str] = Field(default_factory=list, description="Commands to run after updates")
+    pre_update_commands: List[str] = Field(
+        default_factory=list, description="Commands to run before updates"
+    )
+    post_update_commands: List[str] = Field(
+        default_factory=list, description="Commands to run after updates"
+    )
     notification_emails: List[str] = Field(default_factory=list, description="Email notifications")
     rollback_on_failure: bool = Field(default=True, description="Rollback on failure")
     is_active: bool = Field(default=True, description="Whether schedule is active")
-    created_at: datetime = Field(default_factory=datetime.utcnow, description="Schedule creation time")
+    created_at: datetime = Field(
+        default_factory=datetime.utcnow, description="Schedule creation time"
+    )
     last_run: Optional[datetime] = Field(None, description="Last execution time")
     next_run: Optional[datetime] = Field(None, description="Next scheduled execution")
 
 
 class VulnerabilityInfo(BaseModel):
     """Security vulnerability information"""
+
     vulnerability_id: str = Field(description="Vulnerability identifier (CVE, etc.)")
     severity: str = Field(description="Vulnerability severity")
     score: Optional[float] = Field(None, ge=0, le=10, description="CVSS score")
@@ -228,10 +279,14 @@ class VulnerabilityInfo(BaseModel):
     fixed_versions: List[str] = Field(description="Fixed package versions")
     published_date: Optional[date] = Field(None, description="Vulnerability publication date")
     discovery_date: Optional[date] = Field(None, description="Vulnerability discovery date")
-    exploit_available: bool = Field(default=False, description="Whether exploit is publicly available")
+    exploit_available: bool = Field(
+        default=False, description="Whether exploit is publicly available"
+    )
     references: List[str] = Field(default_factory=list, description="Reference URLs")
-    mitigation_steps: List[str] = Field(default_factory=list, description="Mitigation recommendations")
-    
+    mitigation_steps: List[str] = Field(
+        default_factory=list, description="Mitigation recommendations"
+    )
+
     @field_validator("severity")
     @classmethod
     def validate_severity(cls, v):
@@ -243,6 +298,7 @@ class VulnerabilityInfo(BaseModel):
 
 class ComplianceReport(BaseModel):
     """Update compliance report"""
+
     report_id: str = Field(description="Report identifier")
     report_name: str = Field(description="Report name")
     generated_at: datetime = Field(description="Report generation time")
@@ -262,6 +318,7 @@ class ComplianceReport(BaseModel):
 
 class UpdateFilter(BaseModel):
     """Update filtering parameters"""
+
     device_ids: Optional[List[UUID]] = Field(description="Filter by device IDs")
     package_types: Optional[List[str]] = Field(description="Filter by package types")
     update_priorities: Optional[List[str]] = Field(description="Filter by update priorities")
@@ -275,6 +332,7 @@ class UpdateFilter(BaseModel):
 
 class UpdateMetrics(BaseModel):
     """Update metrics for a device"""
+
     device_id: UUID
     hostname: str
     update_compliance_score: float = Field(description="Update compliance score")
@@ -288,6 +346,6 @@ class UpdateMetrics(BaseModel):
     vulnerability_exposure: int = Field(description="Number of known vulnerabilities")
     patch_level: str = Field(description="Overall patch level status")
     last_updated: datetime = Field(description="Last metrics update")
-    
+
     class Config:
         from_attributes = True

@@ -13,17 +13,26 @@ from sqlalchemy.exc import IntegrityError
 
 from apps.backend.src.models.device import Device
 from apps.backend.src.core.exceptions import (
-    DeviceNotFoundError, DatabaseOperationError, SSHConnectionError,
-    ValidationError as CustomValidationError
+    DeviceNotFoundError,
+    DatabaseOperationError,
+    SSHConnectionError,
+    ValidationError as CustomValidationError,
 )
 from apps.backend.src.schemas.device import (
-    DeviceCreate, DeviceUpdate, DeviceResponse, DeviceList,
-    DeviceSummary, DeviceHealth, DeviceConnectionTest, DeviceMetricsOverview
+    DeviceCreate,
+    DeviceUpdate,
+    DeviceResponse,
+    DeviceList,
+    DeviceSummary,
+    DeviceHealth,
+    DeviceConnectionTest,
+    DeviceMetricsOverview,
 )
 from apps.backend.src.schemas.common import OperationResult, PaginationParams, DeviceStatus
 from apps.backend.src.utils.ssh_client import test_ssh_connectivity_simple
 
 logger = logging.getLogger(__name__)
+
 
 class DeviceService:
     def __init__(self, db_session: AsyncSession):
@@ -34,7 +43,9 @@ class DeviceService:
             select(Device).where(Device.hostname == device_data.hostname)
         )
         if existing_device.scalar_one_or_none():
-            raise CustomValidationError(f"Device with hostname '{device_data.hostname}' already exists")
+            raise CustomValidationError(
+                f"Device with hostname '{device_data.hostname}' already exists"
+            )
 
         connectivity_status = "unknown"
         if device_data.monitoring_enabled:
@@ -49,7 +60,7 @@ class DeviceService:
         device = Device(
             **device_data.model_dump(),
             status=connectivity_status,
-            last_seen=datetime.now(timezone.utc) if connectivity_status == "online" else None
+            last_seen=datetime.now(timezone.utc) if connectivity_status == "online" else None,
         )
 
         try:
@@ -61,7 +72,11 @@ class DeviceService:
         except IntegrityError as e:
             await self.db.rollback()
             logger.error(f"Database integrity error creating device: {e}")
-            raise DatabaseOperationError(message="Failed to create device", operation="create_device", details={"error": str(e)}) from e
+            raise DatabaseOperationError(
+                message="Failed to create device",
+                operation="create_device",
+                details={"error": str(e)},
+            ) from e
         except Exception as e:
             await self.db.rollback()
             logger.error(f"Error creating device: {e}")
@@ -90,8 +105,7 @@ class DeviceService:
             filters.append(Device.location.ilike(f"%{location}%"))
         if search:
             search_filter = or_(
-                Device.hostname.ilike(f"%{search}%"),
-                Device.description.ilike(f"%{search}%")
+                Device.hostname.ilike(f"%{search}%"), Device.description.ilike(f"%{search}%")
             )
             filters.append(search_filter)
 
@@ -102,9 +116,11 @@ class DeviceService:
         total_result = await self.db.execute(count_query)
         total = total_result.scalar()
 
-        query = query.order_by(Device.hostname).offset(
-            (pagination.page - 1) * pagination.page_size
-        ).limit(pagination.page_size)
+        query = (
+            query.order_by(Device.hostname)
+            .offset((pagination.page - 1) * pagination.page_size)
+            .limit(pagination.page_size)
+        )
 
         result = await self.db.execute(query)
         devices = result.scalars().all()
@@ -119,7 +135,7 @@ class DeviceService:
             page_size=pagination.page_size,
             total_pages=total_pages,
             has_next=pagination.page < total_pages,
-            has_previous=pagination.page > 1
+            has_previous=pagination.page > 1,
         )
 
     async def get_device(self, device_id: UUID) -> Device:
@@ -165,7 +181,7 @@ class DeviceService:
                 device.status = "offline"
 
         device.updated_at = datetime.now(timezone.utc)
-        
+
         try:
             await self.db.commit()
             await self.db.refresh(device)
@@ -179,32 +195,38 @@ class DeviceService:
     async def delete_device(self, device_id: UUID) -> dict:
         device = await self.get_device(device_id)
         hostname = device.hostname
-        
+
         await self.db.delete(device)
         await self.db.commit()
-        
+
         logger.info(f"Deleted device: {hostname} ({device_id})")
         return {"device_id": str(device_id), "hostname": hostname}
 
     async def delete_device_by_hostname(self, hostname: str) -> dict:
         device = await self.get_device_by_hostname(hostname)
         device_id = device.id
-        
+
         await self.db.delete(device)
         await self.db.commit()
-        
+
         logger.info(f"Deleted device: {hostname} ({device_id})")
         return {"device_id": str(device_id), "hostname": hostname}
 
-    async def get_device_status(self, device_id: UUID, test_connectivity: bool) -> DeviceConnectionTest:
+    async def get_device_status(
+        self, device_id: UUID, test_connectivity: bool
+    ) -> DeviceConnectionTest:
         device = await self.get_device(device_id)
         return await self._get_device_status_common(device, test_connectivity)
 
-    async def get_device_status_by_hostname(self, hostname: str, test_connectivity: bool) -> DeviceConnectionTest:
+    async def get_device_status_by_hostname(
+        self, hostname: str, test_connectivity: bool
+    ) -> DeviceConnectionTest:
         device = await self.get_device_by_hostname(hostname)
         return await self._get_device_status_common(device, test_connectivity)
 
-    async def _get_device_status_common(self, device: Device, test_connectivity: bool) -> DeviceConnectionTest:
+    async def _get_device_status_common(
+        self, device: Device, test_connectivity: bool
+    ) -> DeviceConnectionTest:
         connection_status = device.status
         response_time_ms = None
         error_message = None
@@ -212,25 +234,26 @@ class DeviceService:
         if test_connectivity and device.monitoring_enabled:
             try:
                 import time
+
                 start_time = time.time()
-                
+
                 # Use hostname directly - SSH config will handle IP, port, username
                 is_connected = await test_ssh_connectivity_simple(device.hostname)
-                
+
                 response_time_ms = (time.time() - start_time) * 1000
                 connection_status = "online" if is_connected else "offline"
-                
+
                 if device.status != connection_status:
                     device.status = connection_status
                     if is_connected:
                         device.last_seen = datetime.now(timezone.utc)
                     await self.db.commit()
-                    
+
             except Exception as e:
                 logger.warning(f"Connectivity test failed for {device.hostname}: {e}")
                 connection_status = "error"
                 error_message = str(e)
-        
+
         return DeviceConnectionTest(
             device_id=device.id,
             hostname=device.hostname,
@@ -238,7 +261,7 @@ class DeviceService:
             ssh_port=device.ssh_port,
             connection_status=connection_status,
             response_time_ms=response_time_ms,
-            error_message=error_message
+            error_message=error_message,
         )
 
     async def get_device_summary(self, device_id: UUID) -> DeviceSummary:

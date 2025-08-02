@@ -12,7 +12,10 @@ from apps.backend.src.schemas.common import PaginatedResponse
 
 class NetworkInterfaceBase(BaseModel):
     """Base network interface schema with common fields"""
-    interface_name: str = Field(..., min_length=1, max_length=100, description="Network interface name")
+
+    interface_name: str = Field(
+        ..., min_length=1, max_length=100, description="Network interface name"
+    )
     interface_type: str = Field(..., max_length=50, description="Interface type")
     mac_address: Optional[str] = Field(None, description="MAC address")
     ip_addresses: List[str] = Field(default_factory=list, description="List of IP addresses")
@@ -28,18 +31,27 @@ class NetworkInterfaceBase(BaseModel):
     tx_errors: Optional[int] = Field(None, ge=0, description="Transmit errors")
     rx_dropped: Optional[int] = Field(None, ge=0, description="Dropped receive packets")
     tx_dropped: Optional[int] = Field(None, ge=0, description="Dropped transmit packets")
-    
+
     @field_validator("interface_type")
     @classmethod
     def validate_interface_type(cls, v):
         valid_types = [
-            "ethernet", "wifi", "loopback", "bridge", "vlan", 
-            "bond", "tun", "tap", "ppp", "can", "infiniband"
+            "ethernet",
+            "wifi",
+            "loopback",
+            "bridge",
+            "vlan",
+            "bond",
+            "tun",
+            "tap",
+            "ppp",
+            "can",
+            "infiniband",
         ]
         if v.lower() not in valid_types:
             raise ValueError(f"Interface type must be one of: {', '.join(valid_types)}")
         return v.lower()
-    
+
     @field_validator("duplex")
     @classmethod
     def validate_duplex(cls, v):
@@ -49,7 +61,7 @@ class NetworkInterfaceBase(BaseModel):
                 raise ValueError(f"Duplex must be one of: {', '.join(valid_duplex)}")
             return v.lower()
         return v
-    
+
     @field_validator("state")
     @classmethod
     def validate_state(cls, v):
@@ -57,24 +69,26 @@ class NetworkInterfaceBase(BaseModel):
         if v.lower() not in valid_states:
             raise ValueError(f"State must be one of: {', '.join(valid_states)}")
         return v.lower()
-    
+
     @field_validator("mac_address")
     @classmethod
     def validate_mac_address(cls, v):
         if v is not None:
             # Basic MAC address validation
             import re
-            mac_pattern = re.compile(r'^([0-9A-Fa-f]{2}[:-]){5}([0-9A-Fa-f]{2})$')
+
+            mac_pattern = re.compile(r"^([0-9A-Fa-f]{2}[:-]){5}([0-9A-Fa-f]{2})$")
             if not mac_pattern.match(v):
                 raise ValueError("Invalid MAC address format")
             return v.lower()
         return v
-    
+
     @field_validator("ip_addresses")
     @classmethod
     def validate_ip_addresses(cls, v):
         if v:
             from ipaddress import ip_address
+
             for ip in v:
                 try:
                     ip_address(ip)
@@ -85,33 +99,36 @@ class NetworkInterfaceBase(BaseModel):
 
 class NetworkInterfaceCreate(NetworkInterfaceBase):
     """Schema for creating a new network interface record"""
+
     device_id: UUID = Field(..., description="Device UUID")
 
 
 class NetworkInterfaceResponse(NetworkInterfaceBase):
     """Schema for network interface response data"""
+
     time: datetime = Field(description="Timestamp of the interface record")
     device_id: UUID = Field(description="Device UUID")
-    
+
     # Computed fields
-    utilization_percent: Optional[float] = Field(None, description="Interface utilization percentage")
+    utilization_percent: Optional[float] = Field(
+        None, description="Interface utilization percentage"
+    )
     error_rate: Optional[float] = Field(None, description="Error rate percentage")
-    
+
     class Config:
         from_attributes = True
-        json_encoders = {
-            datetime: lambda v: v.isoformat(),
-            UUID: lambda v: str(v)
-        }
+        json_encoders = {datetime: lambda v: v.isoformat(), UUID: lambda v: str(v)}
 
 
 class NetworkInterfaceList(PaginatedResponse[NetworkInterfaceResponse]):
     """Paginated list of network interfaces"""
+
     pass
 
 
 class DockerNetworkBase(BaseModel):
     """Base Docker network schema with common fields"""
+
     network_id: str = Field(..., min_length=1, max_length=64, description="Docker network ID")
     network_name: str = Field(..., min_length=1, max_length=255, description="Docker network name")
     driver: str = Field(..., max_length=100, description="Network driver")
@@ -122,7 +139,7 @@ class DockerNetworkBase(BaseModel):
     labels: Dict[str, str] = Field(default_factory=dict, description="Network labels")
     options: Dict[str, Any] = Field(default_factory=dict, description="Network options")
     config: Dict[str, Any] = Field(default_factory=dict, description="Network configuration")
-    
+
     @field_validator("driver")
     @classmethod
     def validate_driver(cls, v):
@@ -130,7 +147,7 @@ class DockerNetworkBase(BaseModel):
         if v.lower() not in valid_drivers:
             raise ValueError(f"Driver must be one of: {', '.join(valid_drivers)}")
         return v.lower()
-    
+
     @field_validator("scope")
     @classmethod
     def validate_scope(cls, v):
@@ -138,24 +155,26 @@ class DockerNetworkBase(BaseModel):
         if v.lower() not in valid_scopes:
             raise ValueError(f"Scope must be one of: {', '.join(valid_scopes)}")
         return v.lower()
-    
+
     @field_validator("subnet")
     @classmethod
     def validate_subnet(cls, v):
         if v is not None:
             from ipaddress import ip_network
+
             try:
                 ip_network(v)
                 return v
             except ValueError:
                 raise ValueError("Invalid subnet format")
         return v
-    
+
     @field_validator("gateway")
     @classmethod
     def validate_gateway(cls, v):
         if v is not None:
             from ipaddress import ip_address
+
             try:
                 ip_address(v)
                 return v
@@ -166,29 +185,30 @@ class DockerNetworkBase(BaseModel):
 
 class DockerNetworkCreate(DockerNetworkBase):
     """Schema for creating a new Docker network record"""
+
     device_id: UUID = Field(..., description="Device UUID")
 
 
 class DockerNetworkResponse(DockerNetworkBase):
     """Schema for Docker network response data"""
+
     time: datetime = Field(description="Timestamp of the network record")
     device_id: UUID = Field(description="Device UUID")
-    
+
     class Config:
         from_attributes = True
-        json_encoders = {
-            datetime: lambda v: v.isoformat(),
-            UUID: lambda v: str(v)
-        }
+        json_encoders = {datetime: lambda v: v.isoformat(), UUID: lambda v: str(v)}
 
 
 class DockerNetworkList(PaginatedResponse[DockerNetworkResponse]):
     """Paginated list of Docker networks"""
+
     pass
 
 
 class NetworkTopologyNode(BaseModel):
     """Network topology node representation"""
+
     device_id: UUID = Field(description="Device UUID")
     hostname: str = Field(description="Device hostname")
     ip_address: str = Field(description="Primary IP address")
@@ -201,19 +221,21 @@ class NetworkTopologyNode(BaseModel):
 
 class NetworkTopology(BaseModel):
     """Complete network topology"""
+
     nodes: List[NetworkTopologyNode] = Field(description="Network nodes")
     connections: List[Dict[str, str]] = Field(description="Network connections")
     subnets: List[Dict[str, Any]] = Field(description="Discovered subnets")
     docker_networks: List[Dict[str, Any]] = Field(description="Docker networks across devices")
     statistics: Dict[str, int] = Field(description="Topology statistics")
     discovery_time: datetime = Field(description="Topology discovery timestamp")
-    
+
     class Config:
         from_attributes = True
 
 
 class NetworkInterfaceMetrics(BaseModel):
     """Network interface metrics summary"""
+
     device_id: UUID
     interface_name: str
     current_metrics: Dict[str, Any] = Field(description="Current interface metrics")
@@ -225,13 +247,14 @@ class NetworkInterfaceMetrics(BaseModel):
     trend_data: Dict[str, List[float]] = Field(description="24-hour trend data")
     alerts: List[str] = Field(description="Active network alerts")
     last_updated: datetime = Field(description="Last metrics update")
-    
+
     class Config:
         from_attributes = True
 
 
 class NetworkHealthOverview(BaseModel):
     """Network health overview across all devices"""
+
     total_interfaces: int = Field(description="Total network interfaces")
     active_interfaces: int = Field(description="Active interfaces")
     error_interfaces: int = Field(description="Interfaces with errors")
@@ -247,6 +270,7 @@ class NetworkHealthOverview(BaseModel):
 
 class NetworkFilter(BaseModel):
     """Network filtering parameters"""
+
     device_ids: Optional[List[UUID]] = Field(description="Filter by device IDs")
     interface_types: Optional[List[str]] = Field(description="Filter by interface types")
     interface_states: Optional[List[str]] = Field(description="Filter by interface states")
@@ -258,6 +282,7 @@ class NetworkFilter(BaseModel):
 
 class NetworkPortScan(BaseModel):
     """Network port scan result"""
+
     target_ip: str = Field(description="Target IP address")
     port: int = Field(ge=1, le=65535, description="Port number")
     protocol: str = Field(description="Protocol (TCP/UDP)")
@@ -271,6 +296,7 @@ class NetworkPortScan(BaseModel):
 
 class NetworkConnectivityTest(BaseModel):
     """Network connectivity test result"""
+
     source_device_id: UUID = Field(description="Source device ID")
     target_ip: str = Field(description="Target IP address")
     target_hostname: Optional[str] = Field(description="Target hostname")
@@ -282,6 +308,6 @@ class NetworkConnectivityTest(BaseModel):
     route_details: List[str] = Field(default_factory=list, description="Route hop details")
     error_message: Optional[str] = Field(description="Error message if test failed")
     test_time: datetime = Field(description="Test timestamp")
-    
+
     class Config:
         from_attributes = True
