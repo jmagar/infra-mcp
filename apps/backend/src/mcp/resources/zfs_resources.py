@@ -80,7 +80,7 @@ async def get_zfs_pools_resource(uri: str) -> str:
                 "pool_name": pool_name,
                 "status": data,
                 "uri": uri
-            }, indent=2)
+            }, indent=2, ensure_ascii=False)
         else:
             # Get all pools
             endpoint = f"/api/zfs/{hostname}/pools"  
@@ -91,7 +91,7 @@ async def get_zfs_pools_resource(uri: str) -> str:
                 "hostname": hostname,
                 "pools": data,
                 "uri": uri
-            }, indent=2)
+            }, indent=2, ensure_ascii=False)
             
     except Exception as e:
         logger.error(f"Error fetching ZFS pools resource {uri}: {e}")

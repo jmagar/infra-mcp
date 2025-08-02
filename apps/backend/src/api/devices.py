@@ -244,3 +244,22 @@ async def get_device_logs_by_hostname(
     except Exception as e:
         logger.error(f"Error getting system logs for {hostname}: {e}")
         raise HTTPException(status_code=500, detail="Failed to get system logs.") from e
+
+
+@router.get("/{hostname}/ports")
+async def get_device_ports_by_hostname(
+    hostname: str = Path(..., description="Device hostname"),
+    timeout: int = Query(30, description="SSH timeout in seconds"),
+    current_user=Depends(get_current_user)
+) -> dict:
+    """Get network port information and listening processes"""
+    try:
+        from apps.backend.src.mcp.tools.system_monitoring import get_network_ports
+        return await get_network_ports(hostname, timeout)
+    except SSHCommandError as e:
+        raise HTTPException(status_code=500, detail=str(e)) from e
+    except SSHConnectionError as e:
+        raise HTTPException(status_code=503, detail=str(e)) from e
+    except Exception as e:
+        logger.error(f"Error getting network ports for {hostname}: {e}")
+        raise HTTPException(status_code=500, detail="Failed to get network ports.") from e

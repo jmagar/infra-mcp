@@ -1120,6 +1120,151 @@ async def get_drive_stats(
         )
 
 
+async def get_network_ports(
+    device: str,
+    timeout: int = 30
+) -> Dict[str, Any]:
+    """
+    Get network port information and listening processes.
+    
+    This tool connects to a device via SSH and retrieves network port
+    information using 'ss -tulpn' command, showing listening ports
+    and the processes using them.
+    
+    Args:
+        device: Device hostname or IP address
+        timeout: Command timeout in seconds (default: 30)
+        
+    Returns:
+        Dict containing:
+        - ports: List of port information with protocol, address, and process
+        - summary: Port statistics and summary information
+        - device_info: Device connection information
+        - timestamp: Collection timestamp
+        
+    Raises:
+        DeviceNotFoundError: If device cannot be reached
+        SystemMonitoringError: If port collection fails
+        SSHConnectionError: If SSH connection fails
+    """
+    logger.info(f"Collecting network port information from device: {device}")
+    
+    try:
+        # Create SSH connection info
+        connection_info = SSHConnectionInfo(
+            host=device,
+            command_timeout=timeout
+        )
+        
+        # Get SSH client
+        ssh_client = get_ssh_client()
+        
+        # Execute ss command to get network ports
+        ss_result = await ssh_client.execute_command(
+            connection_info,
+            "ss -tulpn",
+            timeout=timeout
+        )
+        
+        if ss_result.return_code != 0:
+            raise SystemMonitoringError(f"ss command failed: {ss_result.stderr}")
+        
+        # Parse ss output
+        output = ss_result.stdout
+        lines = output.strip().split('\n')
+        
+        # Skip header line and parse each line
+        ports_data = []
+        for line in lines[1:]:  # Skip header
+            if not line.strip():
+                continue
+                
+            parts = line.split()
+            if len(parts) >= 5:
+                protocol = parts[0]
+                state = parts[1] if protocol.upper() == 'TCP' else 'N/A'
+                local_addr = parts[4]
+                
+                # Extract process info if available (last column)
+                process_info = ""
+                if len(parts) > 5:
+                    process_info = parts[-1]
+                
+                # Parse local address into IP and port
+                if ':' in local_addr:
+                    ip, port = local_addr.rsplit(':', 1)
+                    # Handle IPv6 addresses
+                    if ip.startswith('[') and ip.endswith(']'):
+                        ip = ip[1:-1]
+                else:
+                    ip = local_addr
+                    port = "N/A"
+                
+                ports_data.append({
+                    "protocol": protocol,
+                    "state": state,
+                    "ip": ip,
+                    "port": port,
+                    "local_address": local_addr,
+                    "process": process_info
+                })
+        
+        # Generate summary statistics
+        total_ports = len(ports_data)
+        tcp_ports = sum(1 for p in ports_data if p["protocol"].upper() == "TCP")
+        udp_ports = sum(1 for p in ports_data if p["protocol"].upper() == "UDP")
+        listening_ports = sum(1 for p in ports_data if p["state"] == "LISTEN")
+        
+        # Group by port numbers for common services
+        port_counts = {}
+        for port_data in ports_data:
+            port_num = port_data["port"]
+            if port_num != "N/A":
+                port_counts[port_num] = port_counts.get(port_num, 0) + 1
+        
+        summary = {
+            "total_ports": total_ports,
+            "tcp_ports": tcp_ports,
+            "udp_ports": udp_ports,
+            "listening_ports": listening_ports,
+            "unique_ports": len(port_counts),
+            "most_common_ports": sorted(port_counts.items(), key=lambda x: x[1], reverse=True)[:10]
+        }
+        
+        # Prepare response
+        response = {
+            "ports": ports_data,
+            "summary": summary,
+            "raw_output": output,
+            "device_info": {
+                "hostname": device,
+                "connection_successful": True,
+                "command": "ss -tulpn"
+            },
+            "query_info": {
+                "timestamp": datetime.now(timezone.utc).isoformat(),
+                "command_timeout": timeout,
+                "execution_time": ss_result.execution_time if hasattr(ss_result, 'execution_time') else None
+            }
+        }
+        
+        logger.info(
+            f"Collected {total_ports} network ports from {device} "
+            f"(TCP: {tcp_ports}, UDP: {udp_ports}, Listening: {listening_ports})"
+        )
+        
+        return response
+        
+    except Exception as e:
+        logger.error(f"Error collecting network ports from {device}: {e}")
+        raise SystemMonitoringError(
+            message=f"Failed to collect network ports: {str(e)}",
+            device=device,
+            operation="get_network_ports",
+            details={"error": str(e), "timeout": timeout}
+        )
+
+
 # Tool registration metadata for MCP server
 SYSTEM_MONITORING_TOOLS = {
     "get_drive_health": {
@@ -1210,5 +1355,27 @@ SYSTEM_MONITORING_TOOLS = {
             "required": ["device"]
         },
         "function": get_drive_stats
+    },
+    "get_network_ports": {
+        "name": "get_network_ports",
+        "description": "Get network port information and listening processes",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "device": {
+                    "type": "string",
+                    "description": "Device hostname or IP address"
+                },
+                "timeout": {
+                    "type": "integer",
+                    "description": "Command timeout in seconds",
+                    "default": 30,
+                    "minimum": 5,
+                    "maximum": 120
+                }
+            },
+            "required": ["device"]
+        },
+        "function": get_network_ports
     }
 }
