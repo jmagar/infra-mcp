@@ -6,7 +6,7 @@ including listing, inspection, log retrieval, and metrics collection.
 """
 
 import logging
-from datetime import datetime, timezone
+from datetime import datetime
 from typing import List, Optional
 from apps.backend.src.utils.ssh_client import execute_ssh_command_simple
 from apps.backend.src.mcp.tools.container_management import list_containers as mcp_list_containers
@@ -38,7 +38,7 @@ async def list_device_containers(
         logger.error(f"Error listing containers on {hostname}: {e}")
         raise HTTPException(
             status_code=500, detail=f"Failed to list containers on {hostname}: {str(e)}"
-        )
+        ) from e
 
 
 @router.get("/{hostname}/{container_name}")
@@ -57,8 +57,6 @@ async def get_container_info(
                 status_code=404, detail=f"Container {container_name} not found on {hostname}"
             )
 
-        import json
-
         container_data = json.loads(result.stdout)
         return {
             "container": container_data[0] if container_data else {},
@@ -66,13 +64,13 @@ async def get_container_info(
             "container_name": container_name,
             "timestamp": result.execution_time,
         }
-    except json.JSONDecodeError:
+    except json.JSONDecodeError as e:
         raise HTTPException(
             status_code=500, detail=f"Failed to parse container data from {hostname}"
-        )
+        ) from e
     except Exception as e:
         logger.error(f"Error getting container info for {container_name} on {hostname}: {e}")
-        raise HTTPException(status_code=500, detail=f"Failed to get container info: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Failed to get container info: {str(e)}") from e
 
 
 @router.get("/{hostname}/{container_name}/logs")
@@ -116,7 +114,7 @@ async def get_container_logs(
         }
     except Exception as e:
         logger.error(f"Error getting container logs for {container_name} on {hostname}: {e}")
-        raise HTTPException(status_code=500, detail=f"Failed to get container logs: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Failed to get container logs: {str(e)}") from e
 
 
 @router.post("/{hostname}/{container_name}/start")
@@ -144,7 +142,7 @@ async def start_container(
         }
     except Exception as e:
         logger.error(f"Error starting container {container_name} on {hostname}: {e}")
-        raise HTTPException(status_code=500, detail=f"Failed to start container: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Failed to start container: {str(e)}") from e
 
 
 @router.post("/{hostname}/{container_name}/stop")
@@ -158,11 +156,11 @@ async def stop_container(
 ):
     """Stop a Docker container"""
     try:
-        cmd = f"docker stop"
+        cmd = "docker stop"
         if timeout != 10:
             cmd += f" --time {timeout}"
         if force:
-            cmd = f"docker kill"
+            cmd = "docker kill"
         cmd += f" {container_name}"
 
         result = await execute_ssh_command_simple(hostname, cmd, ssh_timeout)
@@ -181,7 +179,7 @@ async def stop_container(
         }
     except Exception as e:
         logger.error(f"Error stopping container {container_name} on {hostname}: {e}")
-        raise HTTPException(status_code=500, detail=f"Failed to stop container: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Failed to stop container: {str(e)}") from e
 
 
 @router.post("/{hostname}/{container_name}/restart")
@@ -194,7 +192,7 @@ async def restart_container(
 ):
     """Restart a Docker container"""
     try:
-        cmd = f"docker restart"
+        cmd = "docker restart"
         if timeout != 10:
             cmd += f" --time {timeout}"
         cmd += f" {container_name}"
@@ -215,7 +213,7 @@ async def restart_container(
         }
     except Exception as e:
         logger.error(f"Error restarting container {container_name} on {hostname}: {e}")
-        raise HTTPException(status_code=500, detail=f"Failed to restart container: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Failed to restart container: {str(e)}") from e
 
 
 @router.delete("/{hostname}/{container_name}")
@@ -229,7 +227,7 @@ async def remove_container(
 ):
     """Remove a Docker container"""
     try:
-        cmd = f"docker rm"
+        cmd = "docker rm"
         if force:
             cmd += " --force"
         if remove_volumes:
@@ -254,12 +252,12 @@ async def remove_container(
         }
     except Exception as e:
         logger.error(f"Error removing container {container_name} on {hostname}: {e}")
-        raise HTTPException(status_code=500, detail=f"Failed to remove container: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Failed to remove container: {str(e)}") from e
 
 
 @router.get("/{hostname}/{container_name}/stats")
 async def get_container_stats(
-    hostname: str = Path(..., description="Device hostname"),  
+    hostname: str = Path(..., description="Device hostname"),
     container_name: str = Path(..., description="Container name"),
     timeout: int = Query(30, description="SSH timeout in seconds"),
     current_user=Depends(get_current_user),
@@ -278,7 +276,6 @@ async def get_container_stats(
         output = result.stdout.strip()
         if not output:
             raise HTTPException(status_code=500, detail="Empty container stats output")
-        
         # Split on pipe delimiter
         parts = output.split('|')
         if len(parts) >= 7:
@@ -287,13 +284,13 @@ async def get_container_stats(
                 "hostname": hostname,
                 "stats": {
                     "cpu_percent": parts[1].strip(),
-                    "memory_usage": parts[2].strip(), 
+                    "memory_usage": parts[2].strip(),
                     "memory_percent": parts[3].strip(),
                     "network_io": parts[4].strip(),
                     "block_io": parts[5].strip(),
                     "pids": parts[6].strip(),
                 },
-                "timestamp": datetime.now(timezone.utc).isoformat(),
+                "timestamp": datetime.now(datetime.UTC).isoformat(),
                 "execution_time": result.execution_time,
             }
         else:
@@ -301,7 +298,7 @@ async def get_container_stats(
 
     except Exception as e:
         logger.error(f"Error getting container stats for {container_name} on {hostname}: {e}")
-        raise HTTPException(status_code=500, detail=f"Failed to get container stats: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Failed to get container stats: {str(e)}") from e
 
 
 @router.post("/{hostname}/{container_name}/exec")
@@ -317,7 +314,7 @@ async def execute_in_container(
 ):
     """Execute a command inside a Docker container"""
     try:
-        cmd = f"docker exec"
+        cmd = "docker exec"
         if interactive:
             cmd += " -it"
         if user:
@@ -327,13 +324,41 @@ async def execute_in_container(
         cmd += f" {container_name} {command}"
 
         result = await execute_ssh_command_simple(hostname, cmd, timeout)
+
+        # Check if the SSH connection or Docker exec command failed
+        if not result.success:
+            # Log the error for debugging
+            logger.error(f"Docker exec command failed on {hostname}: {result.stderr}")
+            
+            # Determine appropriate HTTP status based on error type
+            if result.return_code == 125:  # Docker container not found or not running
+                raise HTTPException(
+                    status_code=404, 
+                    detail=f"Container '{container_name}' not found or not running on {hostname}"
+                )
+            elif result.return_code == 126:  # Command not executable
+                raise HTTPException(
+                    status_code=400, 
+                    detail=f"Command not executable in container '{container_name}': {command}"
+                )
+            elif result.return_code == 127:  # Command not found
+                raise HTTPException(
+                    status_code=400, 
+                    detail=f"Command not found in container '{container_name}': {command}"
+                )
+            else:
+                # Generic failure - include stderr for debugging
+                error_detail = f"Command execution failed in container '{container_name}'"
+                if result.stderr:
+                    error_detail += f": {result.stderr}"
+                raise HTTPException(status_code=500, detail=error_detail)
         
         return {
             "action": "exec",
             "container_name": container_name,
             "hostname": hostname,
             "command": command,
-            "success": result.success,
+            "success": True,
             "exit_code": result.return_code,
             "stdout": result.stdout,
             "stderr": result.stderr,
@@ -341,4 +366,4 @@ async def execute_in_container(
         }
     except Exception as e:
         logger.error(f"Error executing command in container {container_name} on {hostname}: {e}")
-        raise HTTPException(status_code=500, detail=f"Failed to execute command: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Failed to execute command: {str(e)}") from e

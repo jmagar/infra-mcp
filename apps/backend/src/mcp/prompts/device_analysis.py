@@ -40,7 +40,7 @@ Please analyze the containerized services and provide:
 
 1. **Container Overview**: List all running and stopped containers
 2. **Resource Analysis**: Memory, CPU usage per container
-3. **Service Dependencies**: Identify service relationships and dependencies  
+3. **Service Dependencies**: Identify service relationships and dependencies
 4. **{focus_area.title()} Assessment**: Deep dive into {focus_area} aspects
 5. **Optimization Opportunities**: Container efficiency improvements
 6. **Security Considerations**: Container security best practices
@@ -62,7 +62,7 @@ def infrastructure_health_check(hostname: str) -> str:
 Please conduct a thorough health assessment covering:
 
 1. **System Health**: OS status, uptime, system load
-2. **Storage Health**: Disk usage, SMART status, I/O performance  
+2. **Storage Health**: Disk usage, SMART status, I/O performance
 3. **Network Connectivity**: Network interfaces, connectivity status
 4. **Service Status**: Critical services and daemon status
 5. **Security Posture**: Security updates, firewall status, open ports
@@ -94,7 +94,7 @@ Please provide systematic troubleshooting guidance:
 1. **Issue Classification**: Categorize the problem type and severity
 2. **Data Collection**: Specify what diagnostic data to gather
 3. **Root Cause Analysis**: Step-by-step investigation approach
-4. **Immediate Actions**: Quick fixes or temporary mitigation steps  
+4. **Immediate Actions**: Quick fixes or temporary mitigation steps
 5. **Diagnostic Commands**: Specific commands to run for diagnosis
 6. **Resolution Steps**: Detailed fix procedures
 7. **Prevention Measures**: How to prevent recurrence

@@ -126,7 +126,7 @@ class LogAnalytics(BaseModel):
     anomalies_detected: List[Dict[str, Any]] = Field(description="Detected log anomalies")
     trends: Dict[str, List[float]] = Field(description="Log volume trends")
     generated_at: datetime = Field(
-        default_factory=datetime.utcnow, description="Analysis timestamp"
+        default_factory=lambda: datetime.now(datetime.UTC), description="Analysis timestamp"
     )
 
 
@@ -159,7 +159,7 @@ class LogAlert(BaseModel):
     time_window_minutes: int = Field(ge=1, description="Time window in minutes")
     cooldown_minutes: int = Field(ge=1, description="Cooldown period between alerts")
     is_active: bool = Field(default=True, description="Whether alert is active")
-    created_at: datetime = Field(default_factory=datetime.utcnow, description="Alert creation time")
+    created_at: datetime = Field(default_factory=lambda: datetime.now(datetime.UTC), description="Alert creation time")
     last_triggered: Optional[datetime] = Field(None, description="Last trigger timestamp")
 
 
@@ -246,7 +246,7 @@ class LogRetentionPolicy(BaseModel):
     )
     is_active: bool = Field(default=True, description="Whether policy is active")
     created_at: datetime = Field(
-        default_factory=datetime.utcnow, description="Policy creation time"
+        default_factory=lambda: datetime.now(datetime.UTC), description="Policy creation time"
     )
     last_applied: Optional[datetime] = Field(None, description="Last policy application time")
 

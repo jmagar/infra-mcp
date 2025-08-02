@@ -828,7 +828,7 @@ async def get_chunk_statistics() -> dict:
             # Compressed chunk count
             result = await session.execute(
                 text("""
-                    SELECT COUNT(*) FROM timescaledb_information.chunks 
+                    SELECT COUNT(*) FROM timescaledb_information.chunks
                     WHERE is_compressed = true
                 """)
             )

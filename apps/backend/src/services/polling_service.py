@@ -5,7 +5,7 @@ Service layer for background device polling and metrics collection.
 import asyncio
 import json
 import logging
-from datetime import datetime, timezone, timedelta
+from datetime import datetime, timedelta
 from typing import List, Optional, Any, Set, Dict
 from uuid import UUID
 
@@ -184,8 +184,8 @@ class PollingService:
             try:
                 device.status = status
                 if status == "online":
-                    device.last_seen = datetime.now(timezone.utc)
-                device.updated_at = datetime.now(timezone.utc)
+                    device.last_seen = datetime.now(datetime.UTC)
+                device.updated_at = datetime.now(datetime.UTC)
 
                 await db.commit()
 
@@ -232,7 +232,7 @@ class PollingService:
             # Create system metric record
             metric = SystemMetric(
                 device_id=device.id,
-                time=datetime.now(timezone.utc),
+                time=datetime.now(datetime.UTC),
                 cpu_usage_percent=cpu_usage,
                 memory_usage_percent=memory_usage,
                 disk_usage_percent=disk_usage,
@@ -306,7 +306,7 @@ class PollingService:
                         # Create or update drive health record
                         drive_health = DriveHealth(
                             device_id=device.id,
-                            time=datetime.now(timezone.utc),
+                            time=datetime.now(datetime.UTC),
                             device=f"/dev/{drive_name}",
                             model="Unknown",  # Would need additional parsing
                             serial_number="Unknown",
@@ -402,7 +402,7 @@ class PollingService:
                     # Create container snapshot
                     snapshot = ContainerSnapshot(
                         device_id=device.id,
-                        time=datetime.now(timezone.utc),
+                        time=datetime.now(datetime.UTC),
                         container_id=container_id,
                         container_name=container_name,
                         image=container_data.get("Image", ""),
@@ -482,7 +482,7 @@ class PollingService:
                 "device_id": str(device_id),
                 "hostname": device.hostname,
                 "status": "success",
-                "timestamp": datetime.now(timezone.utc).isoformat(),
+                "timestamp": datetime.now(datetime.UTC).isoformat(),
                 "message": "Device polled successfully",
             }
 
@@ -492,7 +492,7 @@ class PollingService:
                 "device_id": str(device_id),
                 "hostname": device.hostname,
                 "status": "error",
-                "timestamp": datetime.now(timezone.utc).isoformat(),
+                "timestamp": datetime.now(datetime.UTC).isoformat(),
                 "error": str(e),
             }
 

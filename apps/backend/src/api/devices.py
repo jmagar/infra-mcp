@@ -11,12 +11,14 @@ The core SSH-based monitoring tools work directly with hostnames and don't requi
 import logging
 import time
 import uuid
-from typing import List, Optional
+from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Path
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from apps.backend.src.core.database import get_db_session
+from apps.backend.src.utils.ssh_config_parser import parse_ssh_config
+from apps.backend.src.schemas.device import DeviceImportResult
 from apps.backend.src.core.exceptions import (
     DeviceNotFoundError,
     DatabaseOperationError,
@@ -41,6 +43,7 @@ from apps.backend.src.mcp.tools.system_monitoring import (
     get_drive_health,
     get_system_logs,
     get_drive_stats,
+    get_network_ports,
 )
 
 logger = logging.getLogger(__name__)
@@ -275,8 +278,6 @@ async def get_device_ports_by_hostname(
 ) -> dict:
     """Get network port information and listening processes"""
     try:
-        from apps.backend.src.mcp.tools.system_monitoring import get_network_ports
-
         return await get_network_ports(hostname, timeout)
     except SSHCommandError as e:
         raise HTTPException(status_code=500, detail=str(e)) from e
@@ -301,9 +302,6 @@ async def import_devices_from_ssh_config(
     to preview changes before applying them.
     """
     try:
-        from apps.backend.src.utils.ssh_config_parser import parse_ssh_config
-        from apps.backend.src.schemas.device import DeviceImportResult
-
         # Parse SSH config file
         try:
             importable_devices = parse_ssh_config(import_request.ssh_config_path)
@@ -313,7 +311,7 @@ async def import_devices_from_ssh_config(
                 detail=f"SSH config file not found: {import_request.ssh_config_path}",
             )
         except ValueError as e:
-            raise HTTPException(status_code=400, detail=f"Invalid SSH config file: {str(e)}")
+            raise HTTPException(status_code=400, detail=f"Invalid SSH config file: {str(e)}") from e
 
         if not importable_devices:
             return DeviceImportResponse(

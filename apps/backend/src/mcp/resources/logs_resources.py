@@ -7,9 +7,8 @@ with real-time access via the REST API.
 
 import logging
 import json
-from typing import Any, Dict, List, Optional
+from typing import Any
 from urllib.parse import urlparse, parse_qs
-from datetime import datetime, timezone
 
 import httpx
 
@@ -22,15 +21,15 @@ def _get_api_config():
     """Get API configuration settings"""
     settings = get_settings()
     return {
-        "base_url": f"http://localhost:{settings.api.port}",
+        "base_url": f"http://localhost:{settings.server.port}",
         "api_key": settings.auth.api_key,
         "timeout": 30,
     }
 
 
 async def _make_api_request(
-    endpoint: str, params: Optional[Dict[str, Any]] = None
-) -> Dict[str, Any]:
+    endpoint: str, params: dict[str, Any] | None = None
+) -> dict[str, Any]:
     """Make authenticated request to the REST API"""
     config = _get_api_config()
 
@@ -54,7 +53,7 @@ async def _make_api_request(
             logger.error(
                 f"Response text: {e.response.text if hasattr(e, 'response') else 'unknown'}"
             )
-            raise RuntimeError(f"Failed to fetch logs data: {str(e)}")
+            raise RuntimeError(f"Failed to fetch logs data: {str(e)}") from e
 
 
 async def get_system_logs_resource(uri: str) -> str:
@@ -276,7 +275,7 @@ async def get_vm_logs_resource(uri: str) -> str:
         )
 
 
-async def list_logs_resources() -> List[Dict[str, Any]]:
+async def list_logs_resources() -> list[dict[str, Any]]:
     """List all available logs MCP resources"""
     try:
         # Get list of devices from API

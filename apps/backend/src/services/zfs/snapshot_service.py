@@ -5,7 +5,7 @@ Handles ZFS snapshot operations including creation, cloning, sending, receiving,
 """
 
 import logging
-from datetime import datetime, timezone
+from datetime import datetime
 from typing import List, Dict, Any, Optional
 
 from .base import ZFSBaseService
@@ -74,7 +74,7 @@ class ZFSSnapshotService(ZFSBaseService):
                 "snapshot_name": snapshot_name,
                 "full_name": full_snapshot_name,
                 "recursive": recursive,
-                "created_at": datetime.now(timezone.utc).isoformat(),
+                "created_at": datetime.now(datetime.UTC).isoformat(),
                 "status": "created",
             }
 
@@ -103,7 +103,7 @@ class ZFSSnapshotService(ZFSBaseService):
             return {
                 "snapshot_name": snapshot_name,
                 "recursive": recursive,
-                "destroyed_at": datetime.now(timezone.utc).isoformat(),
+                "destroyed_at": datetime.now(datetime.UTC).isoformat(),
                 "status": "destroyed",
             }
 
@@ -126,7 +126,7 @@ class ZFSSnapshotService(ZFSBaseService):
             return {
                 "source_snapshot": snapshot_name,
                 "clone_name": clone_name,
-                "created_at": datetime.now(timezone.utc).isoformat(),
+                "created_at": datetime.now(datetime.UTC).isoformat(),
                 "status": "cloned",
             }
 
@@ -163,7 +163,7 @@ class ZFSSnapshotService(ZFSBaseService):
                 "destination": destination,
                 "incremental": incremental,
                 "output": output,
-                "sent_at": datetime.now(timezone.utc).isoformat(),
+                "sent_at": datetime.now(datetime.UTC).isoformat(),
                 "status": "sent",
             }
 
@@ -184,7 +184,7 @@ class ZFSSnapshotService(ZFSBaseService):
             return {
                 "dataset_name": dataset_name,
                 "output": output,
-                "received_at": datetime.now(timezone.utc).isoformat(),
+                "received_at": datetime.now(datetime.UTC).isoformat(),
                 "status": "received",
             }
 
@@ -208,7 +208,7 @@ class ZFSSnapshotService(ZFSBaseService):
                 "snapshot1": snapshot1,
                 "snapshot2": snapshot2,
                 "differences": output,
-                "compared_at": datetime.now(timezone.utc).isoformat(),
+                "compared_at": datetime.now(datetime.UTC).isoformat(),
             }
 
         except Exception as e:

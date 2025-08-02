@@ -7,7 +7,9 @@ with real-time data access via the REST API.
 
 import logging
 import json
-from typing import Any, Dict, List
+from __future__ import annotations
+
+from typing import Any
 from urllib.parse import urlparse, parse_qs
 
 import httpx
@@ -21,13 +23,13 @@ def _get_api_config():
     """Get API configuration settings"""
     settings = get_settings()
     return {
-        "base_url": f"http://localhost:{settings.api.port}",
+        "base_url": f"http://localhost:{settings.mcp_server.mcp_port}",
         "api_key": settings.auth.api_key,
         "timeout": 30,
     }
 
 
-async def _make_api_request(endpoint: str) -> Dict[str, Any]:
+async def _make_api_request(endpoint: str) -> dict[str, Any]:
     """Make authenticated request to the REST API"""
     config = _get_api_config()
 
@@ -51,7 +53,7 @@ async def _make_api_request(endpoint: str) -> Dict[str, Any]:
             logger.error(
                 f"Response text: {e.response.text if hasattr(e, 'response') else 'unknown'}"
             )
-            raise RuntimeError(f"Failed to fetch ZFS data: {str(e)}")
+            raise RuntimeError(f"Failed to fetch ZFS data: {str(e)}") from e
 
 
 async def get_zfs_pools_resource(uri: str) -> str:
@@ -229,7 +231,7 @@ async def get_zfs_health_resource(uri: str) -> str:
         return json.dumps({"error": str(e), "uri": uri, "resource_type": "zfs_health"}, indent=2)
 
 
-async def list_zfs_resources() -> List[Dict[str, Any]]:
+async def list_zfs_resources() -> list[dict[str, Any]]:
     """List all available ZFS MCP resources"""
     try:
         # Get list of devices from API

@@ -8,7 +8,7 @@ monitoring status checks, and device information retrieval.
 import logging
 import time
 from datetime import datetime
-from typing import Any, Dict
+from typing import Any
 # UUID import removed - now using hostname-only approach
 
 from sqlalchemy import select, func
@@ -21,8 +21,6 @@ from apps.backend.src.core.exceptions import (
     DatabaseOperationError,
     ValidationError,
 )
-from apps.backend.src.schemas.device import DeviceResponse, DeviceSummary, DeviceConnectionTest
-from apps.backend.src.schemas.common import DeviceStatus, PaginationParams
 from apps.backend.src.utils.ssh_client import (
     get_ssh_client,
     SSHConnectionInfo,
@@ -102,7 +100,7 @@ async def add_device(
             device_data["tags"] = tags
 
         # Make HTTP request to the API endpoint
-        api_url = "http://localhost:9101/api/devices"
+        api_url = f"http://localhost:{settings.mcp_server.mcp_port}/api/devices"
         headers = {
             "Authorization": f"Bearer {settings.api_key}",
             "Content-Type": "application/json",
@@ -181,7 +179,7 @@ async def list_devices(
     search: str | None = None,
     limit: int = 50,
     offset: int = 0,
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """
     List all registered infrastructure devices with optional filtering.
 
@@ -331,7 +329,7 @@ async def list_devices(
 
 async def get_device_info(
     device: str, test_connectivity: bool = True, timeout: int = 30
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """
     Get comprehensive information about a specific device.
 
@@ -523,7 +521,7 @@ async def get_device_info(
                     "found_by": "uuid"
                     if (device.count("-") == 4 and len(device) == 36)
                     else "hostname_or_ip",
-                    "timestamp": datetime.now(timezone.utc).isoformat(),
+                    "timestamp": datetime.now(datetime.UTC).isoformat(),
                 },
             }
 
@@ -542,7 +540,7 @@ async def get_device_info(
         )
 
 
-async def get_device_summary(device: str, timeout: int = 30) -> Dict[str, Any]:
+async def get_device_summary(device: str, timeout: int = 30) -> dict[str, Any]:
     """
     Get a comprehensive summary of device status and health.
 

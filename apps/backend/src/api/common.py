@@ -9,7 +9,7 @@ import logging
 import platform
 import sys
 import random
-from datetime import datetime, timezone
+from datetime import datetime
 from typing import Dict
 
 from fastapi import APIRouter, Depends, HTTPException, Request
@@ -86,7 +86,7 @@ async def api_status(request: Request):
     return StatusResponse(
         status="operational",
         message="All systems operational",
-        timestamp=datetime.now(timezone.utc),
+        timestamp=datetime.now(datetime.UTC),
     )
 
 
@@ -105,8 +105,8 @@ async def get_system_info(request: Request):
         architecture=platform.machine(),
         python_version=sys.version.split()[0],
         app_version="1.0.0",
-        startup_time=datetime.now(timezone.utc),  # This would be tracked in real implementation
-        current_time=datetime.now(timezone.utc),
+        startup_time=datetime.now(datetime.UTC),  # This would be tracked in real implementation
+        current_time=datetime.now(datetime.UTC),
     )
 
 

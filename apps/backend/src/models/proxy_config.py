@@ -5,7 +5,7 @@ SQLAlchemy models for storing SWAG reverse proxy configurations
 with TimescaleDB integration for change tracking.
 """
 
-from datetime import datetime, timezone
+from datetime import datetime
 from typing import Dict, Any, Optional
 from sqlalchemy import (
     Column,

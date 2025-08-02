@@ -9,7 +9,7 @@ code duplication and ensures consistency between MCP and REST interfaces.
 import logging
 import re
 import json
-from datetime import datetime, timezone
+from datetime import datetime
 from typing import Dict, List, Optional, Any
 
 from apps.backend.src.core.config import get_settings
@@ -98,7 +98,7 @@ async def list_containers(
                 "query_info": {
                     "status_filter": status,
                     "include_stopped": all_containers,
-                    "timestamp": datetime.now(timezone.utc).isoformat(),
+                    "timestamp": datetime.now(datetime.UTC).isoformat(),
                     "execution_time_ms": 0,
                 },
             }
@@ -129,11 +129,7 @@ async def list_containers(
                 state = container_data.get("State", {})
                 network_settings = container_data.get("NetworkSettings", {})
 
-                # Extract Docker Compose information from labels
-                labels = config.get("Labels") or {}
-                compose_project = labels.get("com.docker.compose.project", "")
-                compose_service = labels.get("com.docker.compose.service", "")
-                compose_config_files = labels.get("com.docker.compose.project.config_files", "")
+                # Note: Docker Compose labels exist but are not currently used for filtering
 
                 # Extract volume mounts from Mounts array
                 mounts = container_data.get("Mounts", [])
@@ -169,8 +165,6 @@ async def list_containers(
                         status_str = "Up"
 
                 # Extract creation and start times for uptime calculation
-                created = container_data.get("Created", "")
-                started = state.get("StartedAt", "")
 
                 container = {
                     "name": container_data.get("Name", "").lstrip("/"),  # Remove leading slash
@@ -179,7 +173,7 @@ async def list_containers(
                     "volumes": volume_mounts if volume_mounts else None,
                     "status": status_str,
                     "running": state.get("Running", False),
-                    "compose_path": compose_config_files if compose_config_files else None,
+                    "compose_path": None,
                 }
 
                 # Apply status filter if specified
@@ -229,7 +223,7 @@ async def list_containers(
             "query_info": {
                 "status_filter": status,
                 "include_stopped": all_containers,
-                "timestamp": datetime.now(timezone.utc).isoformat(),
+                "timestamp": datetime.now(datetime.UTC).isoformat(),
                 "execution_time_ms": int(result.execution_time * 1000),
             },
         }
@@ -244,7 +238,7 @@ async def list_containers(
             container_id="",
             hostname=device,
             operation="list_containers",
-        )
+        ) from e
 
 
 async def get_container_info(device: str, container_name: str, timeout: int = 60) -> Dict[str, Any]:
@@ -460,7 +454,7 @@ async def get_container_info(device: str, container_name: str, timeout: int = 60
             },
             "query_info": {
                 "container_identifier": container_name,
-                "timestamp": datetime.now(timezone.utc).isoformat(),
+                "timestamp": datetime.now(datetime.UTC).isoformat(),
                 "execution_time_ms": int(result.raw_result.execution_time * 1000),
             },
         }
@@ -484,7 +478,7 @@ async def get_container_info(device: str, container_name: str, timeout: int = 60
             container_id=container_name,
             operation="get_container_info",
             hostname=device,
-        )
+        ) from e
 
 
 async def get_container_logs(
@@ -659,7 +653,7 @@ async def get_container_logs(
                 "container_identifier": container_name,
                 "since_filter": since,
                 "tail_lines": tail,
-                "timestamp": datetime.now(timezone.utc).isoformat(),
+                "timestamp": datetime.now(datetime.UTC).isoformat(),
                 "execution_time_ms": int(result.raw_result.execution_time * 1000),
             },
         }
@@ -693,7 +687,7 @@ async def get_container_logs(
             container_id=container_name,
             operation="get_container_logs",
             hostname=device,
-        )
+        ) from e
 
 
 async def get_service_dependencies(
@@ -782,7 +776,6 @@ async def get_service_dependencies(
         target_config = target_container_data.get("Config", {})
         target_labels = target_config.get("Labels") or {}
         target_network_settings = target_container_data.get("NetworkSettings", {})
-        target_host_config = target_container_data.get("HostConfig", {})
         target_mounts = target_container_data.get("Mounts", [])
 
         # Extract service information from target container
@@ -847,7 +840,7 @@ async def get_service_dependencies(
                     }
 
                     # Map networks to services
-                    for network_name in network_settings.get("Networks", {}).keys():
+                    for network_name in network_settings.get("Networks", {}):
                         if network_name not in network_mappings:
                             network_mappings[network_name] = []
                         network_mappings[network_name].append(service_key)
@@ -888,8 +881,6 @@ async def get_service_dependencies(
             }
 
             # For standalone containers, dependencies are based on shared networks/volumes
-            dependencies = []
-            dependents = []
 
             # Check network-based dependencies
             target_networks = set(target_network_settings.get("Networks", {}).keys())
@@ -911,11 +902,11 @@ async def get_service_dependencies(
                             )
 
             # Check volume-based dependencies
-            target_volumes = set(
+            target_volumes = {
                 mount.get("Source", "")
                 for mount in target_mounts
                 if mount.get("Type") in ["bind", "volume"]
-            )
+            }
             volume_deps = []
 
             for volume_source in target_volumes:
@@ -962,7 +953,7 @@ async def get_service_dependencies(
                 "query_info": {
                     "container_identifier": container_name,
                     "analysis_type": "standalone_container",
-                    "timestamp": datetime.now(timezone.utc).isoformat(),
+                    "timestamp": datetime.now(datetime.UTC).isoformat(),
                     "execution_time_ms": int(
                         (
                             containers_result.raw_result.execution_time
@@ -984,8 +975,6 @@ async def get_service_dependencies(
         target_volumes = set(target_service["volumes"])
 
         # Find dependencies (services this service depends on)
-        dependencies = []
-        dependents = []
 
         # Network-based dependencies
         network_dependencies = []
@@ -1133,7 +1122,7 @@ async def get_service_dependencies(
                 "container_identifier": container_name,
                 "analysis_type": "compose_service",
                 "containers_analyzed": len(containers_data),
-                "timestamp": datetime.now(timezone.utc).isoformat(),
+                "timestamp": datetime.now(datetime.UTC).isoformat(),
                 "execution_time_ms": int(
                     (
                         containers_result.raw_result.execution_time
@@ -1163,7 +1152,7 @@ async def get_service_dependencies(
             container_id=container_name,
             operation="get_service_dependencies",
             hostname=device,
-        )
+        ) from e
 
 
 async def start_container(device: str, container_name: str, timeout: int = 60) -> Dict[str, Any]:
@@ -1201,7 +1190,7 @@ async def start_container(device: str, container_name: str, timeout: int = 60) -
             "device": device,
             "success": True,
             "output": result.stdout,
-            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "timestamp": datetime.now(datetime.UTC).isoformat(),
             "execution_time_ms": int(result.execution_time * 1000),
         }
 
@@ -1214,7 +1203,7 @@ async def start_container(device: str, container_name: str, timeout: int = 60) -
             container_id=container_name,
             hostname=device,
             operation="start_container",
-        )
+        ) from e
 
 
 async def stop_container(
@@ -1265,7 +1254,7 @@ async def stop_container(
             "force": force,
             "timeout": timeout,
             "output": result.stdout,
-            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "timestamp": datetime.now(datetime.UTC).isoformat(),
             "execution_time_ms": int(result.execution_time * 1000),
         }
 
@@ -1278,7 +1267,7 @@ async def stop_container(
             container_id=container_name,
             hostname=device,
             operation="stop_container",
-        )
+        ) from e
 
 
 async def restart_container(
@@ -1321,7 +1310,7 @@ async def restart_container(
             "success": True,
             "timeout": timeout,
             "output": result.stdout,
-            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "timestamp": datetime.now(datetime.UTC).isoformat(),
             "execution_time_ms": int(result.execution_time * 1000),
         }
 
@@ -1334,7 +1323,7 @@ async def restart_container(
             container_id=container_name,
             hostname=device,
             operation="restart_container",
-        )
+        ) from e
 
 
 async def remove_container(
@@ -1361,7 +1350,10 @@ async def remove_container(
         ContainerError: If container not found or Docker command fails
         SSHConnectionError: If SSH connection fails
     """
-    logger.info(f"Removing container {container_name} on device: {device} (force: {force}, volumes: {remove_volumes})")
+    logger.info(
+        f"Removing container {container_name} on device: {device} "
+        f"(force: {force}, volumes: {remove_volumes})"
+    )
 
     try:
         cmd = "docker rm"
@@ -1389,7 +1381,7 @@ async def remove_container(
             "force": force,
             "remove_volumes": remove_volumes,
             "output": result.stdout,
-            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "timestamp": datetime.now(datetime.UTC).isoformat(),
             "execution_time_ms": int(result.execution_time * 1000),
         }
 
@@ -1402,7 +1394,7 @@ async def remove_container(
             container_id=container_name,
             hostname=device,
             operation="remove_container",
-        )
+        ) from e
 
 
 # Tool registration metadata for MCP server

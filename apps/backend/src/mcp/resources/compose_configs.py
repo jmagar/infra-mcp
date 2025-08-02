@@ -5,12 +5,14 @@ MCP resources for exposing Docker Compose configurations
 with real-time file access and database integration.
 """
 
-import asyncio
+from __future__ import annotations
+
 import logging
 import json
-from datetime import datetime, timezone
+import shlex
+from datetime import datetime
 from pathlib import Path
-from typing import Dict, List, Optional, Any
+from typing import Any
 from urllib.parse import urlparse, parse_qs
 
 from apps.backend.src.utils.compose_parser import DockerComposeParser, ComposeParseError
@@ -22,7 +24,7 @@ from sqlalchemy import select
 logger = logging.getLogger(__name__)
 
 
-async def get_compose_config_resource(uri: str) -> Dict[str, Any]:
+async def get_compose_config_resource(uri: str) -> dict[str, Any]:
     """
     Get Docker Compose configuration resource content
 
@@ -79,7 +81,7 @@ async def get_compose_config_resource(uri: str) -> Dict[str, Any]:
         return {
             "error": str(e),
             "uri": uri,
-            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "timestamp": datetime.now(datetime.UTC).isoformat(),
             "resource_type": "error",
         }
 
@@ -90,7 +92,7 @@ async def _get_service_compose_resource(
     force_refresh: bool = False,
     include_parsed: bool = True,
     format_type: str = "raw",
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """Get service compose configuration with path resolution"""
 
     try:
@@ -107,7 +109,7 @@ async def _get_service_compose_resource(
                     "database_device_paths",
                     "common_path_patterns",
                 ],
-                "timestamp": datetime.now(timezone.utc).isoformat(),
+                "timestamp": datetime.now(datetime.UTC).isoformat(),
                 "resource_type": "service_not_found",
             }
 
@@ -121,7 +123,7 @@ async def _get_service_compose_resource(
                 "device": device,
                 "file_path": compose_file_path,
                 "file_info": file_info,
-                "timestamp": datetime.now(timezone.utc).isoformat(),
+                "timestamp": datetime.now(datetime.UTC).isoformat(),
                 "resource_type": "file_not_found",
             }
 
@@ -135,7 +137,7 @@ async def _get_service_compose_resource(
                 "device": device,
                 "file_path": compose_file_path,
                 "file_info": file_info,
-                "timestamp": datetime.now(timezone.utc).isoformat(),
+                "timestamp": datetime.now(datetime.UTC).isoformat(),
                 "resource_type": "read_error",
             }
 
@@ -148,7 +150,7 @@ async def _get_service_compose_resource(
             "file_name": Path(compose_file_path).name,
             "file_info": file_info,
             "content_length": len(content),
-            "timestamp": datetime.utcnow().isoformat(),
+            "timestamp": datetime.now(datetime.UTC).isoformat(),
             "resource_type": "docker_compose_service",
             "format": format_type,
         }
@@ -197,7 +199,7 @@ async def _get_service_compose_resource(
             "error": str(e),
             "service_name": service_name,
             "device": device,
-            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "timestamp": datetime.now(datetime.UTC).isoformat(),
             "resource_type": "service_error",
         }
 
@@ -235,7 +237,7 @@ async def _resolve_compose_file_path(device: str, service_name: str) -> Optional
                     # Check if this container matches our service
                     if service_name.lower() in container_name.lower():
                         # Get detailed container info
-                        inspect_cmd = f"docker inspect {container_name}"
+                        inspect_cmd = f"docker inspect {shlex.quote(container_name)}"
                         inspect_result = await execute_ssh_command_simple(
                             device, inspect_cmd, timeout=15
                         )
@@ -341,7 +343,7 @@ async def _search_compose_file_in_path(
     # Fallback: search for any compose files in the directory
     try:
         search_cmd = f"""
-        find {base_path} -name "docker-compose.y*ml" -o -name "compose.y*ml" | grep -i {service_name} | head -1
+        find {shlex.quote(base_path)} -name "docker-compose.y*ml" -o -name "compose.y*ml" | grep -i {shlex.quote(service_name)} | head -1
         """
 
         result = await execute_ssh_command_simple(device, search_cmd, timeout=15)
@@ -357,11 +359,11 @@ async def _search_compose_file_in_path(
     return None
 
 
-async def _get_file_info(device: str, file_path: str) -> Dict[str, Any]:
+async def _get_file_info(device: str, file_path: str) -> dict[str, Any]:
     """Get file information via SSH"""
 
     try:
-        stat_cmd = f"stat -c '%n|%s|%Y|%A' {file_path} 2>/dev/null || echo 'NOT_FOUND'"
+        stat_cmd = f"stat -c '%n|%s|%Y|%A' {shlex.quote(file_path)} 2>/dev/null || echo 'NOT_FOUND'"
 
         result = await execute_ssh_command_simple(device, stat_cmd, timeout=10)
 
@@ -373,7 +375,7 @@ async def _get_file_info(device: str, file_path: str) -> Dict[str, Any]:
                     "file_path": parts[0],
                     "file_size": int(parts[1]),
                     "last_modified": datetime.fromtimestamp(
-                        int(parts[2]), tz=timezone.utc
+                        int(parts[2]), tz=datetime.UTC
                     ).isoformat(),
                     "permissions": parts[3],
                     "readable": "r" in parts[3],
@@ -390,7 +392,7 @@ async def _get_file_content(device: str, file_path: str) -> Optional[str]:
     """Get file content via SSH"""
 
     try:
-        cat_cmd = f"cat {file_path}"
+        cat_cmd = f"cat {shlex.quote(file_path)}"
 
         result = await execute_ssh_command_simple(device, cat_cmd, timeout=30)
 
@@ -405,7 +407,7 @@ async def _get_file_content(device: str, file_path: str) -> Optional[str]:
         return None
 
 
-async def _get_device_compose_stacks(device: str) -> Dict[str, Any]:
+async def _get_device_compose_stacks(device: str) -> dict[str, Any]:
     """Get list of all compose stacks on a device"""
 
     try:
@@ -442,7 +444,7 @@ async def _get_device_compose_stacks(device: str) -> Dict[str, Any]:
                 [s for s in all_stacks.values() if s["status"] == "discovered"]
             ),
             "stacks": list(all_stacks.values()),
-            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "timestamp": datetime.now(datetime.UTC).isoformat(),
             "resource_type": "docker_compose_stacks",
         }
 
@@ -451,12 +453,12 @@ async def _get_device_compose_stacks(device: str) -> Dict[str, Any]:
         return {
             "error": str(e),
             "device": device,
-            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "timestamp": datetime.now(datetime.UTC).isoformat(),
             "resource_type": "stacks_error",
         }
 
 
-async def _get_running_compose_stacks(device: str) -> List[Dict[str, Any]]:
+async def _get_running_compose_stacks(device: str) -> list[dict[str, Any]]:
     """Get running compose stacks from docker ps"""
 
     stacks = []
@@ -481,7 +483,7 @@ async def _get_running_compose_stacks(device: str) -> List[Dict[str, Any]]:
                     container_name = container_info.get("Names", "")
 
                     # Get compose labels via inspect
-                    inspect_cmd = f"docker inspect {container_name}"
+                    inspect_cmd = f"docker inspect {shlex.quote(container_name)}"
                     inspect_result = await execute_ssh_command_simple(
                         device, inspect_cmd, timeout=10
                     )
@@ -545,7 +547,7 @@ async def _get_running_compose_stacks(device: str) -> List[Dict[str, Any]]:
     return stacks
 
 
-async def _get_discovered_compose_files(device: str) -> List[Dict[str, Any]]:
+async def _get_discovered_compose_files(device: str) -> list[dict[str, Any]]:
     """Get discovered compose files from database paths"""
 
     discovered = []
@@ -574,7 +576,7 @@ async def _get_discovered_compose_files(device: str) -> List[Dict[str, Any]]:
             for base_path in search_paths:
                 try:
                     find_cmd = f"""
-                    find {base_path} -name "docker-compose.y*ml" -o -name "compose.y*ml" | head -20
+                    find {shlex.quote(base_path)} -name "docker-compose.y*ml" -o -name "compose.y*ml" | head -20
                     """
 
                     result = await execute_ssh_command_simple(device, find_cmd, timeout=20)
@@ -608,12 +610,12 @@ async def _get_discovered_compose_files(device: str) -> List[Dict[str, Any]]:
     return discovered
 
 
-async def _get_global_compose_listing() -> Dict[str, Any]:
+async def _get_global_compose_listing() -> dict[str, Any]:
     """Get global listing of all compose configurations across all devices"""
 
     try:
         async with get_async_session() as session:
-            query = select(Device).where(Device.monitoring_enabled == True)
+            query = select(Device).where(Device.monitoring_enabled.is_(True))
             result = await session.execute(query)
             devices = result.scalars().all()
 
@@ -621,7 +623,7 @@ async def _get_global_compose_listing() -> Dict[str, Any]:
                 "uri": "docker://configs",
                 "total_devices": len(devices),
                 "devices": [],
-                "timestamp": datetime.now(timezone.utc).isoformat(),
+                "timestamp": datetime.now(datetime.UTC).isoformat(),
                 "resource_type": "docker_compose_global",
             }
 
@@ -679,12 +681,12 @@ async def _get_global_compose_listing() -> Dict[str, Any]:
         return {
             "error": str(e),
             "uri": "docker://configs",
-            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "timestamp": datetime.now(datetime.UTC).isoformat(),
             "resource_type": "global_error",
         }
 
 
-async def list_compose_config_resources(device: Optional[str] = None) -> List[Dict[str, str]]:
+async def list_compose_config_resources(device: str | None = None) -> list[dict[str, str]]:
     """
     List available compose configuration resources
 
@@ -715,7 +717,7 @@ async def list_compose_config_resources(device: Optional[str] = None) -> List[Di
         else:
             # Get all devices with docker capabilities from database
             async with get_async_session() as session:
-                query = select(Device).where(Device.monitoring_enabled == True)
+                query = select(Device).where(Device.monitoring_enabled.is_(True))
                 result = await session.execute(query)
                 device_records = result.scalars().all()
                 devices = [d.hostname for d in device_records if d.tags.get("docker_version")]

@@ -5,13 +5,15 @@ REST API endpoints for ZFS pool management, dataset operations, snapshot handlin
 health monitoring, and performance analysis via SSH commands.
 """
 
+from __future__ import annotations
+
 import logging
-from typing import List, Optional, Dict, Any
+from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Path
 from pydantic import BaseModel, Field
 
-from apps.backend.src.core.exceptions import ZFSError, SSHConnectionError, SSHCommandError
+from apps.backend.src.core.exceptions import ZFSError, SSHConnectionError
 from apps.backend.src.services.zfs import (
     ZFSPoolService,
     ZFSDatasetService,
@@ -57,7 +59,7 @@ class SnapshotCloneRequest(BaseModel):
 
 
 class SnapshotSendRequest(BaseModel):
-    destination: Optional[str] = Field(None, description="Destination for snapshot send")
+    destination: str | None = Field(None, description="Destination for snapshot send")
     incremental: bool = Field(default=False, description="Use incremental send")
 
 
@@ -82,12 +84,12 @@ async def list_zfs_pools(
         pools = await service.list_pools(hostname, timeout)
         return {"hostname": hostname, "pools": pools, "total_pools": len(pools)}
     except ZFSError as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail=str(e)) from e
     except SSHConnectionError as e:
-        raise HTTPException(status_code=503, detail=f"SSH connection failed: {str(e)}")
+        raise HTTPException(status_code=503, detail=f"SSH connection failed: {str(e)}") from e
     except Exception as e:
         logger.error(f"Error listing ZFS pools on {hostname}: {e}")
-        raise HTTPException(status_code=500, detail="Failed to list ZFS pools")
+        raise HTTPException(status_code=500, detail="Failed to list ZFS pools") from e
 
 
 @router.get("/{hostname}/pools/{pool_name}/status")
@@ -103,19 +105,19 @@ async def get_pool_status(
         status = await service.get_pool_status(hostname, pool_name, timeout)
         return status
     except ZFSError as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail=str(e)) from e
     except SSHConnectionError as e:
-        raise HTTPException(status_code=503, detail=f"SSH connection failed: {str(e)}")
+        raise HTTPException(status_code=503, detail=f"SSH connection failed: {str(e)}") from e
     except Exception as e:
         logger.error(f"Error getting pool status for {pool_name} on {hostname}: {e}")
-        raise HTTPException(status_code=500, detail="Failed to get pool status")
+        raise HTTPException(status_code=500, detail="Failed to get pool status") from e
 
 
 # Dataset Management Endpoints
 @router.get("/{hostname}/datasets")
 async def list_zfs_datasets(
     hostname: str = Path(..., description="Device hostname"),
-    pool_name: Optional[str] = Query(None, description="Filter by pool name"),
+    pool_name: str | None = Query(None, description="Filter by pool name"),
     timeout: int = Query(30, description="SSH timeout in seconds"),
     service: ZFSDatasetService = Depends(get_dataset_service),
     current_user=Depends(get_current_user),
@@ -130,12 +132,12 @@ async def list_zfs_datasets(
             "total_datasets": len(datasets),
         }
     except ZFSError as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail=str(e)) from e
     except SSHConnectionError as e:
-        raise HTTPException(status_code=503, detail=f"SSH connection failed: {str(e)}")
+        raise HTTPException(status_code=503, detail=f"SSH connection failed: {str(e)}") from e
     except Exception as e:
         logger.error(f"Error listing ZFS datasets on {hostname}: {e}")
-        raise HTTPException(status_code=500, detail="Failed to list ZFS datasets")
+        raise HTTPException(status_code=500, detail="Failed to list ZFS datasets") from e
 
 
 @router.get("/{hostname}/datasets/{dataset_name}/properties")
@@ -151,19 +153,19 @@ async def get_dataset_properties(
         properties = await service.get_dataset_properties(hostname, dataset_name, timeout)
         return properties
     except ZFSError as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail=str(e)) from e
     except SSHConnectionError as e:
-        raise HTTPException(status_code=503, detail=f"SSH connection failed: {str(e)}")
+        raise HTTPException(status_code=503, detail=f"SSH connection failed: {str(e)}") from e
     except Exception as e:
         logger.error(f"Error getting dataset properties for {dataset_name} on {hostname}: {e}")
-        raise HTTPException(status_code=500, detail="Failed to get dataset properties")
+        raise HTTPException(status_code=500, detail="Failed to get dataset properties") from e
 
 
 # Snapshot Management Endpoints
 @router.get("/{hostname}/snapshots")
 async def list_zfs_snapshots(
     hostname: str = Path(..., description="Device hostname"),
-    dataset_name: Optional[str] = Query(None, description="Filter by dataset name"),
+    dataset_name: str | None = Query(None, description="Filter by dataset name"),
     timeout: int = Query(30, description="SSH timeout in seconds"),
     service: ZFSSnapshotService = Depends(get_snapshot_service),
     current_user=Depends(get_current_user),
@@ -178,12 +180,12 @@ async def list_zfs_snapshots(
             "total_snapshots": len(snapshots),
         }
     except ZFSError as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail=str(e)) from e
     except SSHConnectionError as e:
-        raise HTTPException(status_code=503, detail=f"SSH connection failed: {str(e)}")
+        raise HTTPException(status_code=503, detail=f"SSH connection failed: {str(e)}") from e
     except Exception as e:
         logger.error(f"Error listing ZFS snapshots on {hostname}: {e}")
-        raise HTTPException(status_code=500, detail="Failed to list ZFS snapshots")
+        raise HTTPException(status_code=500, detail="Failed to list ZFS snapshots") from e
 
 
 @router.post("/{hostname}/snapshots")
@@ -201,12 +203,12 @@ async def create_zfs_snapshot(
         )
         return result
     except ZFSError as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail=str(e)) from e
     except SSHConnectionError as e:
-        raise HTTPException(status_code=503, detail=f"SSH connection failed: {str(e)}")
+        raise HTTPException(status_code=503, detail=f"SSH connection failed: {str(e)}") from e
     except Exception as e:
         logger.error(f"Error creating snapshot {request.snapshot_name} on {hostname}: {e}")
-        raise HTTPException(status_code=500, detail="Failed to create snapshot")
+        raise HTTPException(status_code=500, detail="Failed to create snapshot") from e
 
 
 @router.post("/{hostname}/snapshots/{snapshot_name}/clone")
@@ -223,12 +225,12 @@ async def clone_zfs_snapshot(
         result = await service.clone_snapshot(hostname, snapshot_name, request.clone_name, timeout)
         return result
     except ZFSError as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail=str(e)) from e
     except SSHConnectionError as e:
-        raise HTTPException(status_code=503, detail=f"SSH connection failed: {str(e)}")
+        raise HTTPException(status_code=503, detail=f"SSH connection failed: {str(e)}") from e
     except Exception as e:
         logger.error(f"Error cloning snapshot {snapshot_name} on {hostname}: {e}")
-        raise HTTPException(status_code=500, detail="Failed to clone snapshot")
+        raise HTTPException(status_code=500, detail="Failed to clone snapshot") from e
 
 
 @router.post("/{hostname}/snapshots/{snapshot_name}/send")
@@ -247,12 +249,12 @@ async def send_zfs_snapshot(
         )
         return result
     except ZFSError as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail=str(e)) from e
     except SSHConnectionError as e:
-        raise HTTPException(status_code=503, detail=f"SSH connection failed: {str(e)}")
+        raise HTTPException(status_code=503, detail=f"SSH connection failed: {str(e)}") from e
     except Exception as e:
         logger.error(f"Error sending snapshot {snapshot_name} on {hostname}: {e}")
-        raise HTTPException(status_code=500, detail="Failed to send snapshot")
+        raise HTTPException(status_code=500, detail="Failed to send snapshot") from e
 
 
 @router.post("/{hostname}/receive")
@@ -268,12 +270,12 @@ async def receive_zfs_snapshot(
         result = await service.receive_snapshot(hostname, request.dataset_name, timeout)
         return result
     except ZFSError as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail=str(e)) from e
     except SSHConnectionError as e:
-        raise HTTPException(status_code=503, detail=f"SSH connection failed: {str(e)}")
+        raise HTTPException(status_code=503, detail=f"SSH connection failed: {str(e)}") from e
     except Exception as e:
         logger.error(f"Error receiving snapshot for {request.dataset_name} on {hostname}: {e}")
-        raise HTTPException(status_code=500, detail="Failed to receive snapshot")
+        raise HTTPException(status_code=500, detail="Failed to receive snapshot") from e
 
 
 @router.get("/{hostname}/snapshots/{snapshot_name}/diff")
@@ -290,12 +292,12 @@ async def diff_zfs_snapshots(
         result = await service.diff_snapshots(hostname, snapshot_name, snapshot2, timeout)
         return result
     except ZFSError as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail=str(e)) from e
     except SSHConnectionError as e:
-        raise HTTPException(status_code=503, detail=f"SSH connection failed: {str(e)}")
+        raise HTTPException(status_code=503, detail=f"SSH connection failed: {str(e)}") from e
     except Exception as e:
         logger.error(f"Error diffing snapshots {snapshot_name} and {snapshot2} on {hostname}: {e}")
-        raise HTTPException(status_code=500, detail="Failed to diff snapshots")
+        raise HTTPException(status_code=500, detail="Failed to diff snapshots") from e
 
 
 # Health and Monitoring Endpoints
@@ -311,12 +313,12 @@ async def check_zfs_health(
         health = await service.check_zfs_health(hostname, timeout)
         return health
     except ZFSError as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail=str(e)) from e
     except SSHConnectionError as e:
-        raise HTTPException(status_code=503, detail=f"SSH connection failed: {str(e)}")
+        raise HTTPException(status_code=503, detail=f"SSH connection failed: {str(e)}") from e
     except Exception as e:
         logger.error(f"Error checking ZFS health on {hostname}: {e}")
-        raise HTTPException(status_code=500, detail="Failed to check ZFS health")
+        raise HTTPException(status_code=500, detail="Failed to check ZFS health") from e
 
 
 @router.get("/{hostname}/arc-stats")
@@ -331,12 +333,12 @@ async def get_zfs_arc_stats(
         arc_stats = await service.get_arc_stats(hostname, timeout)
         return arc_stats
     except ZFSError as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail=str(e)) from e
     except SSHConnectionError as e:
-        raise HTTPException(status_code=503, detail=f"SSH connection failed: {str(e)}")
+        raise HTTPException(status_code=503, detail=f"SSH connection failed: {str(e)}") from e
     except Exception as e:
         logger.error(f"Error getting ARC stats on {hostname}: {e}")
-        raise HTTPException(status_code=500, detail="Failed to get ARC stats")
+        raise HTTPException(status_code=500, detail="Failed to get ARC stats") from e
 
 
 @router.get("/{hostname}/events")
@@ -351,12 +353,12 @@ async def monitor_zfs_events(
         events = await service.monitor_zfs_events(hostname, timeout)
         return events
     except ZFSError as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail=str(e)) from e
     except SSHConnectionError as e:
-        raise HTTPException(status_code=503, detail=f"SSH connection failed: {str(e)}")
+        raise HTTPException(status_code=503, detail=f"SSH connection failed: {str(e)}") from e
     except Exception as e:
         logger.error(f"Error monitoring ZFS events on {hostname}: {e}")
-        raise HTTPException(status_code=500, detail="Failed to monitor ZFS events")
+        raise HTTPException(status_code=500, detail="Failed to monitor ZFS events") from e
 
 
 # Analysis and Reporting Endpoints
@@ -372,12 +374,12 @@ async def generate_zfs_report(
         report = await service.generate_zfs_report(hostname, timeout)
         return report
     except ZFSError as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail=str(e)) from e
     except SSHConnectionError as e:
-        raise HTTPException(status_code=503, detail=f"SSH connection failed: {str(e)}")
+        raise HTTPException(status_code=503, detail=f"SSH connection failed: {str(e)}") from e
     except Exception as e:
         logger.error(f"Error generating ZFS report on {hostname}: {e}")
-        raise HTTPException(status_code=500, detail="Failed to generate ZFS report")
+        raise HTTPException(status_code=500, detail="Failed to generate ZFS report") from e
 
 
 @router.get("/{hostname}/snapshots/usage")
@@ -392,12 +394,12 @@ async def analyze_snapshot_usage(
         analysis = await service.analyze_snapshot_usage(hostname, timeout)
         return analysis
     except ZFSError as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail=str(e)) from e
     except SSHConnectionError as e:
-        raise HTTPException(status_code=503, detail=f"SSH connection failed: {str(e)}")
+        raise HTTPException(status_code=503, detail=f"SSH connection failed: {str(e)}") from e
     except Exception as e:
         logger.error(f"Error analyzing snapshot usage on {hostname}: {e}")
-        raise HTTPException(status_code=500, detail="Failed to analyze snapshot usage")
+        raise HTTPException(status_code=500, detail="Failed to analyze snapshot usage") from e
 
 
 @router.get("/{hostname}/optimize")
@@ -412,9 +414,9 @@ async def optimize_zfs_settings(
         optimization = await service.optimize_zfs_settings(hostname, timeout)
         return optimization
     except ZFSError as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail=str(e)) from e
     except SSHConnectionError as e:
-        raise HTTPException(status_code=503, detail=f"SSH connection failed: {str(e)}")
+        raise HTTPException(status_code=503, detail=f"SSH connection failed: {str(e)}") from e
     except Exception as e:
         logger.error(f"Error optimizing ZFS settings on {hostname}: {e}")
-        raise HTTPException(status_code=500, detail="Failed to optimize ZFS settings")
+        raise HTTPException(status_code=500, detail="Failed to optimize ZFS settings") from e

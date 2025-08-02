@@ -5,7 +5,7 @@ Handles ZFS dataset operations including listing, properties, and dataset manage
 """
 
 import logging
-from datetime import datetime, timezone
+from datetime import datetime
 from typing import List, Dict, Any, Optional
 
 from .base import ZFSBaseService
@@ -74,7 +74,7 @@ class ZFSDatasetService(ZFSBaseService):
             return {
                 "dataset_name": dataset_name,
                 "properties": properties,
-                "timestamp": datetime.now(timezone.utc).isoformat(),
+                "timestamp": datetime.now(datetime.UTC).isoformat(),
             }
 
         except Exception as e:
@@ -110,7 +110,7 @@ class ZFSDatasetService(ZFSBaseService):
             return {
                 "dataset_name": dataset_name,
                 "properties": properties or {},
-                "created_at": datetime.now(timezone.utc).isoformat(),
+                "created_at": datetime.now(datetime.UTC).isoformat(),
                 "status": "created",
             }
 
@@ -135,7 +135,7 @@ class ZFSDatasetService(ZFSBaseService):
             return {
                 "dataset_name": dataset_name,
                 "recursive": recursive,
-                "destroyed_at": datetime.now(timezone.utc).isoformat(),
+                "destroyed_at": datetime.now(datetime.UTC).isoformat(),
                 "status": "destroyed",
             }
 
@@ -159,7 +159,7 @@ class ZFSDatasetService(ZFSBaseService):
                 "dataset_name": dataset_name,
                 "property_name": property_name,
                 "value": value,
-                "set_at": datetime.now(timezone.utc).isoformat(),
+                "set_at": datetime.now(datetime.UTC).isoformat(),
                 "status": "property_set",
             }
 

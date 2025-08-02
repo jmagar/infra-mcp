@@ -6,7 +6,7 @@ Provides access to network port information and listening processes via the port
 
 import json
 import logging
-from datetime import datetime, timezone
+from datetime import datetime
 from typing import Any
 
 logger = logging.getLogger(__name__)
@@ -43,7 +43,7 @@ async def get_ports_resource(uri: str) -> str:
 
         async with httpx.AsyncClient(timeout=30) as client:
             response = await client.get(
-                f"http://localhost:9101/api/devices/{device}/ports", headers=headers
+                f"http://localhost:{settings.server.port}/api/devices/{device}/ports", headers=headers
             )
             response.raise_for_status()
             result = response.json()
@@ -92,7 +92,7 @@ async def get_ports_resource(uri: str) -> str:
 
         resource_data = {
             "device": device,
-            "timestamp": result.get("timestamp", datetime.now(timezone.utc).isoformat()),
+            "timestamp": result.get("timestamp", datetime.now(datetime.UTC).isoformat()),
             "command": "ss -tulpn",
             "total_ports": len(ports_data),
             "ports": ports_data,
@@ -122,7 +122,7 @@ async def list_ports_resources() -> list[dict[str, Any]]:
         from sqlalchemy import select
 
         async with get_async_session() as session:
-            query = select(Device).where(Device.monitoring_enabled == True)
+            query = select(Device).where(Device.monitoring_enabled)
             result = await session.execute(query)
             devices = result.scalars().all()
 

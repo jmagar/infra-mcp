@@ -137,7 +137,7 @@ class BackupSchedule(BaseModel):
     notification_emails: List[str] = Field(default_factory=list, description="Email notifications")
     is_active: bool = Field(default=True, description="Whether schedule is active")
     created_at: datetime = Field(
-        default_factory=datetime.utcnow, description="Schedule creation time"
+        default_factory=lambda: datetime.now(datetime.UTC), description="Schedule creation time"
     )
     last_run: Optional[datetime] = Field(None, description="Last execution time")
     next_run: Optional[datetime] = Field(None, description="Next scheduled execution")
@@ -172,7 +172,7 @@ class BackupPolicy(BaseModel):
     notification_settings: Dict[str, bool] = Field(description="Notification preferences")
     is_active: bool = Field(default=True, description="Whether policy is active")
     created_at: datetime = Field(
-        default_factory=datetime.utcnow, description="Policy creation time"
+        default_factory=lambda: datetime.now(datetime.UTC), description="Policy creation time"
     )
 
 
@@ -191,7 +191,7 @@ class BackupHealthOverview(BaseModel):
     recent_failures: List[str] = Field(description="Recent backup failures")
     overdue_backups: List[str] = Field(description="Overdue backup schedules")
     storage_utilization: Dict[str, float] = Field(description="Backup storage utilization")
-    timestamp: datetime = Field(default_factory=datetime.utcnow, description="Report timestamp")
+    timestamp: datetime = Field(default_factory=lambda: datetime.now(datetime.UTC), description="Report timestamp")
 
 
 class BackupMetrics(BaseModel):
@@ -264,7 +264,7 @@ class BackupRestore(BaseModel):
     exclude_patterns: List[str] = Field(default_factory=list, description="Patterns to exclude")
     initiated_by: str = Field(description="User who initiated restore")
     initiated_at: datetime = Field(
-        default_factory=datetime.utcnow, description="Restore initiation time"
+        default_factory=lambda: datetime.now(datetime.UTC), description="Restore initiation time"
     )
 
     @field_validator("restore_type")

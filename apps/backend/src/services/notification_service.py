@@ -2,7 +2,7 @@
 
 import logging
 import json
-from datetime import datetime, timezone
+from datetime import datetime
 from typing import List, Optional, Dict, Any
 from uuid import UUID
 from enum import Enum
@@ -52,7 +52,7 @@ class NotificationMessage(BaseModel):
 
     def __init__(self, **kwargs):
         if "timestamp" not in kwargs:
-            kwargs["timestamp"] = datetime.now(timezone.utc)
+            kwargs["timestamp"] = datetime.now(datetime.UTC)
         super().__init__(**kwargs)
 
 

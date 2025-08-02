@@ -6,14 +6,11 @@ from SSH configuration files through the MCP protocol.
 """
 
 import logging
-from typing import Optional, Dict, Any
+from typing import Any
 from fastmcp import FastMCP
 
 from apps.backend.src.utils.ssh_config_parser import parse_ssh_config
 from apps.backend.src.schemas.device import (
-    DeviceImportRequest,
-    DeviceImportResponse,
-    DeviceImportResult,
     DeviceCreate,
     DeviceUpdate,
 )
@@ -29,8 +26,8 @@ async def import_devices(
     update_existing: bool = True,
     default_device_type: str = "server",
     default_monitoring: bool = True,
-    tag_prefix: Optional[str] = None,
-) -> Dict[str, Any]:
+    tag_prefix: str | None = None,
+) -> dict[str, Any]:
     """
     Import devices from SSH configuration file.
 
@@ -179,7 +176,7 @@ async def import_devices(
             "message": f"Import {'preview' if dry_run else 'completed'}: {summary}",
         }
 
-    except FileNotFoundError as e:
+    except FileNotFoundError:
         error_msg = f"SSH config file not found: {ssh_config_path}"
         logger.error(error_msg)
         return {
@@ -222,8 +219,8 @@ def register_device_import_tools(mcp_server: FastMCP):
         update_existing: bool = True,
         default_device_type: str = "server",
         default_monitoring: bool = True,
-        tag_prefix: Optional[str] = None,
-    ) -> Dict[str, Any]:
+        tag_prefix: str | None = None,
+    ) -> dict[str, Any]:
         """
         Import devices from SSH configuration file.
 

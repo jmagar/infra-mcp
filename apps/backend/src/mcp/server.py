@@ -31,16 +31,9 @@ sys.path.insert(0, project_root)
 
 # Local imports
 from apps.backend.src.core.database import init_database
-from apps.backend.src.mcp.resources.compose_configs import (
-    get_compose_config_resource,
-    list_compose_config_resources,
-)
-from apps.backend.src.mcp.resources.proxy_configs import get_proxy_config_resource
-from apps.backend.src.mcp.resources.zfs_resources import get_zfs_resource, list_zfs_resources
-from apps.backend.src.mcp.resources.logs_resources import get_logs_resource, list_logs_resources
+from apps.backend.src.mcp.resources.compose_configs import get_compose_config_resource
 from apps.backend.src.mcp.resources.ports_resources import get_ports_resource, list_ports_resources
 from apps.backend.src.mcp.tools.device_info import get_device_info
-from apps.backend.src.mcp.tools.device_management import add_device as device_add_device
 from apps.backend.src.mcp.tools.device_import import import_devices
 from apps.backend.src.mcp.tools.proxy_management import (
     get_proxy_config,
@@ -49,6 +42,15 @@ from apps.backend.src.mcp.tools.proxy_management import (
     scan_proxy_configs,
     sync_proxy_config,
 )
+from apps.backend.src.mcp.tools.compose_deployment import (
+    modify_compose_for_device,
+    deploy_compose_to_device,
+    modify_and_deploy_compose,
+    scan_device_ports,
+    scan_docker_networks,
+    generate_proxy_config,
+)
+from apps.backend.src.mcp.tools.zfs_management import ZFS_TOOLS
 from apps.backend.src.mcp.prompts.device_analysis import (
     analyze_device_performance,
     container_stack_analysis,
@@ -396,17 +398,36 @@ async def add_device(
     tags: dict[str, str] | None = None,
 ) -> dict[str, Any]:
     """Add a new device to the infrastructure registry"""
-    return await device_add_device(
-        hostname=hostname,
-        device_type=device_type,
-        description=description,
-        location=location,
-        monitoring_enabled=monitoring_enabled,
-        ip_address=ip_address,
-        ssh_port=ssh_port,
-        ssh_username=ssh_username,
-        tags=tags,
-    )
+    try:
+        device_data = {
+            "hostname": hostname,
+            "device_type": device_type,
+            "monitoring_enabled": monitoring_enabled
+        }
+        
+        if description is not None:
+            device_data["description"] = description
+        if location is not None:
+            device_data["location"] = location
+        if ip_address is not None:
+            device_data["ip_address"] = ip_address
+        if ssh_port is not None:
+            device_data["ssh_port"] = ssh_port
+        if ssh_username is not None:
+            device_data["ssh_username"] = ssh_username
+        if tags is not None:
+            device_data["tags"] = tags
+        
+        response = await api_client.client.post("/devices", json=device_data)
+        response.raise_for_status()
+        return response.json()
+        
+    except httpx.HTTPError as e:
+        logger.error(f"HTTP error adding device {hostname}: {e}")
+        raise Exception(f"Failed to add device: {str(e)}") from e
+    except Exception as e:
+        logger.error(f"Error adding device {hostname}: {e}")
+        raise Exception(f"Failed to add device: {str(e)}") from e
 
 
 async def remove_device(hostname: str) -> dict[str, Any]:
@@ -603,6 +624,41 @@ def create_mcp_server():
         description="Get summary statistics for proxy configurations",
     )(get_proxy_config_summary)
 
+    # Register Docker Compose deployment tools
+    server.tool(
+        name="modify_compose_for_device",
+        description="Modify docker-compose content for deployment on target device - updates paths, ports, networks, and generates proxy configs",
+    )(modify_compose_for_device)
+
+    server.tool(
+        name="deploy_compose_to_device",
+        description="Deploy docker-compose content to target device - creates directories, backups files, and starts services",
+    )(deploy_compose_to_device)
+
+    server.tool(
+        name="modify_and_deploy_compose",
+        description="Modify and deploy docker-compose in a single operation with sensible defaults",
+    )(modify_and_deploy_compose)
+
+    server.tool(
+        name="scan_device_ports",
+        description="Scan for available ports on target device to avoid conflicts in port mappings",
+    )(scan_device_ports)
+
+    server.tool(
+        name="scan_docker_networks",
+        description="Scan Docker networks on target device and provide configuration recommendations",
+    )(scan_docker_networks)
+
+    server.tool(
+        name="generate_proxy_config",
+        description="Generate SWAG reverse proxy configuration for a specific service",
+    )(generate_proxy_config)
+
+    # Register ZFS management tools
+    for tool_name, tool_config in ZFS_TOOLS.items():
+        server.tool(name=tool_name, description=tool_config["description"])(tool_config["function"])
+
     # Register comprehensive device info tool
     server.tool(
         name="get_device_info",
@@ -674,8 +730,8 @@ def create_mcp_server():
         """Get SWAG device-specific resource content (directory/summary)"""
         uri = f"swag://{device}/{path}"
         try:
+            # TODO: Implement device/path specific endpoints in FastAPI
             # Use HTTP client - this endpoint may not exist yet, placeholder for now
-            # Would need to implement device/path specific endpoints in FastAPI
             return json.dumps(
                 {
                     "message": "Device/path specific resources not yet implemented",
@@ -1003,28 +1059,33 @@ def create_mcp_server():
     async def logs_vms_all(hostname: str) -> str:
         """Get libvirtd daemon logs"""
         try:
-            from apps.backend.src.utils.ssh_client import execute_ssh_command_simple
-
-            # Get libvirtd.log or fallback to journalctl
-            log_command = "cat /var/log/libvirt/libvirtd.log 2>/dev/null || journalctl -u libvirtd --no-pager -n 100"
-            result = await execute_ssh_command_simple(hostname, log_command, timeout=30)
-
-            if result.return_code == 0:
-                log_content = result.stdout
-            else:
-                log_content = f"Error reading libvirt logs: {result.stderr}"
-
+            # Use HTTP endpoint for VM logs
+            response = await api_client.client.get(f"/vms/{hostname}/logs")
+            response.raise_for_status()
+            data = response.json()
+            
             return json.dumps(
                 {
                     "resource_type": "libvirt_logs",
                     "hostname": hostname,
-                    "log_source": "libvirtd.log or journalctl",
-                    "logs": log_content,
+                    "log_source": data.get("log_source", "libvirtd.log or journalctl"),
+                    "logs": data.get("logs", ""),
                     "uri": f"logs://{hostname}/vms",
                 },
                 indent=2,
                 default=str,
                 ensure_ascii=False,
+            )
+        except httpx.HTTPError as e:
+            logger.error(f"HTTP error getting VM logs for {hostname}: {e}")
+            return json.dumps(
+                {
+                    "error": f"Failed to get VM logs: {str(e)}",
+                    "hostname": hostname,
+                    "uri": f"logs://{hostname}/vms"
+                },
+                indent=2,
+                ensure_ascii=False
             )
         except Exception as e:
             logger.error(f"Error getting VM logs for {hostname}: {e}")
@@ -1043,30 +1104,34 @@ def create_mcp_server():
     async def logs_vm_specific(hostname: str, vm_name: str) -> str:
         """Get logs for a specific VM"""
         try:
-            from apps.backend.src.utils.ssh_client import execute_ssh_command_simple
-
-            # Get specific VM log file
-            log_command = (
-                f"cat /var/log/libvirt/qemu/{vm_name}.log 2>/dev/null || echo 'VM log not found'"
-            )
-            result = await execute_ssh_command_simple(hostname, log_command, timeout=30)
-
-            if result.return_code == 0:
-                log_content = result.stdout
-            else:
-                log_content = f"Error reading VM log: {result.stderr}"
+            # Use HTTP endpoint for specific VM logs
+            response = await api_client.client.get(f"/vms/{hostname}/logs/{vm_name}")
+            response.raise_for_status()
+            data = response.json()
 
             return json.dumps(
                 {
                     "resource_type": "vm_logs",
                     "hostname": hostname,
                     "vm_name": vm_name,
-                    "log_file": f"/var/log/libvirt/qemu/{vm_name}.log",
-                    "logs": log_content,
+                    "log_source": data.get("log_source", f"qemu/{vm_name}.log"),
+                    "logs": data.get("logs", ""),
                     "uri": f"logs://{hostname}/vms/{vm_name}",
                 },
                 indent=2,
                 default=str,
+                ensure_ascii=False,
+            )
+        except httpx.HTTPError as e:
+            logger.error(f"HTTP error getting VM logs for {vm_name} on {hostname}: {e}")
+            return json.dumps(
+                {
+                    "error": f"Failed to get VM logs: {str(e)}",
+                    "hostname": hostname,
+                    "vm_name": vm_name,
+                    "uri": f"logs://{hostname}/vms/{vm_name}",
+                },
+                indent=2,
                 ensure_ascii=False,
             )
         except Exception as e:
@@ -1091,10 +1156,18 @@ def create_mcp_server():
     )
     async def ports_device(hostname: str) -> str:
         """Get network ports and processes for a device"""
-        return await get_ports_resource(f"ports://{hostname}")
+        try:
+            return await get_ports_resource(f"ports://{hostname}")
+        except Exception as e:
+            logger.error(f"Error getting ports for {hostname}: {e}")
+            return json.dumps({
+                "error": str(e),
+                "hostname": hostname,
+                "uri": f"ports://{hostname}"
+            }, indent=2, ensure_ascii=False)
 
     logger.info(
-        "MCP server created with 18 tools, 4 prompts, and infrastructure + compose + ZFS + logs + ports resources"
+        "MCP server created with 24 tools, 4 prompts, and infrastructure + compose + ZFS + logs + ports resources"
     )
     return server
 

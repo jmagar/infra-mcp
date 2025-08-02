@@ -5,7 +5,7 @@ Handles ZFS health checks, ARC statistics, and event monitoring.
 """
 
 import logging
-from datetime import datetime, timezone
+from datetime import datetime
 from typing import Dict, Any
 
 from .base import ZFSBaseService
@@ -45,7 +45,7 @@ class ZFSHealthService(ZFSBaseService):
                 "pools_with_errors": pools_with_errors,
                 "detailed_status": pools_output,
                 "overall_health": "healthy" if not pools_with_errors else "degraded",
-                "checked_at": datetime.now(timezone.utc).isoformat(),
+                "checked_at": datetime.now(datetime.UTC).isoformat(),
             }
 
         except Exception as e:
@@ -84,7 +84,7 @@ class ZFSHealthService(ZFSBaseService):
                 "hit_ratio_percent": round(hit_ratio, 2),
                 "cache_size_bytes": arc_stats.get("size", 0),
                 "cache_max_bytes": arc_stats.get("c_max", 0),
-                "retrieved_at": datetime.now(timezone.utc).isoformat(),
+                "retrieved_at": datetime.now(datetime.UTC).isoformat(),
             }
 
         except Exception as e:
@@ -107,7 +107,7 @@ class ZFSHealthService(ZFSBaseService):
             return {
                 "journal_events": events_output,
                 "dmesg_events": dmesg_output,
-                "monitored_at": datetime.now(timezone.utc).isoformat(),
+                "monitored_at": datetime.now(datetime.UTC).isoformat(),
             }
 
         except Exception as e:
@@ -127,7 +127,7 @@ class ZFSHealthService(ZFSBaseService):
             return {
                 "pool_name": pool_name,
                 "operation": "scrub_started",
-                "started_at": datetime.now(timezone.utc).isoformat(),
+                "started_at": datetime.now(datetime.UTC).isoformat(),
                 "status": "initiated",
             }
 
@@ -148,7 +148,7 @@ class ZFSHealthService(ZFSBaseService):
             return {
                 "pool_name": pool_name,
                 "scrub_info": output,
-                "checked_at": datetime.now(timezone.utc).isoformat(),
+                "checked_at": datetime.now(datetime.UTC).isoformat(),
             }
 
         except Exception as e:

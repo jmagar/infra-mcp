@@ -6,7 +6,7 @@ Create Date: 2025-07-30 11:24:27.721549
 
 """
 
-from typing import Sequence, Union
+from __future__ import annotations
 
 from alembic import op
 import sqlalchemy as sa
@@ -15,9 +15,9 @@ from sqlalchemy.dialects import postgresql
 
 # revision identifiers, used by Alembic.
 revision: str = "af4ba97c1822"
-down_revision: Union[str, Sequence[str], None] = None
-branch_labels: Union[str, Sequence[str], None] = None
-depends_on: Union[str, Sequence[str], None] = None
+down_revision: str | list[str] | None = None
+branch_labels: str | list[str] | None = None
+depends_on: str | list[str] | None = None
 
 
 def upgrade() -> None:
@@ -575,23 +575,19 @@ def upgrade() -> None:
     )
 
     # Create hypertables (TimescaleDB-specific)
-    # This will be done when the database is available
     op.execute("""
         -- Create hypertables for time-series data
-        -- These will be created by the initialization scripts or when the database is first connected
-        
-        -- Hypertables will be created with:
-        -- SELECT create_hypertable('system_metrics', 'time', chunk_time_interval => INTERVAL '1 day');
-        -- SELECT create_hypertable('drive_health', 'time', chunk_time_interval => INTERVAL '1 day');  
-        -- SELECT create_hypertable('container_snapshots', 'time', chunk_time_interval => INTERVAL '1 day');
-        -- SELECT create_hypertable('zfs_status', 'time', chunk_time_interval => INTERVAL '1 day');
-        -- SELECT create_hypertable('zfs_snapshots', 'time', chunk_time_interval => INTERVAL '1 day');
-        -- SELECT create_hypertable('network_interfaces', 'time', chunk_time_interval => INTERVAL '1 day');
-        -- SELECT create_hypertable('docker_networks', 'time', chunk_time_interval => INTERVAL '1 day');
-        -- SELECT create_hypertable('vm_status', 'time', chunk_time_interval => INTERVAL '1 day');
-        -- SELECT create_hypertable('system_logs', 'time', chunk_time_interval => INTERVAL '1 day');
-        -- SELECT create_hypertable('backup_status', 'time', chunk_time_interval => INTERVAL '1 day');
-        -- SELECT create_hypertable('system_updates', 'time', chunk_time_interval => INTERVAL '1 day');
+        SELECT create_hypertable('system_metrics', 'time', chunk_time_interval => INTERVAL '1 day');
+        SELECT create_hypertable('drive_health', 'time', chunk_time_interval => INTERVAL '1 day');
+        SELECT create_hypertable('container_snapshots', 'time', chunk_time_interval => INTERVAL '1 day');
+        SELECT create_hypertable('zfs_status', 'time', chunk_time_interval => INTERVAL '1 day');
+        SELECT create_hypertable('zfs_snapshots', 'time', chunk_time_interval => INTERVAL '1 day');
+        SELECT create_hypertable('network_interfaces', 'time', chunk_time_interval => INTERVAL '1 day');
+        SELECT create_hypertable('docker_networks', 'time', chunk_time_interval => INTERVAL '1 day');
+        SELECT create_hypertable('vm_status', 'time', chunk_time_interval => INTERVAL '1 day');
+        SELECT create_hypertable('system_logs', 'time', chunk_time_interval => INTERVAL '1 day');
+        SELECT create_hypertable('backup_status', 'time', chunk_time_interval => INTERVAL '1 day');
+        SELECT create_hypertable('system_updates', 'time', chunk_time_interval => INTERVAL '1 day');
     """)
 
 

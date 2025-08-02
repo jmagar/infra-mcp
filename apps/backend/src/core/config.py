@@ -6,7 +6,7 @@ SSH settings, polling intervals, and environment-specific configurations.
 """
 
 import os
-from typing import Optional, List, Annotated
+from typing import Annotated, Optional
 from pydantic import Field, field_validator, BeforeValidator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 from functools import lru_cache
@@ -63,7 +63,7 @@ class MCPServerSettings(BaseSettings):
     mcp_log_level: str = Field(default="info", env="MCP_LOG_LEVEL")
 
     # CORS Configuration - avoid JSON parsing entirely
-    cors_origins: List[str] = Field(
+    cors_origins: list[str] = Field(
         default_factory=lambda: [
             "http://localhost:3000",
             "http://localhost:5173",
@@ -104,7 +104,7 @@ class SSHSettings(BaseSettings):
     ssh_max_retries: int = Field(default=3, env="SSH_MAX_RETRIES")
     ssh_retry_delay: int = Field(default=5, env="SSH_RETRY_DELAY")
     ssh_max_connections_per_host: int = Field(default=5, env="SSH_MAX_CONNECTIONS_PER_HOST")
-    ssh_key_path: Optional[str] = Field(default=None, env="SSH_KEY_PATH")
+    ssh_key_path: str | None = Field(default=None, env="SSH_KEY_PATH")
 
     @property
     def default_ssh_key_path(self) -> str:
@@ -173,7 +173,7 @@ class AuthSettings(BaseSettings):
     jwt_expire_minutes: int = Field(default=1440, env="JWT_EXPIRE_MINUTES")
 
     # API Key Authentication
-    api_key: Optional[str] = Field(default=None, env="API_KEY")
+    api_key: str | None = Field(default=None, env="API_KEY")
 
     model_config = SettingsConfigDict(env_file=".env", case_sensitive=False, extra="ignore")
 

@@ -133,8 +133,12 @@ start_servers() {
     nohup uv run uvicorn apps.backend.src.main:app --host 0.0.0.0 --port $API_PORT --reload > logs/api_server.log 2>&1 &
     API_PID=$!
 
-    # Start the MCP server in background with log rotation
+    # Start the MCP server in background with log rotation and environment variables
     echo "⚡ Starting MCP server..."
+    # Source environment variables for MCP server
+    if [ -f ".env" ]; then
+        export $(grep -v '^#' .env | grep -v '^$' | xargs)
+    fi
     nohup python apps/backend/src/mcp/server.py > logs/mcp_server.log 2>&1 &
     MCP_PID=$!
 

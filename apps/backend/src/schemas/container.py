@@ -105,7 +105,7 @@ class ContainerSnapshotBase(BaseModel):
 class ContainerSnapshotCreate(ContainerSnapshotBase):
     """Schema for creating container snapshot"""
 
-    time: datetime = Field(default_factory=datetime.utcnow, description="Snapshot timestamp")
+    time: datetime = Field(default_factory=lambda: datetime.now(datetime.UTC), description="Snapshot timestamp")
 
 
 class ContainerSnapshotResponse(ContainerSnapshotBase):

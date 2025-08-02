@@ -8,7 +8,7 @@ resource usage analysis, and health checking across infrastructure devices.
 import logging
 import re
 import json
-from datetime import datetime, timezone
+from datetime import datetime
 from typing import Dict, List, Optional, Any
 
 from apps.backend.src.utils.ssh_client import get_ssh_client, SSHConnectionInfo
@@ -438,7 +438,7 @@ async def get_drive_health(
             "query_info": {
                 "specific_drive": drive,
                 "drives_checked": len(drives_to_check),
-                "timestamp": datetime.now(timezone.utc).isoformat(),
+                "timestamp": datetime.now(datetime.UTC).isoformat(),
             },
         }
 
@@ -559,7 +559,7 @@ async def get_system_logs(
                                         # Systemd timestamp is in microseconds
                                         timestamp_seconds = int(entry["timestamp"]) / 1000000
                                         dt = datetime.fromtimestamp(
-                                            timestamp_seconds, tz=timezone.utc
+                                            timestamp_seconds, tz=datetime.UTC
                                         )
                                         entry["timestamp"] = dt.isoformat()
                                     except:
@@ -685,7 +685,7 @@ async def get_system_logs(
                                             dt = datetime.strptime(
                                                 full_timestamp, "%Y %b %d %H:%M:%S"
                                             )
-                                            dt = dt.replace(tzinfo=timezone.utc)
+                                            dt = dt.replace(tzinfo=datetime.UTC)
                                             iso_timestamp = dt.isoformat()
                                         except:
                                             iso_timestamp = timestamp_str
@@ -791,7 +791,7 @@ async def get_system_logs(
                 "service_filter": service,
                 "since_filter": since,
                 "lines_requested": lines,
-                "timestamp": datetime.now(timezone.utc).isoformat(),
+                "timestamp": datetime.now(datetime.UTC).isoformat(),
             },
         }
 
@@ -1137,7 +1137,7 @@ async def get_drive_stats(
             "query_info": {
                 "specific_drive": drive,
                 "drives_checked": len(drives_to_check),
-                "timestamp": datetime.now(timezone.utc).isoformat(),
+                "timestamp": datetime.now(datetime.UTC).isoformat(),
             },
         }
 
@@ -1272,7 +1272,7 @@ async def get_network_ports(device: str, timeout: int = 30) -> Dict[str, Any]:
                 "command": "ss -tulpn",
             },
             "query_info": {
-                "timestamp": datetime.now(timezone.utc).isoformat(),
+                "timestamp": datetime.now(datetime.UTC).isoformat(),
                 "command_timeout": timeout,
                 "execution_time": ss_result.execution_time
                 if hasattr(ss_result, "execution_time")

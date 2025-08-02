@@ -3,7 +3,7 @@ Service layer for device-related business logic.
 """
 
 import logging
-from datetime import datetime, timezone
+from datetime import datetime
 from typing import List, Optional
 from uuid import UUID
 
@@ -60,7 +60,7 @@ class DeviceService:
         device = Device(
             **device_data.model_dump(),
             status=connectivity_status,
-            last_seen=datetime.now(timezone.utc) if connectivity_status == "online" else None,
+            last_seen=datetime.now(datetime.UTC) if connectivity_status == "online" else None,
         )
 
         try:
@@ -175,12 +175,12 @@ class DeviceService:
                 is_connected = await test_ssh_connectivity_simple(device.hostname)
                 device.status = "online" if is_connected else "offline"
                 if is_connected:
-                    device.last_seen = datetime.now(timezone.utc)
+                    device.last_seen = datetime.now(datetime.UTC)
             except Exception as e:
                 logger.warning(f"SSH connectivity test failed for {device.hostname}: {e}")
                 device.status = "offline"
 
-        device.updated_at = datetime.now(timezone.utc)
+        device.updated_at = datetime.now(datetime.UTC)
 
         try:
             await self.db.commit()
@@ -246,7 +246,7 @@ class DeviceService:
                 if device.status != connection_status:
                     device.status = connection_status
                     if is_connected:
-                        device.last_seen = datetime.now(timezone.utc)
+                        device.last_seen = datetime.now(datetime.UTC)
                     await self.db.commit()
 
             except Exception as e:

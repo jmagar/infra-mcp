@@ -103,10 +103,10 @@ def include_object(object, name, type_, reflected, compare_to):
 
     This ensures we only manage our application objects in migrations.
     """
-    if type_ == "table" and reflected and compare_to is not None:
-        # Skip TimescaleDB system tables
-        if name.startswith(("_timescaledb", "timescaledb_")):
-            return False
+    # Skip TimescaleDB system tables
+    if (type_ == "table" and reflected and compare_to is not None and 
+        name.startswith(("_timescaledb", "timescaledb_"))):
+        return False
 
     return True
 

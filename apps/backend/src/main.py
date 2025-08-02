@@ -9,7 +9,7 @@ import asyncio
 import logging
 import time
 from contextlib import asynccontextmanager
-from datetime import datetime, timezone
+from datetime import datetime
 from typing import Dict, Any, Optional
 
 import uvicorn
@@ -30,7 +30,6 @@ from apps.backend.src.core.config import get_settings
 from apps.backend.src.core.database import (
     init_database,
     close_database,
-    get_async_session,
     check_database_health,
 )
 from apps.backend.src.utils.ssh_client import cleanup_ssh_client
@@ -278,7 +277,7 @@ async def http_exception_handler(request: Request, exc: StarletteHTTPException):
             "error": {
                 "code": f"HTTP_{exc.status_code}",
                 "message": exc.detail,
-                "timestamp": datetime.now(timezone.utc).isoformat(),
+                "timestamp": datetime.now(datetime.UTC).isoformat(),
                 "path": str(request.url.path),
                 "method": request.method,
             }
@@ -312,7 +311,7 @@ async def validation_exception_handler(request: Request, exc: ValidationError):
             "error": {
                 "code": "VALIDATION_ERROR",
                 "message": "Request validation failed",
-                "timestamp": datetime.now(timezone.utc).isoformat(),
+                "timestamp": datetime.now(datetime.UTC).isoformat(),
                 "path": str(request.url.path),
                 "method": request.method,
                 "details": {"error_count": exc.error_count(), "errors": errors},
@@ -370,7 +369,7 @@ async def infrastructure_exception_handler(request: Request, exc: Infrastructure
             "error": {
                 "code": exc.error_code,
                 "message": exc.message,
-                "timestamp": datetime.now(timezone.utc).isoformat(),
+                "timestamp": datetime.now(datetime.UTC).isoformat(),
                 "path": str(request.url.path),
                 "method": request.method,
                 "details": exc.details,
@@ -405,7 +404,7 @@ async def sqlalchemy_exception_handler(request: Request, exc: SQLAlchemyError):
             "error": {
                 "code": error_code,
                 "message": message,
-                "timestamp": datetime.now(timezone.utc).isoformat(),
+                "timestamp": datetime.now(datetime.UTC).isoformat(),
                 "path": str(request.url.path),
                 "method": request.method,
                 "details": {
@@ -427,7 +426,7 @@ async def timeout_exception_handler(request: Request, exc: asyncio.TimeoutError)
             "error": {
                 "code": "OPERATION_TIMEOUT",
                 "message": "Operation timed out",
-                "timestamp": datetime.now(timezone.utc).isoformat(),
+                "timestamp": datetime.now(datetime.UTC).isoformat(),
                 "path": str(request.url.path),
                 "method": request.method,
                 "details": {"timeout_type": "asyncio_timeout"},
@@ -447,7 +446,7 @@ async def connection_exception_handler(request: Request, exc: ConnectionError):
             "error": {
                 "code": "CONNECTION_ERROR",
                 "message": "Connection failed",
-                "timestamp": datetime.now(timezone.utc).isoformat(),
+                "timestamp": datetime.now(datetime.UTC).isoformat(),
                 "path": str(request.url.path),
                 "method": request.method,
                 "details": {
@@ -469,7 +468,7 @@ async def permission_exception_handler(request: Request, exc: PermissionError):
             "error": {
                 "code": "PERMISSION_DENIED",
                 "message": "Permission denied",
-                "timestamp": datetime.now(timezone.utc).isoformat(),
+                "timestamp": datetime.now(datetime.UTC).isoformat(),
                 "path": str(request.url.path),
                 "method": request.method,
                 "details": {
@@ -491,7 +490,7 @@ async def file_not_found_exception_handler(request: Request, exc: FileNotFoundEr
             "error": {
                 "code": "FILE_NOT_FOUND",
                 "message": "Requested file not found",
-                "timestamp": datetime.now(timezone.utc).isoformat(),
+                "timestamp": datetime.now(datetime.UTC).isoformat(),
                 "path": str(request.url.path),
                 "method": request.method,
                 "details": {"file_error": str(exc) if settings.debug else "File not found"},
@@ -522,7 +521,7 @@ async def os_exception_handler(request: Request, exc: OSError):
             "error": {
                 "code": "SYSTEM_ERROR",
                 "message": "System operation failed",
-                "timestamp": datetime.now(timezone.utc).isoformat(),
+                "timestamp": datetime.now(datetime.UTC).isoformat(),
                 "path": str(request.url.path),
                 "method": request.method,
                 "details": {
@@ -553,7 +552,7 @@ async def general_exception_handler(request: Request, exc: Exception):
             "error": {
                 "code": "INTERNAL_SERVER_ERROR",
                 "message": "An unexpected error occurred",
-                "timestamp": datetime.now(timezone.utc).isoformat(),
+                "timestamp": datetime.now(datetime.UTC).isoformat(),
                 "path": str(request.url.path),
                 "method": request.method,
                 "details": {
@@ -587,7 +586,7 @@ async def health_check(request: Request):
                 "ssh_client": "healthy",
                 "api_server": "healthy",
             },
-            timestamp=datetime.now(timezone.utc),
+            timestamp=datetime.now(datetime.UTC),
         )
 
         return response
@@ -614,7 +613,7 @@ async def root(request: Request):
         "description": "Centralized monitoring and management system for self-hosted infrastructure",
         "endpoints": {"rest_api": "/api", "health": "/health", "documentation": "/docs"},
         "external_services": {"mcp_server": "Independent MCP server via mcp_server.py"},
-        "timestamp": datetime.now(timezone.utc).isoformat(),
+        "timestamp": datetime.now(datetime.UTC).isoformat(),
     }
 
 

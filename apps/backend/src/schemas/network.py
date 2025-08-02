@@ -265,7 +265,7 @@ class NetworkHealthOverview(BaseModel):
     health_by_device: Dict[str, str] = Field(description="Network health by device")
     high_utilization_interfaces: List[str] = Field(description="High utilization interfaces")
     error_prone_interfaces: List[str] = Field(description="Interfaces with frequent errors")
-    timestamp: datetime = Field(default_factory=datetime.utcnow, description="Report timestamp")
+    timestamp: datetime = Field(default_factory=lambda: datetime.now(datetime.UTC), description="Report timestamp")
 
 
 class NetworkFilter(BaseModel):

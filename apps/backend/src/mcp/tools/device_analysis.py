@@ -6,26 +6,17 @@ to gather information about their capabilities and store the results in the devi
 """
 
 import logging
-import json
-import re
-from datetime import datetime, timezone
-from sqlalchemy.ext.asyncio import AsyncSession
+from datetime import datetime
+from typing import Any
 from sqlalchemy import select
 
 from apps.backend.src.core.database import get_async_session
 from apps.backend.src.models.device import Device
-from apps.backend.src.utils.ssh_client import execute_ssh_command_simple
-from apps.backend.src.core.exceptions import (
-    DeviceNotFoundError,
-    SSHConnectionError,
-    SSHCommandError,
-    SystemMonitoringError,
-)
 
 logger = logging.getLogger(__name__)
 
 
-async def _store_analysis_results(device: str, analysis_results: dict[str, any]) -> None:
+async def _store_analysis_results(device: str, analysis_results: dict[str, Any]) -> None:
     """Store analysis results in the device registry and update device fields."""
 
     # Input validation
@@ -171,7 +162,7 @@ async def _store_analysis_results(device: str, analysis_results: dict[str, any])
         # Update device status and last seen
         if analysis_results["connectivity"].get("ssh", {}).get("status") == "success":
             device_record.status = "online"
-            device_record.last_seen = datetime.now(timezone.utc)
+            device_record.last_seen = datetime.now(datetime.UTC)
 
         await session.commit()
         logger.info(f"Analysis results stored for device {device} with tags: {capability_tags}")

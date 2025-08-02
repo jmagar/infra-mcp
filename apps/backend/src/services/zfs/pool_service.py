@@ -5,7 +5,7 @@ Handles ZFS pool operations including listing, status checks, and pool propertie
 """
 
 import logging
-from datetime import datetime, timezone
+from datetime import datetime
 from typing import List, Dict, Any
 
 from .base import ZFSBaseService
@@ -79,7 +79,7 @@ class ZFSPoolService(ZFSBaseService):
                 "pool_name": pool_name,
                 "status_output": status_output,
                 "properties": properties,
-                "timestamp": datetime.now(timezone.utc).isoformat(),
+                "timestamp": datetime.now(datetime.UTC).isoformat(),
             }
 
         except Exception as e:
@@ -109,7 +109,7 @@ class ZFSPoolService(ZFSBaseService):
             return {
                 "pool_name": pool_name,
                 "properties": properties,
-                "timestamp": datetime.now(timezone.utc).isoformat(),
+                "timestamp": datetime.now(datetime.UTC).isoformat(),
             }
 
         except Exception as e:

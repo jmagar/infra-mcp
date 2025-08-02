@@ -18,7 +18,6 @@ from sqlalchemy import (
     Numeric,
     Date,
     ARRAY,
-    JSON,
 )
 from sqlalchemy.dialects.postgresql import UUID, INET, MACADDR, CIDR, JSONB
 from sqlalchemy.orm import relationship, DeclarativeBase

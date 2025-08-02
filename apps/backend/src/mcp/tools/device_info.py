@@ -9,7 +9,7 @@ capabilities, and current performance metrics.
 import logging
 import json
 import re
-from datetime import datetime, timezone
+from datetime import datetime
 from typing import Dict, List, Optional, Any
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
@@ -249,7 +249,7 @@ async def get_device_info(
     """
     logger.info(f"Starting comprehensive device info collection for: {device}")
 
-    analysis_start = datetime.now(timezone.utc)
+    analysis_start = datetime.now(datetime.UTC)
     results = {
         "device": device,
         "analysis_timestamp": analysis_start.isoformat(),
@@ -583,7 +583,7 @@ async def get_device_info(
                 )
                 if boot_time_result.return_code == 0:
                     boot_timestamp = int(boot_time_result.stdout.strip())
-                    boot_time = datetime.fromtimestamp(boot_timestamp, tz=timezone.utc)
+                    boot_time = datetime.fromtimestamp(boot_timestamp, tz=datetime.UTC)
                     system_info["boot_time"] = boot_time.isoformat()
 
             except Exception as e:
@@ -997,7 +997,7 @@ async def get_device_info(
                 results["processes"] = [{"error": str(e)}]
 
         # 11. Generate Analysis Summary
-        analysis_end = datetime.now(timezone.utc)
+        analysis_end = datetime.now(datetime.UTC)
         analysis_duration = (analysis_end - analysis_start).total_seconds()
 
         # Determine device capabilities and tags
@@ -1054,7 +1054,7 @@ async def get_device_info(
         results["analysis_summary"] = {
             "status": "failed",
             "error": str(e),
-            "analysis_timestamp": datetime.now(timezone.utc).isoformat(),
+            "analysis_timestamp": datetime.now(datetime.UTC).isoformat(),
         }
         return results
 
@@ -1205,7 +1205,7 @@ async def _store_analysis_results(device: str, analysis_results: dict[str, any])
         # Update device status and last seen
         if analysis_results["connectivity"].get("ssh", {}).get("status") == "success":
             device_record.status = "online"
-            device_record.last_seen = datetime.now(timezone.utc)
+            device_record.last_seen = datetime.now(datetime.UTC)
 
         await session.commit()
         logger.info(f"Analysis results stored for device {device} with tags: {capability_tags}")
