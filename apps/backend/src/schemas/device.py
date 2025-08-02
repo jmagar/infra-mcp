@@ -26,7 +26,7 @@ class DeviceBase(BaseModel):
     device_type: str = Field(default="server", max_length=50, description="Device type")
     description: Optional[str] = Field(None, description="Device description")
     location: Optional[str] = Field(None, max_length=255, description="Physical location")
-    tags: Dict[str, str] = Field(default_factory=dict, description="Device tags")
+    tags: Dict[str, Any] = Field(default_factory=dict, description="Device tags")
     monitoring_enabled: bool = Field(default=True, description="Whether monitoring is enabled")
 
     @field_validator("ip_address")
@@ -89,7 +89,7 @@ class DeviceUpdate(BaseModel):
     device_type: Optional[str] = Field(None, max_length=50)
     description: Optional[str] = Field(None)
     location: Optional[str] = Field(None, max_length=255)
-    tags: Optional[Dict[str, str]] = Field(None)
+    tags: Optional[Dict[str, Any]] = Field(None)
     monitoring_enabled: Optional[bool] = Field(None)
     status: Optional[DeviceStatus] = Field(None)
 

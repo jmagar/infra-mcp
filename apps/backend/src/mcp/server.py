@@ -167,6 +167,135 @@ async def get_container_logs(
         raise Exception(f"Failed to get container logs: {str(e)}") from e
 
 
+async def start_container(device: str, container_name: str, timeout: int = 60) -> dict[str, Any]:
+    """Start a Docker container on a specific device"""
+    try:
+        params = {"timeout": timeout}
+        response = await api_client.client.post(
+            f"/containers/{device}/{container_name}/start", params=params
+        )
+        response.raise_for_status()
+        return response.json()
+    except httpx.HTTPError as e:
+        logger.error(f"HTTP error starting container {container_name} on {device}: {e}")
+        raise Exception(f"Failed to start container: {str(e)}") from e
+    except Exception as e:
+        logger.error(f"Error starting container {container_name} on {device}: {e}")
+        raise Exception(f"Failed to start container: {str(e)}") from e
+
+
+async def stop_container(
+    device: str, container_name: str, timeout: int = 10, force: bool = False, ssh_timeout: int = 60
+) -> dict[str, Any]:
+    """Stop a Docker container on a specific device"""
+    try:
+        params = {"timeout": timeout, "force": force, "ssh_timeout": ssh_timeout}
+        response = await api_client.client.post(
+            f"/containers/{device}/{container_name}/stop", params=params
+        )
+        response.raise_for_status()
+        return response.json()
+    except httpx.HTTPError as e:
+        logger.error(f"HTTP error stopping container {container_name} on {device}: {e}")
+        raise Exception(f"Failed to stop container: {str(e)}") from e
+    except Exception as e:
+        logger.error(f"Error stopping container {container_name} on {device}: {e}")
+        raise Exception(f"Failed to stop container: {str(e)}") from e
+
+
+async def restart_container(
+    device: str, container_name: str, timeout: int = 10, ssh_timeout: int = 60
+) -> dict[str, Any]:
+    """Restart a Docker container on a specific device"""
+    try:
+        params = {"timeout": timeout, "ssh_timeout": ssh_timeout}
+        response = await api_client.client.post(
+            f"/containers/{device}/{container_name}/restart", params=params
+        )
+        response.raise_for_status()
+        return response.json()
+    except httpx.HTTPError as e:
+        logger.error(f"HTTP error restarting container {container_name} on {device}: {e}")
+        raise Exception(f"Failed to restart container: {str(e)}") from e
+    except Exception as e:
+        logger.error(f"Error restarting container {container_name} on {device}: {e}")
+        raise Exception(f"Failed to restart container: {str(e)}") from e
+
+
+async def remove_container(
+    device: str,
+    container_name: str,
+    force: bool = False,
+    remove_volumes: bool = False,
+    timeout: int = 60,
+) -> dict[str, Any]:
+    """Remove a Docker container on a specific device"""
+    try:
+        params = {"force": force, "remove_volumes": remove_volumes, "timeout": timeout}
+        response = await api_client.client.delete(
+            f"/containers/{device}/{container_name}", params=params
+        )
+        response.raise_for_status()
+        return response.json()
+    except httpx.HTTPError as e:
+        logger.error(f"HTTP error removing container {container_name} on {device}: {e}")
+        raise Exception(f"Failed to remove container: {str(e)}") from e
+    except Exception as e:
+        logger.error(f"Error removing container {container_name} on {device}: {e}")
+        raise Exception(f"Failed to remove container: {str(e)}") from e
+
+
+async def get_container_stats(device: str, container_name: str, timeout: int = 30) -> dict[str, Any]:
+    """Get real-time resource usage statistics for a Docker container"""
+    try:
+        params = {"timeout": timeout}
+        response = await api_client.client.get(
+            f"/containers/{device}/{container_name}/stats", params=params
+        )
+        response.raise_for_status()
+        return response.json()
+    except httpx.HTTPError as e:
+        logger.error(f"HTTP error getting stats for container {container_name} on {device}: {e}")
+        raise Exception(f"Failed to get container stats: {str(e)}") from e
+    except Exception as e:
+        logger.error(f"Error getting stats for container {container_name} on {device}: {e}")
+        raise Exception(f"Failed to get container stats: {str(e)}") from e
+
+
+async def execute_in_container(
+    device: str,
+    container_name: str,
+    command: str,
+    interactive: bool = False,
+    user: str | None = None,
+    workdir: str | None = None,
+    timeout: int = 60,
+) -> dict[str, Any]:
+    """Execute a command inside a Docker container"""
+    try:
+        params = {
+            "command": command,
+            "interactive": interactive,
+            "timeout": timeout,
+        }
+        if user:
+            params["user"] = user
+        if workdir:
+            params["workdir"] = workdir
+
+        response = await api_client.client.post(
+            f"/containers/{device}/{container_name}/exec", params=params
+        )
+        response.raise_for_status()
+        return response.json()
+    except httpx.HTTPError as e:
+        logger.error(f"HTTP error executing command in container {container_name} on {device}: {e}")
+        raise Exception(f"Failed to execute command in container: {str(e)}") from e
+    except Exception as e:
+        logger.error(f"Error executing command in container {container_name} on {device}: {e}")
+        raise Exception(f"Failed to execute command in container: {str(e)}") from e
+
+
 # System Monitoring Tools
 
 
@@ -382,6 +511,30 @@ def create_mcp_server():
 
     server.tool(name="get_container_logs", description="Get logs from a specific Docker container")(
         get_container_logs
+    )
+
+    server.tool(name="start_container", description="Start a Docker container on a specific device")(
+        start_container
+    )
+
+    server.tool(name="stop_container", description="Stop a Docker container on a specific device")(
+        stop_container
+    )
+
+    server.tool(name="restart_container", description="Restart a Docker container on a specific device")(
+        restart_container
+    )
+
+    server.tool(name="remove_container", description="Remove a Docker container on a specific device")(
+        remove_container
+    )
+
+    server.tool(name="get_container_stats", description="Get real-time resource usage statistics for a Docker container")(
+        get_container_stats
+    )
+
+    server.tool(name="execute_in_container", description="Execute a command inside a Docker container")(
+        execute_in_container
     )
 
     # DISABLED: Service dependencies endpoint does not exist in current API

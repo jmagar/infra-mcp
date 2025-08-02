@@ -14,7 +14,8 @@ from typing import Dict, List, Optional, Any
 
 from apps.backend.src.core.config import get_settings
 from apps.backend.src.core.exceptions import ContainerError, DeviceNotFoundError, SSHConnectionError
-from apps.backend.src.utils.ssh_client import execute_ssh_command_simple
+from apps.backend.src.utils.ssh_client import execute_ssh_command_simple, SSHConnectionInfo
+from apps.backend.src.utils.docker_client import get_docker_client
 
 logger = logging.getLogger(__name__)
 settings = get_settings()
@@ -1165,6 +1166,245 @@ async def get_service_dependencies(
         )
 
 
+async def start_container(device: str, container_name: str, timeout: int = 60) -> Dict[str, Any]:
+    """
+    Start a Docker container on a specific device.
+
+    Args:
+        device: Device hostname (must be configured in ~/.ssh/config)
+        container_name: Container name or ID to start
+        timeout: Command timeout in seconds (default: 60)
+
+    Returns:
+        Dict containing operation result and metadata
+
+    Raises:
+        ContainerError: If container not found or Docker command fails
+        SSHConnectionError: If SSH connection fails
+    """
+    logger.info(f"Starting container {container_name} on device: {device}")
+
+    try:
+        result = await execute_ssh_command_simple(device, f"docker start {container_name}", timeout)
+
+        if not result.success:
+            raise ContainerError(
+                message=f"Failed to start container {container_name} on {device}: {result.stderr}",
+                container_id=container_name,
+                hostname=device,
+                operation="start_container",
+            )
+
+        return {
+            "action": "start",
+            "container_name": container_name,
+            "device": device,
+            "success": True,
+            "output": result.stdout,
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "execution_time_ms": int(result.execution_time * 1000),
+        }
+
+    except ContainerError:
+        raise
+    except Exception as e:
+        logger.error(f"Unexpected error starting container {container_name} on {device}: {e}")
+        raise ContainerError(
+            message=f"Failed to start container: {str(e)}",
+            container_id=container_name,
+            hostname=device,
+            operation="start_container",
+        )
+
+
+async def stop_container(
+    device: str, container_name: str, timeout: int = 10, force: bool = False, ssh_timeout: int = 60
+) -> Dict[str, Any]:
+    """
+    Stop a Docker container on a specific device.
+
+    Args:
+        device: Device hostname (must be configured in ~/.ssh/config)
+        container_name: Container name or ID to stop
+        timeout: Timeout for graceful stop in seconds (default: 10)
+        force: Force stop the container using docker kill (default: False)
+        ssh_timeout: SSH command timeout in seconds (default: 60)
+
+    Returns:
+        Dict containing operation result and metadata
+
+    Raises:
+        ContainerError: If container not found or Docker command fails
+        SSHConnectionError: If SSH connection fails
+    """
+    logger.info(f"Stopping container {container_name} on device: {device} (force: {force})")
+
+    try:
+        if force:
+            cmd = f"docker kill {container_name}"
+            action = "kill"
+        else:
+            cmd = f"docker stop --time {timeout} {container_name}"
+            action = "stop"
+
+        result = await execute_ssh_command_simple(device, cmd, ssh_timeout)
+
+        if not result.success:
+            raise ContainerError(
+                message=f"Failed to {action} container {container_name} on {device}: {result.stderr}",
+                container_id=container_name,
+                hostname=device,
+                operation="stop_container",
+            )
+
+        return {
+            "action": action,
+            "container_name": container_name,
+            "device": device,
+            "success": True,
+            "force": force,
+            "timeout": timeout,
+            "output": result.stdout,
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "execution_time_ms": int(result.execution_time * 1000),
+        }
+
+    except ContainerError:
+        raise
+    except Exception as e:
+        logger.error(f"Unexpected error stopping container {container_name} on {device}: {e}")
+        raise ContainerError(
+            message=f"Failed to stop container: {str(e)}",
+            container_id=container_name,
+            hostname=device,
+            operation="stop_container",
+        )
+
+
+async def restart_container(
+    device: str, container_name: str, timeout: int = 10, ssh_timeout: int = 60
+) -> Dict[str, Any]:
+    """
+    Restart a Docker container on a specific device.
+
+    Args:
+        device: Device hostname (must be configured in ~/.ssh/config)
+        container_name: Container name or ID to restart
+        timeout: Timeout for restart in seconds (default: 10)
+        ssh_timeout: SSH command timeout in seconds (default: 60)
+
+    Returns:
+        Dict containing operation result and metadata
+
+    Raises:
+        ContainerError: If container not found or Docker command fails
+        SSHConnectionError: If SSH connection fails
+    """
+    logger.info(f"Restarting container {container_name} on device: {device}")
+
+    try:
+        cmd = f"docker restart --time {timeout} {container_name}"
+        result = await execute_ssh_command_simple(device, cmd, ssh_timeout)
+
+        if not result.success:
+            raise ContainerError(
+                message=f"Failed to restart container {container_name} on {device}: {result.stderr}",
+                container_id=container_name,
+                hostname=device,
+                operation="restart_container",
+            )
+
+        return {
+            "action": "restart",
+            "container_name": container_name,
+            "device": device,
+            "success": True,
+            "timeout": timeout,
+            "output": result.stdout,
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "execution_time_ms": int(result.execution_time * 1000),
+        }
+
+    except ContainerError:
+        raise
+    except Exception as e:
+        logger.error(f"Unexpected error restarting container {container_name} on {device}: {e}")
+        raise ContainerError(
+            message=f"Failed to restart container: {str(e)}",
+            container_id=container_name,
+            hostname=device,
+            operation="restart_container",
+        )
+
+
+async def remove_container(
+    device: str,
+    container_name: str,
+    force: bool = False,
+    remove_volumes: bool = False,
+    timeout: int = 60,
+) -> Dict[str, Any]:
+    """
+    Remove a Docker container on a specific device.
+
+    Args:
+        device: Device hostname (must be configured in ~/.ssh/config)
+        container_name: Container name or ID to remove
+        force: Force remove the container (default: False)
+        remove_volumes: Remove associated volumes (default: False)
+        timeout: SSH command timeout in seconds (default: 60)
+
+    Returns:
+        Dict containing operation result and metadata
+
+    Raises:
+        ContainerError: If container not found or Docker command fails
+        SSHConnectionError: If SSH connection fails
+    """
+    logger.info(f"Removing container {container_name} on device: {device} (force: {force}, volumes: {remove_volumes})")
+
+    try:
+        cmd = "docker rm"
+        if force:
+            cmd += " --force"
+        if remove_volumes:
+            cmd += " --volumes"
+        cmd += f" {container_name}"
+
+        result = await execute_ssh_command_simple(device, cmd, timeout)
+
+        if not result.success:
+            raise ContainerError(
+                message=f"Failed to remove container {container_name} on {device}: {result.stderr}",
+                container_id=container_name,
+                hostname=device,
+                operation="remove_container",
+            )
+
+        return {
+            "action": "remove",
+            "container_name": container_name,
+            "device": device,
+            "success": True,
+            "force": force,
+            "remove_volumes": remove_volumes,
+            "output": result.stdout,
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "execution_time_ms": int(result.execution_time * 1000),
+        }
+
+    except ContainerError:
+        raise
+    except Exception as e:
+        logger.error(f"Unexpected error removing container {container_name} on {device}: {e}")
+        raise ContainerError(
+            message=f"Failed to remove container: {str(e)}",
+            container_id=container_name,
+            hostname=device,
+            operation="remove_container",
+        )
+
+
 # Tool registration metadata for MCP server
 CONTAINER_TOOLS = {
     "list_containers": {
@@ -1283,5 +1523,114 @@ CONTAINER_TOOLS = {
             "required": ["device", "container_name"],
         },
         "function": get_service_dependencies,
+    },
+    "start_container": {
+        "name": "start_container",
+        "description": "Start a Docker container on a specific device",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "device": {"type": "string", "description": "Device hostname or IP address"},
+                "container_name": {"type": "string", "description": "Container name or ID to start"},
+                "timeout": {
+                    "type": "integer",
+                    "description": "Command timeout in seconds",
+                    "default": 60,
+                    "minimum": 10,
+                    "maximum": 300,
+                },
+            },
+            "required": ["device", "container_name"],
+        },
+        "function": start_container,
+    },
+    "stop_container": {
+        "name": "stop_container",
+        "description": "Stop a Docker container on a specific device",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "device": {"type": "string", "description": "Device hostname or IP address"},
+                "container_name": {"type": "string", "description": "Container name or ID to stop"},
+                "timeout": {
+                    "type": "integer",
+                    "description": "Timeout for graceful stop in seconds",
+                    "default": 10,
+                    "minimum": 1,
+                    "maximum": 300,
+                },
+                "force": {
+                    "type": "boolean",
+                    "description": "Force stop the container using docker kill",
+                    "default": False,
+                },
+                "ssh_timeout": {
+                    "type": "integer",
+                    "description": "SSH command timeout in seconds",
+                    "default": 60,
+                    "minimum": 10,
+                    "maximum": 300,
+                },
+            },
+            "required": ["device", "container_name"],
+        },
+        "function": stop_container,
+    },
+    "restart_container": {
+        "name": "restart_container",
+        "description": "Restart a Docker container on a specific device",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "device": {"type": "string", "description": "Device hostname or IP address"},
+                "container_name": {"type": "string", "description": "Container name or ID to restart"},
+                "timeout": {
+                    "type": "integer",
+                    "description": "Timeout for restart in seconds",
+                    "default": 10,
+                    "minimum": 1,
+                    "maximum": 300,
+                },
+                "ssh_timeout": {
+                    "type": "integer",
+                    "description": "SSH command timeout in seconds",
+                    "default": 60,
+                    "minimum": 10,
+                    "maximum": 300,
+                },
+            },
+            "required": ["device", "container_name"],
+        },
+        "function": restart_container,
+    },
+    "remove_container": {
+        "name": "remove_container",
+        "description": "Remove a Docker container on a specific device",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "device": {"type": "string", "description": "Device hostname or IP address"},
+                "container_name": {"type": "string", "description": "Container name or ID to remove"},
+                "force": {
+                    "type": "boolean",
+                    "description": "Force remove the container",
+                    "default": False,
+                },
+                "remove_volumes": {
+                    "type": "boolean",
+                    "description": "Remove associated volumes",
+                    "default": False,
+                },
+                "timeout": {
+                    "type": "integer",
+                    "description": "SSH command timeout in seconds",
+                    "default": 60,
+                    "minimum": 10,
+                    "maximum": 300,
+                },
+            },
+            "required": ["device", "container_name"],
+        },
+        "function": remove_container,
     },
 }
