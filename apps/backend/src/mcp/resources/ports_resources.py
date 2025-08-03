@@ -6,7 +6,7 @@ Provides access to network port information and listening processes via the port
 
 import json
 import logging
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any
 
 logger = logging.getLogger(__name__)
@@ -92,7 +92,7 @@ async def get_ports_resource(uri: str) -> str:
 
         resource_data = {
             "device": device,
-            "timestamp": result.get("timestamp", datetime.now(datetime.UTC).isoformat()),
+            "timestamp": result.get("timestamp", datetime.now(timezone.utc).isoformat()),
             "command": "ss -tulpn",
             "total_ports": len(ports_data),
             "ports": ports_data,

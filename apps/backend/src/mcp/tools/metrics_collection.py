@@ -8,7 +8,7 @@ across infrastructure devices using SSH communication.
 import json
 import logging
 import re
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Dict, List, Optional, Any
 # UUID import removed - now using hostname-only approach
 
@@ -126,7 +126,7 @@ async def get_system_info(device: str, timeout: int = 60) -> Dict[str, Any]:
         # Prepare response
         response = {
             "device": device,
-            "timestamp": datetime.now(datetime.UTC).isoformat(),
+            "timestamp": datetime.now(timezone.utc).isoformat(),
             **parsed_metrics,
         }
 
@@ -148,7 +148,7 @@ async def get_system_info(device: str, timeout: int = 60) -> Dict[str, Any]:
         # Return error response
         return {
             "device": device,
-            "timestamp": datetime.now(datetime.UTC).isoformat(),
+            "timestamp": datetime.now(timezone.utc).isoformat(),
             "error": f"Failed to collect system metrics: {str(e)}",
             "cpu_usage_percent": 0,
             "memory": {"total": 0, "used": 0, "free": 0, "percent": 0},
@@ -460,7 +460,7 @@ async def get_drive_health(
         # Prepare response
         response = {
             "device": device,
-            "timestamp": datetime.now(datetime.UTC).isoformat(),
+            "timestamp": datetime.now(timezone.utc).isoformat(),
             "drives": drive_health_data,
             "summary": {
                 "total_drives": total_drives,
@@ -486,7 +486,7 @@ async def get_drive_health(
         # Return error response
         return {
             "device": device,
-            "timestamp": datetime.now(datetime.UTC).isoformat(),
+            "timestamp": datetime.now(timezone.utc).isoformat(),
             "drives": [],
             "summary": {"total_drives": 0, "healthy_drives": 0, "warning_drives": 0},
             "error": f"Failed to collect drive health: {str(e)}",
@@ -953,7 +953,7 @@ async def get_system_logs(
             if "unit" in error_msg and "not found" in error_msg:
                 return {
                     "device": device,
-                    "timestamp": datetime.now(datetime.UTC).isoformat(),
+                    "timestamp": datetime.now(timezone.utc).isoformat(),
                     "service_filter": service,
                     "since_filter": since,
                     "log_count": 0,
@@ -963,7 +963,7 @@ async def get_system_logs(
             elif "invalid" in error_msg and "time" in error_msg:
                 return {
                     "device": device,
-                    "timestamp": datetime.now(datetime.UTC).isoformat(),
+                    "timestamp": datetime.now(timezone.utc).isoformat(),
                     "service_filter": service,
                     "since_filter": since,
                     "log_count": 0,
@@ -973,7 +973,7 @@ async def get_system_logs(
             else:
                 return {
                     "device": device,
-                    "timestamp": datetime.now(datetime.UTC).isoformat(),
+                    "timestamp": datetime.now(timezone.utc).isoformat(),
                     "service_filter": service,
                     "since_filter": since,
                     "log_count": 0,
@@ -1005,7 +1005,7 @@ async def get_system_logs(
         # Prepare response
         response = {
             "device": device,
-            "timestamp": datetime.now(datetime.UTC).isoformat(),
+            "timestamp": datetime.now(timezone.utc).isoformat(),
             "service_filter": service,
             "since_filter": since,
             "log_count": len(log_entries),
@@ -1030,7 +1030,7 @@ async def get_system_logs(
         # Return error response
         return {
             "device": device,
-            "timestamp": datetime.now(datetime.UTC).isoformat(),
+            "timestamp": datetime.now(timezone.utc).isoformat(),
             "service_filter": service,
             "since_filter": since,
             "log_count": 0,
@@ -1055,11 +1055,11 @@ def _parse_journalctl_json_entry(log_data: Dict[str, Any]) -> Optional[Dict[str,
         if timestamp_us:
             # Convert microseconds to seconds and create datetime
             timestamp_s = int(timestamp_us) / 1000000
-            dt = datetime.fromtimestamp(timestamp_s, tz=datetime.UTC)
+            dt = datetime.fromtimestamp(timestamp_s, tz=timezone.utc)
             timestamp = dt.isoformat()
         else:
             # Fallback to current time if no timestamp
-            timestamp = datetime.now(datetime.UTC).isoformat()
+            timestamp = datetime.now(timezone.utc).isoformat()
 
         # Extract hostname
         hostname = log_data.get("_HOSTNAME", "unknown")

@@ -9,7 +9,7 @@ import asyncio
 import logging
 import time
 from contextlib import asynccontextmanager
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Dict, Any, Optional
 
 import uvicorn
@@ -32,6 +32,7 @@ from apps.backend.src.core.database import (
     close_database,
     check_database_health,
 )
+from apps.backend.src.core.events import initialize_event_bus, shutdown_event_bus
 from apps.backend.src.utils.ssh_client import cleanup_ssh_client
 from apps.backend.src.schemas.common import HealthCheckResponse
 from apps.backend.src.services.polling_service import PollingService
@@ -61,11 +62,18 @@ from apps.backend.src.core.exceptions import (
     BusinessLogicError,
     ExternalServiceError,
 )
+from apps.backend.src.api import api_router
+from apps.backend.src.api.monitoring import router as monitoring_router
+from apps.backend.src.websocket import websocket_router
 
 # Configure logging
 logging.basicConfig(
     level=logging.INFO, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s"
 )
+
+# Reduce SSH logging spam - set asyncssh to WARNING level only
+logging.getLogger("asyncssh").setLevel(logging.WARNING)
+
 logger = logging.getLogger(__name__)
 
 # Global settings
@@ -98,6 +106,10 @@ async def lifespan(app: FastAPI):
         await init_database()
         logger.info("Database initialized successfully")
 
+        # Initialize event bus for real-time communication
+        await initialize_event_bus()
+        logger.info("Event bus initialized successfully")
+
         # Initialize and start polling service if enabled
         if settings.polling.polling_enabled:
             polling_service = PollingService()
@@ -105,7 +117,6 @@ async def lifespan(app: FastAPI):
             await polling_service.start_polling()
             logger.info("Polling service started successfully")
         else:
-            polling_service = None
             app.state.polling_service = None
             logger.info("Polling service disabled via configuration")
 
@@ -127,11 +138,17 @@ async def lifespan(app: FastAPI):
         logger.info("Shutting down Infrastructure Management API Server...")
 
         # Stop polling service
+        polling_service = getattr(app.state, 'polling_service', None)
         if polling_service is not None:
             await polling_service.stop_polling()
+            app.state.polling_service = None
             logger.info("Polling service stopped")
         else:
             logger.info("Polling service was not running")
+
+        # Shutdown event bus
+        await shutdown_event_bus()
+        logger.info("Event bus shutdown complete")
 
         # Cleanup SSH connections
         await cleanup_ssh_client()
@@ -277,7 +294,7 @@ async def http_exception_handler(request: Request, exc: StarletteHTTPException):
             "error": {
                 "code": f"HTTP_{exc.status_code}",
                 "message": exc.detail,
-                "timestamp": datetime.now(datetime.UTC).isoformat(),
+                "timestamp": datetime.now(timezone.utc).isoformat(),
                 "path": str(request.url.path),
                 "method": request.method,
             }
@@ -311,7 +328,7 @@ async def validation_exception_handler(request: Request, exc: ValidationError):
             "error": {
                 "code": "VALIDATION_ERROR",
                 "message": "Request validation failed",
-                "timestamp": datetime.now(datetime.UTC).isoformat(),
+                "timestamp": datetime.now(timezone.utc).isoformat(),
                 "path": str(request.url.path),
                 "method": request.method,
                 "details": {"error_count": exc.error_count(), "errors": errors},
@@ -328,7 +345,7 @@ async def infrastructure_exception_handler(request: Request, exc: Infrastructure
         f"{exc.error_code} - {exc.message}",
         extra={
             "error_code": exc.error_code,
-            "device_id": exc.device_id,
+            "device_id": getattr(exc, "device_id", None),
             "operation": exc.operation,
             "details": exc.details,
         },
@@ -369,11 +386,11 @@ async def infrastructure_exception_handler(request: Request, exc: Infrastructure
             "error": {
                 "code": exc.error_code,
                 "message": exc.message,
-                "timestamp": datetime.now(datetime.UTC).isoformat(),
+                "timestamp": datetime.now(timezone.utc).isoformat(),
                 "path": str(request.url.path),
                 "method": request.method,
                 "details": exc.details,
-                "device_id": exc.device_id,
+                "device_id": getattr(exc, "device_id", None),
                 "operation": exc.operation,
             }
         },
@@ -404,7 +421,7 @@ async def sqlalchemy_exception_handler(request: Request, exc: SQLAlchemyError):
             "error": {
                 "code": error_code,
                 "message": message,
-                "timestamp": datetime.now(datetime.UTC).isoformat(),
+                "timestamp": datetime.now(timezone.utc).isoformat(),
                 "path": str(request.url.path),
                 "method": request.method,
                 "details": {
@@ -426,7 +443,7 @@ async def timeout_exception_handler(request: Request, exc: asyncio.TimeoutError)
             "error": {
                 "code": "OPERATION_TIMEOUT",
                 "message": "Operation timed out",
-                "timestamp": datetime.now(datetime.UTC).isoformat(),
+                "timestamp": datetime.now(timezone.utc).isoformat(),
                 "path": str(request.url.path),
                 "method": request.method,
                 "details": {"timeout_type": "asyncio_timeout"},
@@ -446,7 +463,7 @@ async def connection_exception_handler(request: Request, exc: ConnectionError):
             "error": {
                 "code": "CONNECTION_ERROR",
                 "message": "Connection failed",
-                "timestamp": datetime.now(datetime.UTC).isoformat(),
+                "timestamp": datetime.now(timezone.utc).isoformat(),
                 "path": str(request.url.path),
                 "method": request.method,
                 "details": {
@@ -468,7 +485,7 @@ async def permission_exception_handler(request: Request, exc: PermissionError):
             "error": {
                 "code": "PERMISSION_DENIED",
                 "message": "Permission denied",
-                "timestamp": datetime.now(datetime.UTC).isoformat(),
+                "timestamp": datetime.now(timezone.utc).isoformat(),
                 "path": str(request.url.path),
                 "method": request.method,
                 "details": {
@@ -490,7 +507,7 @@ async def file_not_found_exception_handler(request: Request, exc: FileNotFoundEr
             "error": {
                 "code": "FILE_NOT_FOUND",
                 "message": "Requested file not found",
-                "timestamp": datetime.now(datetime.UTC).isoformat(),
+                "timestamp": datetime.now(timezone.utc).isoformat(),
                 "path": str(request.url.path),
                 "method": request.method,
                 "details": {"file_error": str(exc) if settings.debug else "File not found"},
@@ -521,7 +538,7 @@ async def os_exception_handler(request: Request, exc: OSError):
             "error": {
                 "code": "SYSTEM_ERROR",
                 "message": "System operation failed",
-                "timestamp": datetime.now(datetime.UTC).isoformat(),
+                "timestamp": datetime.now(timezone.utc).isoformat(),
                 "path": str(request.url.path),
                 "method": request.method,
                 "details": {
@@ -552,7 +569,7 @@ async def general_exception_handler(request: Request, exc: Exception):
             "error": {
                 "code": "INTERNAL_SERVER_ERROR",
                 "message": "An unexpected error occurred",
-                "timestamp": datetime.now(datetime.UTC).isoformat(),
+                "timestamp": datetime.now(timezone.utc).isoformat(),
                 "path": str(request.url.path),
                 "method": request.method,
                 "details": {
@@ -586,7 +603,7 @@ async def health_check(request: Request):
                 "ssh_client": "healthy",
                 "api_server": "healthy",
             },
-            timestamp=datetime.now(datetime.UTC),
+            timestamp=datetime.now(timezone.utc),
         )
 
         return response
@@ -613,14 +630,14 @@ async def root(request: Request):
         "description": "Centralized monitoring and management system for self-hosted infrastructure",
         "endpoints": {"rest_api": "/api", "health": "/health", "documentation": "/docs"},
         "external_services": {"mcp_server": "Independent MCP server via mcp_server.py"},
-        "timestamp": datetime.now(datetime.UTC).isoformat(),
+        "timestamp": datetime.now(timezone.utc).isoformat(),
     }
 
 
 # Include API routers with /api prefix
-from apps.backend.src.api import api_router
-
 app.include_router(api_router, prefix="/api")
+app.include_router(monitoring_router)  # Enhanced monitoring endpoints
+app.include_router(websocket_router)
 
 
 # The application now serves only the REST API

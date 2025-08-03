@@ -9,7 +9,7 @@ import hashlib
 import logging
 import re
 import socket
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Dict, List, Optional, Any, Tuple
 import yaml
@@ -61,7 +61,7 @@ class ComposeDeploymentService:
         Returns:
             ComposeModificationResult with all modifications applied
         """
-        start_time = datetime.now(datetime.UTC)
+        start_time = datetime.now(timezone.utc)
         
         try:
             # Get device configuration
@@ -126,7 +126,7 @@ class ComposeDeploymentService:
             
         finally:
             result.execution_time_ms = int(
-                (datetime.now(datetime.UTC) - start_time).total_seconds() * 1000
+                (datetime.now(timezone.utc) - start_time).total_seconds() * 1000
             )
 
     async def deploy_compose_to_device(
@@ -141,7 +141,7 @@ class ComposeDeploymentService:
         Returns:
             ComposeDeploymentResult with deployment status
         """
-        start_time = datetime.now(datetime.UTC)
+        start_time = datetime.now(timezone.utc)
         
         result = ComposeDeploymentResult(
             device=request.device,
@@ -188,7 +188,7 @@ class ComposeDeploymentService:
             
         finally:
             result.execution_time_ms = int(
-                (datetime.now(datetime.UTC) - start_time).total_seconds() * 1000
+                (datetime.now(timezone.utc) - start_time).total_seconds() * 1000
             )
             
         return result
@@ -203,7 +203,7 @@ class ComposeDeploymentService:
         Returns:
             PortScanResult with port availability information
         """
-        start_time = datetime.now(datetime.UTC)
+        start_time = datetime.now(timezone.utc)
         
         result = PortScanResult(
             device=request.device,
@@ -233,7 +233,7 @@ class ComposeDeploymentService:
             
         finally:
             result.execution_time_ms = int(
-                (datetime.now(datetime.UTC) - start_time).total_seconds() * 1000
+                (datetime.now(timezone.utc) - start_time).total_seconds() * 1000
             )
             
         return result
@@ -248,7 +248,7 @@ class ComposeDeploymentService:
         Returns:
             NetworkScanResult with network information
         """
-        start_time = datetime.now(datetime.UTC)
+        start_time = datetime.now(timezone.utc)
         
         result = NetworkScanResult(
             device=request.device,
@@ -288,7 +288,7 @@ class ComposeDeploymentService:
             
         finally:
             result.execution_time_ms = int(
-                (datetime.now(datetime.UTC) - start_time).total_seconds() * 1000
+                (datetime.now(timezone.utc) - start_time).total_seconds() * 1000
             )
             
         return result
@@ -588,7 +588,8 @@ server {{
     async def _scan_system_ports(self, device: str, start_port: int, end_port: int, result: PortScanResult):
         """Scan system ports using netstat."""
         try:
-            cmd = f"netstat -tulpn | grep ':{start_port}\\|:{end_port}' | grep LISTEN"
+            # Let Python determine the range; just list all listening sockets
+            cmd = "netstat -tulpn | grep LISTEN"
             netstat_result = await execute_ssh_command_simple(device, cmd, timeout=30)
             
             if netstat_result.success:

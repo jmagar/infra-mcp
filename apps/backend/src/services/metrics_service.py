@@ -6,7 +6,7 @@ import asyncio
 import json
 import logging
 import re
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import List, Optional, Dict, Any, Union
 from uuid import UUID, uuid4
 
@@ -106,7 +106,7 @@ class MetricsService:
                     load_average_5m=float(load_avg[1]) if len(load_avg) > 1 else 0.0,
                     load_average_15m=float(load_avg[2]) if len(load_avg) > 2 else 0.0,
                     uptime_seconds=0,  # Could parse uptime_result for actual value
-                    timestamp=datetime.now(datetime.UTC),
+                    timestamp=datetime.now(timezone.utc),
                 )
 
             except Exception as e:
@@ -119,7 +119,7 @@ class MetricsService:
 
             if time_range:
                 time_delta = self._parse_time_range(time_range)
-                since = datetime.now(datetime.UTC) - time_delta
+                since = datetime.now(timezone.utc) - time_delta
                 query = query.where(SystemMetric.time >= since)
 
             query = query.order_by(desc(SystemMetric.time))
@@ -193,7 +193,7 @@ class MetricsService:
                     total_drives=len(drives),
                     healthy_drives=0,
                     failed_drives=0,
-                    last_updated=datetime.now(datetime.UTC),
+                    last_updated=datetime.now(timezone.utc),
                 )
 
             except Exception as e:
@@ -258,7 +258,7 @@ class MetricsService:
                         tx_bytes=0,
                         rx_packets=0,
                         tx_packets=0,
-                        timestamp=datetime.now(datetime.UTC),
+                        timestamp=datetime.now(timezone.utc),
                     )
                 )
 
@@ -311,7 +311,7 @@ class MetricsService:
                                 **current_pool,
                                 last_scrub=None,
                                 next_scrub=None,
-                                timestamp=datetime.now(datetime.UTC),
+                                timestamp=datetime.now(timezone.utc),
                             )
                         )
 
@@ -417,7 +417,7 @@ class MetricsService:
                                     disk_gb=0,
                                     uptime=None,
                                     ip_address=None,
-                                    timestamp=datetime.now(datetime.UTC),
+                                    timestamp=datetime.now(timezone.utc),
                                 )
                             )
 
@@ -482,7 +482,7 @@ class MetricsService:
                             SystemLogResponse(
                                 device_id=device_id,
                                 timestamp=datetime.now(
-                                    datetime.UTC
+                                    timezone.utc
                                 ),  # Would parse actual timestamp
                                 service=service or "system",
                                 severity=severity or "info",
@@ -516,13 +516,13 @@ class MetricsService:
                     backup_id="backup-001",
                     backup_type=backup_type or "full",
                     status=status or "completed",
-                    start_time=datetime.now(datetime.UTC) - timedelta(hours=1),
-                    end_time=datetime.now(datetime.UTC),
+                    start_time=datetime.now(timezone.utc) - timedelta(hours=1),
+                    end_time=datetime.now(timezone.utc),
                     size_bytes=1024 * 1024 * 1024,  # 1GB
                     destination="/backup/location",
                     success=True,
                     error_message=None,
-                    timestamp=datetime.now(datetime.UTC),
+                    timestamp=datetime.now(timezone.utc),
                 )
             ]
 
@@ -571,8 +571,8 @@ class MetricsService:
                 total_updates=updates_available,
                 security_updates=security_updates,
                 package_updates=package_updates,
-                last_check=datetime.now(datetime.UTC),
-                next_check=datetime.now(datetime.UTC) + timedelta(hours=24),
+                last_check=datetime.now(timezone.utc),
+                next_check=datetime.now(timezone.utc) + timedelta(hours=24),
                 auto_update_enabled=False,
                 reboot_required=False,
             )

@@ -221,3 +221,4 @@ async def get_sample(
     except Exception as e:
         logger.error(f"Error getting sample {sample_name}: {e}")
         raise HTTPException(status_code=500, detail=str(e)) from e
+

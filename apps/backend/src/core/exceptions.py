@@ -6,7 +6,7 @@ providing structured error handling with detailed context information.
 """
 
 from typing import Optional, Dict, Any
-from datetime import datetime
+from datetime import datetime, timezone
 
 
 class InfrastructureException(Exception):
@@ -26,7 +26,7 @@ class InfrastructureException(Exception):
         self.details = details or {}
         self.hostname = hostname
         self.operation = operation
-        self.timestamp = datetime.now(datetime.UTC)
+        self.timestamp = datetime.now(timezone.utc)
 
     def to_dict(self) -> Dict[str, Any]:
         """Convert exception to dictionary for JSON serialization"""

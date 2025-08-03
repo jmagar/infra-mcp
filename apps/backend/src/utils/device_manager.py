@@ -7,7 +7,7 @@ communication with database operations for comprehensive infrastructure monitori
 
 import asyncio
 import logging
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Dict, List, Optional, Union, Any
 from uuid import UUID
 
@@ -88,7 +88,7 @@ class DeviceManager:
                 connectivity_result = await self.test_device_connectivity(device.id)
                 device.status = "online" if connectivity_result["connected"] else "offline"
                 device.last_seen = (
-                    datetime.now(datetime.UTC) if connectivity_result["connected"] else None
+                    datetime.now(timezone.utc) if connectivity_result["connected"] else None
                 )
 
                 await session.commit()
@@ -122,7 +122,7 @@ class DeviceManager:
             for field, value in update_data.items():
                 setattr(device, field, value)
 
-            device.updated_at = datetime.now(datetime.UTC)
+            device.updated_at = datetime.now(timezone.utc)
 
             await session.commit()
             await session.refresh(device)
@@ -268,13 +268,13 @@ class DeviceManager:
                     "hostname": device.hostname,
                     "ip_address": str(device.ip_address),
                     "connected": connected,
-                    "tested_at": datetime.now(datetime.UTC).isoformat(),
+                    "tested_at": datetime.now(timezone.utc).isoformat(),
                 }
 
                 if connected:
                     # Update device status
                     device.status = "online"
-                    device.last_seen = datetime.now(datetime.UTC)
+                    device.last_seen = datetime.now(timezone.utc)
                     await session.commit()
 
                     result["status"] = "online"
@@ -294,7 +294,7 @@ class DeviceManager:
                     "connected": False,
                     "error": str(e),
                     "status": "error",
-                    "tested_at": datetime.now(datetime.UTC).isoformat(),
+                    "tested_at": datetime.now(timezone.utc).isoformat(),
                 }
 
     async def diagnose_device_issues(self, device_id: UUID) -> Dict[str, Any]:
@@ -322,7 +322,7 @@ class DeviceManager:
                     "device_id": str(device_id),
                     "hostname": device.hostname,
                     "ip_address": str(device.ip_address),
-                    "diagnosis_time": datetime.now(datetime.UTC).isoformat(),
+                    "diagnosis_time": datetime.now(timezone.utc).isoformat(),
                     "categories": {},
                 }
 
@@ -367,7 +367,7 @@ class DeviceManager:
                 return {
                     "device_id": str(device_id),
                     "error": f"Diagnostic failed: {str(e)}",
-                    "diagnosis_time": datetime.now(datetime.UTC).isoformat(),
+                    "diagnosis_time": datetime.now(timezone.utc).isoformat(),
                 }
 
     async def execute_device_command(
@@ -401,7 +401,7 @@ class DeviceManager:
 
                 # Update last seen time on successful connection
                 if result.success:
-                    device.last_seen = datetime.now(datetime.UTC)
+                    device.last_seen = datetime.now(timezone.utc)
                     device.status = "online"
                     await session.commit()
 
@@ -414,7 +414,7 @@ class DeviceManager:
                     "stdout": result.stdout,
                     "stderr": result.stderr,
                     "execution_time": result.execution_time,
-                    "executed_at": datetime.now(datetime.UTC).isoformat(),
+                    "executed_at": datetime.now(timezone.utc).isoformat(),
                 }
 
             except Exception as e:
@@ -426,7 +426,7 @@ class DeviceManager:
                     "command": command,
                     "success": False,
                     "error": str(e),
-                    "executed_at": datetime.now(datetime.UTC).isoformat(),
+                    "executed_at": datetime.now(timezone.utc).isoformat(),
                 }
 
     async def bulk_connectivity_test(
@@ -522,7 +522,7 @@ class DeviceManager:
                 "monitoring_enabled": monitoring_count,
                 "status_breakdown": status_counts,
                 "type_breakdown": type_counts,
-                "last_updated": datetime.now(datetime.UTC).isoformat(),
+                "last_updated": datetime.now(timezone.utc).isoformat(),
             }
 
 

@@ -2,7 +2,7 @@
 Container-related Pydantic schemas for request/response validation.
 """
 
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Optional, Dict, Any, List
 from uuid import UUID
 from pydantic import BaseModel, Field, field_validator
@@ -105,7 +105,7 @@ class ContainerSnapshotBase(BaseModel):
 class ContainerSnapshotCreate(ContainerSnapshotBase):
     """Schema for creating container snapshot"""
 
-    time: datetime = Field(default_factory=lambda: datetime.now(datetime.UTC), description="Snapshot timestamp")
+    time: datetime = Field(default_factory=lambda: datetime.now(timezone.utc), description="Snapshot timestamp")
 
 
 class ContainerSnapshotResponse(ContainerSnapshotBase):

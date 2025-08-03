@@ -2,7 +2,7 @@
 Drive health Pydantic schemas for request/response validation.
 """
 
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Optional, Dict, Any, List
 from uuid import UUID
 from pydantic import BaseModel, Field, field_validator
@@ -80,7 +80,7 @@ class DriveHealthBase(BaseModel):
 class DriveHealthCreate(DriveHealthBase):
     """Schema for creating drive health record"""
 
-    time: datetime = Field(default_factory=lambda: datetime.now(datetime.UTC), description="Measurement timestamp")
+    time: datetime = Field(default_factory=lambda: datetime.now(timezone.utc), description="Measurement timestamp")
 
 
 class DriveHealthResponse(DriveHealthBase):

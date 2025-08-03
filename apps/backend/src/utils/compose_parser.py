@@ -8,7 +8,7 @@ similar to the nginx_parser.py for SWAG configurations.
 import logging
 import hashlib
 from typing import Any, Dict, List
-from datetime import datetime
+from datetime import datetime, timezone
 
 import yaml
 
@@ -98,7 +98,7 @@ class DockerComposeParser:
                     "total_volumes": len(volumes),
                     "total_secrets": len(secrets),
                     "total_configs": len(configs),
-                    "parsed_at": datetime.now(datetime.UTC).isoformat(),
+                    "parsed_at": datetime.now(timezone.utc).isoformat(),
                     "compose_version": version,
                 },
             }

@@ -6,7 +6,7 @@ including listing, inspection, log retrieval, and metrics collection.
 """
 
 import logging
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import List, Optional
 from apps.backend.src.utils.ssh_client import execute_ssh_command_simple
 from apps.backend.src.mcp.tools.container_management import list_containers as mcp_list_containers
@@ -290,7 +290,7 @@ async def get_container_stats(
                     "block_io": parts[5].strip(),
                     "pids": parts[6].strip(),
                 },
-                "timestamp": datetime.now(datetime.UTC).isoformat(),
+                "timestamp": datetime.now(timezone.utc).isoformat(),
                 "execution_time": result.execution_time,
             }
         else:

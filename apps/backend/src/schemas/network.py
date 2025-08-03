@@ -2,7 +2,7 @@
 Network-related Pydantic schemas for request/response validation.
 """
 
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Optional, Dict, Any, List
 from uuid import UUID
 from pydantic import BaseModel, Field, field_validator
@@ -265,7 +265,7 @@ class NetworkHealthOverview(BaseModel):
     health_by_device: Dict[str, str] = Field(description="Network health by device")
     high_utilization_interfaces: List[str] = Field(description="High utilization interfaces")
     error_prone_interfaces: List[str] = Field(description="Interfaces with frequent errors")
-    timestamp: datetime = Field(default_factory=lambda: datetime.now(datetime.UTC), description="Report timestamp")
+    timestamp: datetime = Field(default_factory=lambda: datetime.now(timezone.utc), description="Report timestamp")
 
 
 class NetworkFilter(BaseModel):

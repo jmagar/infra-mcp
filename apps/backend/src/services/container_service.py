@@ -5,7 +5,7 @@ Service layer for container-related business logic.
 import asyncio
 import json
 import logging
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import List, Optional, Dict, Any
 from uuid import UUID
 
@@ -221,7 +221,7 @@ class ContainerService:
                                         health_status=None,
                                         restart_count=0,  # Would need additional parsing
                                         created_at=None,  # Would need additional parsing
-                                        last_updated=datetime.now(datetime.UTC),
+                                        last_updated=datetime.now(timezone.utc),
                                     )
                                 )
 
@@ -492,7 +492,7 @@ class ContainerService:
                         # Simple log parsing - in practice you'd want more sophisticated parsing
                         log_entries.append(
                             {
-                                "timestamp": datetime.now(datetime.UTC).isoformat(),
+                                "timestamp": datetime.now(timezone.utc).isoformat(),
                                 "message": line.strip(),
                                 "stream": "stdout",  # Docker logs mix stdout/stderr
                             }
