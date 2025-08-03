@@ -10,7 +10,7 @@ import logging
 import json
 import re
 from datetime import datetime, timezone
-from typing import Any, Dict
+from typing import Any
 from sqlalchemy import select
 
 from apps.backend.src.core.database import get_async_session
@@ -30,7 +30,7 @@ logger = logging.getLogger(__name__)
 
 async def _collect_smart_data(
     ssh_client, connection_info: SSHConnectionInfo, drive_path: str, drive_name: str
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """
     Collect SMART data for a drive with configurable sudo behavior.
 
@@ -125,7 +125,7 @@ async def _collect_smart_data(
     return smart_data
 
 
-def _parse_smart_output(smart_output: str, drive_path: str) -> Dict[str, Any]:
+def _parse_smart_output(smart_output: str, drive_path: str) -> dict[str, Any]:
     """
     Parse SMART output and extract key attributes.
 
@@ -202,10 +202,10 @@ def _parse_smart_output(smart_output: str, drive_path: str) -> Dict[str, Any]:
 
 async def _analyze_connectivity(
     device: str, ssh_client, connection_info: SSHConnectionInfo
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """Analyze network and SSH connectivity for the device."""
     connectivity_results = {}
-    
+
     # Network Connectivity Test
     logger.info(f"Testing network connectivity to {device}")
     try:
@@ -281,9 +281,7 @@ async def _analyze_connectivity(
     return connectivity_results
 
 
-async def _analyze_system_metrics(
-    ssh_client, connection_info: SSHConnectionInfo
-) -> Dict[str, Any]:
+async def _analyze_system_metrics(ssh_client, connection_info: SSHConnectionInfo) -> dict[str, Any]:
     """Collect comprehensive system performance metrics."""
     cpu_metrics = {}
     memory_metrics = {}
@@ -330,9 +328,7 @@ async def _analyze_system_metrics(
                 )
 
         # CPU count
-        cpu_count_result = await ssh_client.execute_command(
-            connection_info, "nproc", timeout=10
-        )
+        cpu_count_result = await ssh_client.execute_command(connection_info, "nproc", timeout=10)
         if cpu_count_result.return_code == 0:
             cpu_metrics["core_count"] = int(cpu_count_result.stdout.strip())
 
@@ -486,9 +482,7 @@ async def _analyze_system_metrics(
     # Collect system information
     try:
         # Kernel and system info
-        uname_result = await ssh_client.execute_command(
-            connection_info, "uname -a", timeout=10
-        )
+        uname_result = await ssh_client.execute_command(connection_info, "uname -a", timeout=10)
         if uname_result.return_code == 0:
             system_info["kernel"] = uname_result.stdout.strip()
 
@@ -533,11 +527,11 @@ async def _analyze_system_metrics(
 
 async def _analyze_docker(
     device: str, ssh_client, connection_info: SSHConnectionInfo
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """Analyze Docker configuration and container setup."""
     docker_info = {}
     services = {}
-    
+
     try:
         # Check if Docker is installed and running
         docker_version_result = await execute_ssh_command_simple(
@@ -594,10 +588,7 @@ async def _analyze_docker(
             )
 
             appdata_paths = []
-            if (
-                appdata_result.return_code == 0
-                and "NO_APPDATA_FOUND" not in appdata_result.stdout
-            ):
+            if appdata_result.return_code == 0 and "NO_APPDATA_FOUND" not in appdata_result.stdout:
                 for line in appdata_result.stdout.split("\n"):
                     if line.startswith("total") or not line.strip():
                         continue
@@ -632,9 +623,7 @@ async def _analyze_docker(
             services["swag_running"] = swag_running
             services["swag_containers"] = swag_containers
             services["swag_config_count"] = swag_config_count
-            services["reverse_proxy_detected"] = (
-                swag_running or swag_config_count > 0
-            )
+            services["reverse_proxy_detected"] = swag_running or swag_config_count > 0
 
         else:
             docker_info["installed"] = False
@@ -649,10 +638,10 @@ async def _analyze_docker(
 
 async def _analyze_storage_info(
     device: str, ssh_client, connection_info: SSHConnectionInfo
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """Analyze ZFS pools and storage configuration."""
     storage_info = {}
-    
+
     try:
         zfs_result = await execute_ssh_command_simple(
             device,
@@ -687,9 +676,7 @@ async def _analyze_storage_info(
                 elif snapshot_marker_found and line.strip():
                     parts = line.split("\t")
                     if len(parts) >= 3:
-                        snapshots.append(
-                            {"name": parts[0], "used": parts[1], "creation": parts[2]}
-                        )
+                        snapshots.append({"name": parts[0], "used": parts[1], "creation": parts[2]})
 
             storage_info["zfs_available"] = True
             storage_info["zfs_pools"] = pools
@@ -707,10 +694,10 @@ async def _analyze_storage_info(
 
 async def _analyze_hardware(
     device: str, ssh_client, connection_info: SSHConnectionInfo
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """Analyze hardware information including CPU, memory, and GPU."""
     hardware_info = {}
-    
+
     try:
         # Get CPU, memory, and hardware info
         hw_result = await execute_ssh_command_simple(
@@ -759,10 +746,10 @@ async def _analyze_hardware(
 
 async def _analyze_os_info(
     device: str, ssh_client, connection_info: SSHConnectionInfo
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """Analyze operating system information."""
     os_info = {}
-    
+
     try:
         os_result = await execute_ssh_command_simple(
             device, "cat /etc/os-release; uname -r; uptime", timeout=15
@@ -789,10 +776,10 @@ async def _analyze_os_info(
 
 async def _analyze_virtualization(
     device: str, ssh_client, connection_info: SSHConnectionInfo
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """Analyze virtualization capabilities and VM detection."""
     virtualization = {}
-    
+
     try:
         virt_result = await execute_ssh_command_simple(
             device,
@@ -817,12 +804,10 @@ async def _analyze_virtualization(
     return virtualization
 
 
-async def _analyze_drives(
-    ssh_client, connection_info: SSHConnectionInfo
-) -> Dict[str, Any]:
+async def _analyze_drives(ssh_client, connection_info: SSHConnectionInfo) -> dict[str, Any]:
     """Analyze drive health and S.M.A.R.T. data."""
     drive_health = {}
-    
+
     try:
         # Check if smartctl is available
         smart_available = False
@@ -930,12 +915,10 @@ async def _analyze_drives(
     return drive_health
 
 
-async def _collect_processes(
-    ssh_client, connection_info: SSHConnectionInfo
-) -> list:
+async def _collect_processes(ssh_client, connection_info: SSHConnectionInfo) -> list:
     """Collect top processes information."""
     processes = []
-    
+
     try:
         top_result = await ssh_client.execute_command(
             connection_info,
@@ -971,7 +954,7 @@ async def _collect_processes(
 
 async def get_device_info(
     device: str, include_processes: bool = False, store_results: bool = True, timeout: int = 120
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """
     Get comprehensive device information including capabilities analysis and system metrics.
 
@@ -1044,7 +1027,7 @@ async def get_device_info(
         logger.info(f"Analyzing connectivity for {device}")
         connectivity_results = await _analyze_connectivity(device, ssh_client, connection_info)
         results["connectivity"] = connectivity_results
-        
+
         # If SSH fails, we can't continue with other tests
         if connectivity_results.get("ssh", {}).get("status") != "success":
             results["analysis_summary"] = {

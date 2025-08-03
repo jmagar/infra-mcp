@@ -10,9 +10,9 @@ from __future__ import annotations
 import logging
 import json
 import shlex
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any
+from typing import Any, Optional
 from urllib.parse import urlparse, parse_qs
 
 from apps.backend.src.utils.compose_parser import DockerComposeParser, ComposeParseError
