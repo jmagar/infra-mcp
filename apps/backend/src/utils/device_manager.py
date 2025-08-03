@@ -7,7 +7,7 @@ communication with database operations for comprehensive infrastructure monitori
 
 import asyncio
 import logging
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Dict, List, Optional, Union, Any
 from uuid import UUID
 

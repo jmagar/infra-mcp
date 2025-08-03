@@ -5,7 +5,6 @@ Provides utilities for detecting different system environments and their capabil
 """
 
 import logging
-from typing import Optional
 from dataclasses import dataclass
 
 logger = logging.getLogger(__name__)
@@ -28,7 +27,7 @@ class EnvironmentInfo:
     is_wsl: bool = False
     is_container: bool = False
     has_systemd: bool = False
-    detected_os: Optional[str] = None
+    detected_os: str | None = None
 
     @property
     def supports_drive_health(self) -> bool:

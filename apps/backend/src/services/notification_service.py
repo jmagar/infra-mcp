@@ -2,7 +2,7 @@
 
 import logging
 import json
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import List, Optional, Dict, Any
 from uuid import UUID
 from enum import Enum

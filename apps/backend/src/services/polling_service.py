@@ -5,8 +5,8 @@ Service layer for background device polling and metrics collection.
 import asyncio
 import json
 import logging
-from datetime import datetime, timedelta, UTC
-from typing import List, Optional, Any, Set, Dict
+from datetime import datetime, UTC
+from typing import List, Optional, Any, Set
 from uuid import UUID
 
 from sqlalchemy import select, and_, or_, desc, func
@@ -14,11 +14,18 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from apps.backend.src.core.database import get_async_session
 from apps.backend.src.core.config import get_settings
+from apps.backend.src.core.events import (
+    get_event_bus,
+    MetricCollectedEvent,
+    DeviceStatusChangedEvent,
+    ContainerStatusEvent,
+    DriveHealthEvent
+)
 from apps.backend.src.models.device import Device
 from apps.backend.src.models.metrics import SystemMetric, DriveHealth
 from apps.backend.src.models.container import ContainerSnapshot
 from apps.backend.src.utils.ssh_client import get_ssh_client, SSHConnectionInfo
-from apps.backend.src.utils.environment import WSL_DETECTION_COMMAND, EnvironmentDetector
+from apps.backend.src.utils.environment import WSL_DETECTION_COMMAND
 from apps.backend.src.core.exceptions import (
     DeviceNotFoundError,
     SSHConnectionError,
@@ -33,6 +40,7 @@ class PollingService:
     def __init__(self):
         self.ssh_client = get_ssh_client()
         self.settings = get_settings()
+        self.event_bus = get_event_bus()
         self.polling_tasks: dict[
             UUID, dict[str, asyncio.Task]
         ] = {}  # device_id -> {task_type: task}
@@ -229,60 +237,27 @@ class PollingService:
                 logger.error(f"Error polling drive health for {device.hostname}: {e}")
                 await asyncio.sleep(60)
 
-    async def _poll_device(self, device: Device) -> None:
-        """Poll a single device for metrics and container data"""
-        device_id = device.id
-        consecutive_failures = 0
-        max_consecutive_failures = 3
-
-        while self.is_running and device_id in self.polling_tasks:
-            try:
-                # Update device status to online if we can connect
-                await self._update_device_status(device, "online")
-
-                # Collect system metrics
-                await self._collect_system_metrics(device)
-
-                # Collect drive health data
-                await self._collect_drive_health(device)
-
-                # Collect container data
-                await self._collect_container_data(device)
-
-                # Reset failure counter on success
-                consecutive_failures = 0
-
-                # Wait for next poll
-                await asyncio.sleep(self.metrics_interval)
-
-            except SSHConnectionError:
-                consecutive_failures += 1
-                logger.warning(
-                    f"SSH connection failed for device {device.hostname} (attempt {consecutive_failures})"
-                )
-
-                if consecutive_failures >= max_consecutive_failures:
-                    await self._update_device_status(device, "offline")
-                    # Increase poll interval for offline devices
-                    await asyncio.sleep(self.metrics_interval * 2)
-                else:
-                    await asyncio.sleep(30)  # Short retry delay
-
-            except Exception as e:
-                consecutive_failures += 1
-                logger.error(f"Error polling device {device.hostname}: {e}")
-                await asyncio.sleep(60)  # Wait before retry
-
     async def _update_device_status(self, device: Device, status: str) -> None:
         """Update device status and last seen timestamp"""
         async with self.session_factory() as db:
             try:
+                old_status = device.status
                 device.status = status
                 if status == "online":
                     device.last_seen = datetime.now(UTC)
                 device.updated_at = datetime.now(UTC)
 
                 await db.commit()
+
+                # Emit device status change event if status actually changed
+                if old_status != status:
+                    event = DeviceStatusChangedEvent(
+                        device_id=device.id,
+                        hostname=device.hostname,
+                        old_status=old_status or "unknown",
+                        new_status=status
+                    )
+                    self.event_bus.emit_nowait(event)
 
             except Exception as e:
                 await db.rollback()
@@ -342,6 +317,22 @@ class PollingService:
             async with self.session_factory() as db:
                 db.add(metric)
                 await db.commit()
+
+                # Emit metric collected event for real-time updates
+                event = MetricCollectedEvent(
+                    device_id=device.id,
+                    hostname=device.hostname,
+                    cpu_usage_percent=cpu_usage,
+                    memory_usage_percent=memory_usage,
+                    disk_usage_percent=disk_usage,
+                    load_average_1m=load_1m,
+                    load_average_5m=load_5m,
+                    load_average_15m=load_15m,
+                    uptime_seconds=int(uptime_seconds),
+                    network_bytes_sent=0,  # TODO: Implement network metrics
+                    network_bytes_recv=0
+                )
+                self.event_bus.emit_nowait(event)
 
                 # System metrics collected successfully
 
@@ -430,6 +421,19 @@ class PollingService:
                     db.add(drive)
 
                 await db.commit()
+
+                # Emit drive health events for real-time updates
+                for drive in drives:
+                    event = DriveHealthEvent(
+                        device_id=device.id,
+                        hostname=device.hostname,
+                        drive_name=drive.drive_name,
+                        health_status=drive.health_status,
+                        temperature_celsius=drive.temperature_celsius,
+                        model=drive.model,
+                        serial_number=drive.serial_number
+                    )
+                    self.event_bus.emit_nowait(event)
 
                 # Drive health collected successfully
 
@@ -536,6 +540,21 @@ class PollingService:
 
                 await db.commit()
 
+                # Emit container status events for real-time updates
+                for container in containers:
+                    event = ContainerStatusEvent(
+                        device_id=device.id,
+                        hostname=device.hostname,
+                        container_id=container.container_id,
+                        container_name=container.container_name,
+                        image=container.image,
+                        status=container.status,
+                        cpu_usage_percent=container.cpu_usage_percent or 0.0,
+                        memory_usage_bytes=container.memory_usage_bytes or 0,
+                        memory_limit_bytes=container.memory_limit_bytes or 0
+                    )
+                    self.event_bus.emit_nowait(event)
+
                 # Container data collected successfully
 
         except Exception as e:
@@ -563,7 +582,7 @@ class PollingService:
         except ValueError:
             return 0
 
-    async def poll_device_once(self, device_id: UUID) -> Dict[str, Any]:
+    async def poll_device_once(self, device_id: UUID) -> dict[str, Any]:
         """Poll a single device once (for manual/on-demand polling)"""
         result = await self.db.execute(select(Device).where(Device.id == device_id))
         device = result.scalar_one_or_none()
@@ -595,7 +614,7 @@ class PollingService:
                 "error": str(e),
             }
 
-    async def get_polling_status(self) -> Dict[str, Any]:
+    async def get_polling_status(self) -> dict[str, Any]:
         """Get current polling service status"""
         return {
             "is_running": self.is_running,

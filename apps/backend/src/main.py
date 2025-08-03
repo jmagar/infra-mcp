@@ -32,6 +32,7 @@ from apps.backend.src.core.database import (
     close_database,
     check_database_health,
 )
+from apps.backend.src.core.events import initialize_event_bus, shutdown_event_bus
 from apps.backend.src.utils.ssh_client import cleanup_ssh_client
 from apps.backend.src.schemas.common import HealthCheckResponse
 from apps.backend.src.services.polling_service import PollingService
@@ -104,6 +105,10 @@ async def lifespan(app: FastAPI):
         await init_database()
         logger.info("Database initialized successfully")
 
+        # Initialize event bus for real-time communication
+        await initialize_event_bus()
+        logger.info("Event bus initialized successfully")
+
         # Initialize and start polling service if enabled
         if settings.polling.polling_enabled:
             polling_service = PollingService()
@@ -138,6 +143,10 @@ async def lifespan(app: FastAPI):
             logger.info("Polling service stopped")
         else:
             logger.info("Polling service was not running")
+
+        # Shutdown event bus
+        await shutdown_event_bus()
+        logger.info("Event bus shutdown complete")
 
         # Cleanup SSH connections
         await cleanup_ssh_client()

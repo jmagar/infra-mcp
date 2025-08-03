@@ -9,7 +9,7 @@ import logging
 import platform
 import sys
 import random
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Dict
 
 from fastapi import APIRouter, Depends, HTTPException, Request

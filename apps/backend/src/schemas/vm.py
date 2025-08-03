@@ -2,7 +2,7 @@
 Virtual Machine-related Pydantic schemas for request/response validation.
 """
 
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Optional, Dict, Any, List
 from uuid import UUID
 from decimal import Decimal

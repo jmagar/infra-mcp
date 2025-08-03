@@ -9,17 +9,23 @@ import logging
 import asyncio
 import json
 from typing import Any
+
+from apps.backend.src.core.events import (
+    get_event_bus,
+    BaseEvent,
+    MetricCollectedEvent,
+    DeviceStatusChangedEvent,
+    ContainerStatusEvent,
+    DriveHealthEvent
+)
 from uuid import uuid4
-from fastapi import WebSocket, WebSocketDisconnect
-from fastapi.security import HTTPBearer
+from fastapi import WebSocket
 from starlette.websockets import WebSocketState
 
 from .message_protocol import (
     WebSocketMessage,
-    MessageType,
     SubscriptionMessage,
     HeartbeatMessage,
-    ErrorMessage,
     create_error_message,
     SubscriptionTopics,
 )
@@ -118,6 +124,8 @@ class ConnectionManager:
         self.connections: dict[str, WebSocketConnection] = {}
         self.heartbeat_interval = 30  # seconds
         self.heartbeat_task: asyncio.Task | None = None
+        self.event_bus = get_event_bus()
+        self._event_handlers_registered = False
 
     async def connect(self, websocket: WebSocket) -> str:
         """Accept a new WebSocket connection"""
@@ -131,6 +139,10 @@ class ConnectionManager:
         # Start heartbeat task if this is the first connection
         if len(self.connections) == 1 and not self.heartbeat_task:
             self.heartbeat_task = asyncio.create_task(self._heartbeat_loop())
+
+        # Register event handlers if this is the first connection
+        if len(self.connections) == 1 and not self._event_handlers_registered:
+            self._register_event_handlers()
 
         return client_id
 
@@ -270,6 +282,60 @@ class ConnectionManager:
             logger.info("Heartbeat loop cancelled")
         except Exception as e:
             logger.error(f"Error in heartbeat loop: {e}")
+
+    def _register_event_handlers(self) -> None:
+        """Register event handlers with the event bus"""
+        if self._event_handlers_registered:
+            return
+
+        # Subscribe to all monitoring events
+        self.event_bus.subscribe(
+            ["metric_collected", "device_status_changed", "container_status", "drive_health"],
+            self._handle_monitoring_event,
+            priority=10  # High priority for real-time updates
+        )
+        
+        self._event_handlers_registered = True
+        logger.info("WebSocket event handlers registered")
+
+    async def _handle_monitoring_event(self, event: BaseEvent) -> None:
+        """Handle monitoring events and broadcast to WebSocket clients"""
+        try:
+            # Convert event to WebSocket message
+            websocket_message = self._convert_event_to_websocket_message(event)
+            
+            # Determine topic for broadcasting
+            topic = self._get_topic_for_event(event)
+            
+            # Broadcast to subscribed clients
+            await self.broadcast_to_topic(topic, websocket_message)
+            
+        except Exception as e:
+            logger.error(f"Error handling monitoring event {event.event_type}: {e}")
+
+    def _convert_event_to_websocket_message(self, event: BaseEvent) -> WebSocketMessage:
+        """Convert an event to a WebSocket message"""
+        from .message_protocol import DataMessage
+        
+        # Create data message with event information
+        return DataMessage(
+            topic=self._get_topic_for_event(event),
+            data=event.model_dump(),
+            timestamp=event.timestamp
+        )
+
+    def _get_topic_for_event(self, event: BaseEvent) -> str:
+        """Determine the WebSocket topic for an event"""
+        if isinstance(event, MetricCollectedEvent):
+            return f"devices.{event.device_id}.metrics"
+        elif isinstance(event, DeviceStatusChangedEvent):
+            return f"devices.{event.device_id}.status"
+        elif isinstance(event, ContainerStatusEvent):
+            return f"devices.{event.device_id}.containers"
+        elif isinstance(event, DriveHealthEvent):
+            return f"devices.{event.device_id}.drives"
+        else:
+            return f"devices.{getattr(event, 'device_id', 'unknown')}.events"
 
 
 # Global connection manager instance

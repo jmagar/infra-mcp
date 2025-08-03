@@ -155,11 +155,21 @@ docker compose exec postgres psql -U postgres -d infrastructor
 
 ### Code Style Conventions
 - **Line Length**: 100 characters (configured in pyproject.toml)
-- **Import Organization**: isort with known-first-party=["src"]
+- **Import Organization**: isort with known-first-party=["src"] - ALL imports at top of file
 - **Type Hints**: Required for all functions (enforced by MyPy)
+- **Modern Type Annotations**: Use Python 3.11+ built-in generics (`list[str]`, `dict[str, int]`, `str | None`)
 - **Async/Await**: Use throughout for I/O operations
-- **Error Handling**: Always use custom exception classes
+- **Error Handling**: Always use custom exception classes with proper chaining (`raise NewError() from e`)
 - **Logging**: Structured logging with correlation IDs
+- **Timezone Handling**: Always use UTC (`datetime.now(timezone.utc)`)
+- **String Formatting**: Only use f-strings when actually interpolating variables
+
+### Critical Anti-Patterns to Avoid
+- ❌ **Wrong timezone handling**: `datetime.now()` without timezone
+- ❌ **Deprecated type annotations**: `from typing import Union, List, Dict` (use built-in `|`, `list`, `dict`)
+- ❌ **Imports not at top**: Imports scattered throughout functions
+- ❌ **Unnecessary f-strings**: `f"static string"` instead of `"static string"`
+- ❌ **Missing exception chaining**: `raise NewError()` instead of `raise NewError() from e`
 
 ### File Naming Patterns
 - **API Routes**: `apps/backend/src/api/{resource}.py` (e.g., devices.py)

@@ -6,7 +6,6 @@ consistent with the REST API authentication system.
 """
 
 import logging
-from typing import Optional
 from fastapi import HTTPException, status
 from fastapi.security import HTTPBearer
 
@@ -22,7 +21,7 @@ class WebSocketAuthenticator:
     def __init__(self):
         self.settings = get_settings()
 
-    async def authenticate_token(self, token: str) -> Optional[str]:
+    async def authenticate_token(self, token: str) -> str | None:
         """
         Authenticate a Bearer token and return user ID if valid
 

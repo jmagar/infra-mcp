@@ -2,7 +2,7 @@
 Common Pydantic schemas used across the application.
 """
 
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional, Generic, TypeVar
 from uuid import UUID
 from pydantic import BaseModel, Field, field_validator

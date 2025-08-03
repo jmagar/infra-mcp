@@ -2,7 +2,7 @@
 System updates-related Pydantic schemas for request/response validation.
 """
 
-from datetime import datetime, date
+from datetime import datetime, date, timezone
 from typing import Optional, Dict, Any, List
 from uuid import UUID
 from pydantic import BaseModel, Field, field_validator

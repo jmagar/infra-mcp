@@ -8,7 +8,7 @@ similar to the nginx_parser.py for SWAG configurations.
 import logging
 import hashlib
 from typing import Any, Dict, List
-from datetime import datetime
+from datetime import datetime, timezone
 
 import yaml
 

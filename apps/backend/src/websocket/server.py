@@ -8,17 +8,13 @@ Provides WebSocket endpoints for client connections and message handling.
 import asyncio
 import logging
 import json
-from typing import Any, Dict
-from fastapi import APIRouter, WebSocket, WebSocketDisconnect, HTTPException
+from fastapi import APIRouter, WebSocket, WebSocketDisconnect, Depends
 
 from .connection_manager import get_connection_manager, ConnectionManager
 from .message_protocol import (
     MessageType,
-    WebSocketMessage,
     SubscriptionMessage,
     HeartbeatMessage,
-    AuthMessage,
-    create_error_message,
 )
 from .auth import get_websocket_authenticator, WebSocketAuthenticator
 

@@ -5,7 +5,7 @@ Handles ZFS health checks, ARC statistics, and event monitoring.
 """
 
 import logging
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Dict, Any
 
 from .base import ZFSBaseService

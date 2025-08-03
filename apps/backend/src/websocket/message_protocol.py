@@ -6,7 +6,7 @@ between the server and connected clients.
 """
 
 from enum import Enum
-from typing import Any, Optional
+from typing import Any
 from datetime import datetime
 from zoneinfo import ZoneInfo
 from pydantic import BaseModel, Field
@@ -47,7 +47,7 @@ class EventMessage(WebSocketMessage):
 
     type: MessageType = MessageType.EVENT
     event_type: str
-    device_id: Optional[str] = None
+    device_id: str | None = None
     severity: str = "info"  # info, warning, error, critical
 
 
@@ -63,7 +63,7 @@ class HeartbeatMessage(WebSocketMessage):
     """Connection keepalive message"""
 
     type: MessageType = MessageType.HEARTBEAT
-    client_id: Optional[str] = None
+    client_id: str | None = None
 
 
 class ErrorMessage(WebSocketMessage):
@@ -72,7 +72,7 @@ class ErrorMessage(WebSocketMessage):
     type: MessageType = MessageType.ERROR
     error_code: str
     message: str
-    details: Optional[Dict[str, Any]] = None
+    details: dict[str, Any] | None = None
 
 
 class AuthMessage(WebSocketMessage):
@@ -114,19 +114,19 @@ class SubscriptionTopics:
 
     # Event topics
     @staticmethod
-    def events(severity: Optional[str] = None) -> str:
+    def events(severity: str | None = None) -> str:
         if severity:
             return f"events.{severity}"
         return "events"
 
 
-def create_data_message(device_id: str, metric_type: str, data: Dict[str, Any]) -> DataMessage:
+def create_data_message(device_id: str, metric_type: str, data: dict[str, Any]) -> DataMessage:
     """Helper to create data messages"""
     return DataMessage(device_id=device_id, metric_type=metric_type, data=data)
 
 
 def create_event_message(
-    event_type: str, message: str, device_id: Optional[str] = None, severity: str = "info", **kwargs
+    event_type: str, message: str, device_id: str | None = None, severity: str = "info", **kwargs
 ) -> EventMessage:
     """Helper to create event messages"""
     return EventMessage(
@@ -138,7 +138,7 @@ def create_event_message(
 
 
 def create_error_message(
-    error_code: str, message: str, details: Optional[Dict[str, Any]] = None
+    error_code: str, message: str, details: dict[str, Any] | None = None
 ) -> ErrorMessage:
     """Helper to create error messages"""
     return ErrorMessage(error_code=error_code, message=message, details=details)

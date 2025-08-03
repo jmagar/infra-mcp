@@ -588,7 +588,8 @@ server {{
     async def _scan_system_ports(self, device: str, start_port: int, end_port: int, result: PortScanResult):
         """Scan system ports using netstat."""
         try:
-            cmd = f"netstat -tulpn | grep ':{start_port}\\|:{end_port}' | grep LISTEN"
+            # Let Python determine the range; just list all listening sockets
+            cmd = "netstat -tulpn | grep LISTEN"
             netstat_result = await execute_ssh_command_simple(device, cmd, timeout=30)
             
             if netstat_result.success:
