@@ -362,7 +362,7 @@ async def performance_metrics(request: Request) -> PerformanceMetricsResponse:
             },
             "database_performance": {
                 "connection_pool": {
-                    "pool_size": 10,  # From settings
+                    "pool_size": settings.database.db_pool_size,
                     "query_response_time_ms": round(db_query_time, 2),
                     "status": "healthy" if db_query_time < 100 else "slow",
                 }
@@ -380,7 +380,7 @@ async def performance_metrics(request: Request) -> PerformanceMetricsResponse:
                 },
                 "concurrent_devices_limit": settings.polling.polling_max_concurrent_devices,
                 "rate_limits": {
-                    "default_requests_per_minute": 100  # From settings
+                    "default_requests_per_minute": settings.api.rate_limit_requests_per_minute
                 },
             },
             "recommendations": [
