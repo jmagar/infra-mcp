@@ -9,7 +9,7 @@ import hashlib
 import logging
 import re
 import socket
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Dict, List, Optional, Any, Tuple
 import yaml

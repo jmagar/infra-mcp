@@ -7,7 +7,7 @@ real-time file access and database synchronization.
 
 import asyncio
 import logging
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Dict, List, Optional, Any
 from sqlalchemy.ext.asyncio import AsyncSession

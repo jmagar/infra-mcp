@@ -8,7 +8,7 @@ for real-time infrastructure monitoring.
 import logging
 import asyncio
 import json
-from typing import Dict, Set, List, Optional, Any
+from typing import Any
 from uuid import uuid4
 from fastapi import WebSocket, WebSocketDisconnect
 from fastapi.security import HTTPBearer
@@ -33,17 +33,17 @@ class WebSocketConnection:
     def __init__(self, websocket: WebSocket, client_id: str):
         self.websocket = websocket
         self.client_id = client_id
-        self.subscriptions: Set[str] = set()
+        self.subscriptions: set[str] = set()
         self.authenticated = False
-        self.user_id: Optional[str] = None
+        self.user_id: str | None = None
         self.last_heartbeat = asyncio.get_event_loop().time()
-        self.heartbeat_message: Optional[HeartbeatMessage] = None
+        self.heartbeat_message: HeartbeatMessage | None = None
 
     async def send_message(self, message: WebSocketMessage):
         """Send a message to this connection"""
         try:
             # Check if WebSocket is still open before sending
-            if self.websocket.client_state != WebSocketState.CONNECTED:
+            if self.websocket.application_state != WebSocketState.CONNECTED:
                 logger.debug(f"WebSocket {self.client_id} not connected, skipping message")
                 return
 
@@ -69,13 +69,13 @@ class WebSocketConnection:
             raise
 
     async def send_error(
-        self, error_code: str, message: str, details: Optional[Dict[str, Any]] = None
+        self, error_code: str, message: str, details: dict[str, Any] | None = None
     ):
         """Send an error message to this connection"""
         error_msg = create_error_message(error_code, message, details)
         await self.send_message(error_msg)
 
-    def update_subscriptions(self, action: str, topics: List[str]):
+    def update_subscriptions(self, action: str, topics: list[str]):
         """Update connection subscriptions"""
         if action == "subscribe":
             self.subscriptions.update(topics)
@@ -115,9 +115,9 @@ class ConnectionManager:
     """Manages all WebSocket connections and message broadcasting"""
 
     def __init__(self):
-        self.connections: Dict[str, WebSocketConnection] = {}
+        self.connections: dict[str, WebSocketConnection] = {}
         self.heartbeat_interval = 30  # seconds
-        self.heartbeat_task: Optional[asyncio.Task] = None
+        self.heartbeat_task: asyncio.Task | None = None
 
     async def connect(self, websocket: WebSocket) -> str:
         """Accept a new WebSocket connection"""
@@ -137,7 +137,7 @@ class ConnectionManager:
     async def disconnect(self, client_id: str):
         """Remove a WebSocket connection"""
         if client_id in self.connections:
-            connection = self.connections.pop(client_id)
+            self.connections.pop(client_id)
             logger.info(f"WebSocket disconnected: {client_id}")
 
             # Stop heartbeat task if no connections remain
@@ -169,7 +169,7 @@ class ConnectionManager:
         connection.update_subscriptions(subscription_msg.action, subscription_msg.topics)
         # Subscription updated
 
-    async def handle_heartbeat(self, client_id: str, heartbeat_msg: HeartbeatMessage):
+    async def handle_heartbeat(self, client_id: str):
         """Handle client heartbeat"""
         if client_id in self.connections:
             self.connections[client_id].last_heartbeat = asyncio.get_event_loop().time()
@@ -215,7 +215,7 @@ class ConnectionManager:
                 logger.error(f"Failed to send to {client_id}: {e}")
                 await self.disconnect(client_id)
 
-    def get_connection_stats(self) -> Dict[str, Any]:
+    def get_connection_stats(self) -> dict[str, Any]:
         """Get connection statistics"""
         total_connections = len(self.connections)
         authenticated_connections = sum(

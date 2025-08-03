@@ -7,7 +7,7 @@ monitoring status checks, and device information retrieval.
 
 import logging
 import time
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any
 # UUID import removed - now using hostname-only approach
 

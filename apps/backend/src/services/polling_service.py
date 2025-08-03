@@ -5,7 +5,7 @@ Service layer for background device polling and metrics collection.
 import asyncio
 import json
 import logging
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timedelta, UTC
 from typing import List, Optional, Any, Set, Dict
 from uuid import UUID
 
@@ -33,13 +33,15 @@ class PollingService:
     def __init__(self):
         self.ssh_client = get_ssh_client()
         self.settings = get_settings()
-        self.polling_tasks: dict[UUID, dict[str, asyncio.Task]] = {}  # device_id -> {task_type: task}
+        self.polling_tasks: dict[
+            UUID, dict[str, asyncio.Task]
+        ] = {}  # device_id -> {task_type: task}
         self.is_running = False
         self.db = None  # Will be initialized in start_polling
-        
+
         # Use configured intervals for different data types
         self.container_interval = self.settings.polling.polling_container_interval
-        self.metrics_interval = self.settings.polling.polling_system_metrics_interval  
+        self.metrics_interval = self.settings.polling.polling_system_metrics_interval
         self.drive_health_interval = self.settings.polling.polling_drive_health_interval
         self.max_concurrent_devices = self.settings.polling.polling_max_concurrent_devices
 
@@ -136,10 +138,12 @@ class PollingService:
                 device_tasks = {
                     "containers": asyncio.create_task(self._poll_containers(device)),
                     "metrics": asyncio.create_task(self._poll_system_metrics(device)),
-                    "drive_health": asyncio.create_task(self._poll_drive_health(device))
+                    "drive_health": asyncio.create_task(self._poll_drive_health(device)),
                 }
                 self.polling_tasks[device.id] = device_tasks
-                logger.info(f"Started polling for device {device.id} ({device.hostname}) with separate intervals")
+                logger.info(
+                    f"Started polling for device {device.id} ({device.hostname}) with separate intervals"
+                )
 
     async def _poll_containers(self, device: Device) -> None:
         """Continuously poll container data for a device"""
@@ -275,8 +279,8 @@ class PollingService:
             try:
                 device.status = status
                 if status == "online":
-                    device.last_seen = datetime.now(timezone.utc)
-                device.updated_at = datetime.now(timezone.utc)
+                    device.last_seen = datetime.now(UTC)
+                device.updated_at = datetime.now(UTC)
 
                 await db.commit()
 
@@ -323,7 +327,7 @@ class PollingService:
             # Create system metric record
             metric = SystemMetric(
                 device_id=device.id,
-                time=datetime.now(timezone.utc),
+                time=datetime.now(UTC),
                 cpu_usage_percent=cpu_usage,
                 memory_usage_percent=memory_usage,
                 disk_usage_percent=disk_usage,
@@ -353,11 +357,13 @@ class PollingService:
         try:
             # Check if this is a WSL environment - skip drive health collection
             wsl_result = await self.ssh_client.execute_command(ssh_info, WSL_DETECTION_COMMAND)
-            
+
             if wsl_result.stdout and "WSL" in wsl_result.stdout:
-                logger.debug(f"Skipping drive health collection for WSL environment: {device.hostname}")
+                logger.debug(
+                    f"Skipping drive health collection for WSL environment: {device.hostname}"
+                )
                 return
-            
+
             # Get list of drives
             cmd = "lsblk -dno NAME,SIZE | grep -E '^[s|n|h]d[a-z]|^nvme[0-9]'"
             result = await self.ssh_client.execute_command(ssh_info, cmd)
@@ -402,7 +408,7 @@ class PollingService:
                         # Create or update drive health record
                         drive_health = DriveHealth(
                             device_id=device.id,
-                            time=datetime.now(timezone.utc),
+                            time=datetime.now(UTC),
                             drive_name=f"/dev/{drive_name}",
                             model="Unknown",  # Would need additional parsing
                             serial_number="Unknown",
@@ -497,7 +503,7 @@ class PollingService:
                     # Create container snapshot
                     snapshot = ContainerSnapshot(
                         device_id=device.id,
-                        time=datetime.now(timezone.utc),
+                        time=datetime.now(UTC),
                         container_id=container_id,
                         container_name=container_name,
                         image=container_data.get("Image", ""),
@@ -575,7 +581,7 @@ class PollingService:
                 "device_id": str(device_id),
                 "hostname": device.hostname,
                 "status": "success",
-                "timestamp": datetime.now(timezone.utc).isoformat(),
+                "timestamp": datetime.now(UTC).isoformat(),
                 "message": "Device polled successfully",
             }
 
@@ -585,7 +591,7 @@ class PollingService:
                 "device_id": str(device_id),
                 "hostname": device.hostname,
                 "status": "error",
-                "timestamp": datetime.now(timezone.utc).isoformat(),
+                "timestamp": datetime.now(UTC).isoformat(),
                 "error": str(e),
             }
 

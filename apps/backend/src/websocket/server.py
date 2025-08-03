@@ -9,8 +9,7 @@ import asyncio
 import logging
 import json
 from typing import Any, Dict
-from fastapi import APIRouter, WebSocket, WebSocketDisconnect, Depends, HTTPException
-from fastapi.security import HTTPAuthorizationCredentials
+from fastapi import APIRouter, WebSocket, WebSocketDisconnect, HTTPException
 
 from .connection_manager import get_connection_manager, ConnectionManager
 from .message_protocol import (
@@ -50,7 +49,6 @@ async def websocket_endpoint(
     try:
         # Wait for authentication
         auth_timeout = 30  # seconds
-        authenticated = False
 
         try:
             # Wait for authentication message
@@ -76,7 +74,6 @@ async def websocket_endpoint(
 
             if user_id:
                 await connection_manager.authenticate_connection(client_id, user_id)
-                authenticated = True
 
                 # Send auth success
                 await websocket.send_text(
@@ -103,7 +100,7 @@ async def websocket_endpoint(
                 )
                 return
 
-        except asyncio.TimeoutError:
+        except TimeoutError:
             await websocket.send_text(
                 json.dumps(
                     {
@@ -159,7 +156,7 @@ async def websocket_endpoint(
 
                 elif message_type == MessageType.HEARTBEAT:
                     heartbeat_msg = HeartbeatMessage(**message_data)
-                    await connection_manager.handle_heartbeat(client_id, heartbeat_msg)
+                    await connection_manager.handle_heartbeat(client_id)
 
                     # Echo heartbeat back
                     try:
@@ -246,3 +243,4 @@ async def websocket_status(connection_manager: ConnectionManager = Depends(get_c
 async def websocket_health():
     """WebSocket server health check"""
     return {"status": "healthy", "service": "websocket_server"}
+
