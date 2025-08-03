@@ -25,6 +25,7 @@ from apps.backend.src.models.device import Device
 from apps.backend.src.models.metrics import SystemMetric, DriveHealth
 from apps.backend.src.models.container import ContainerSnapshot
 from apps.backend.src.utils.ssh_client import get_ssh_client, SSHConnectionInfo
+from apps.backend.src.utils.ssh_command_manager import get_ssh_command_manager
 from apps.backend.src.utils.environment import WSL_DETECTION_COMMAND
 from apps.backend.src.core.exceptions import (
     DeviceNotFoundError,
@@ -39,6 +40,7 @@ logger = logging.getLogger(__name__)
 class PollingService:
     def __init__(self):
         self.ssh_client = get_ssh_client()
+        self.ssh_command_manager = get_ssh_command_manager()
         self.settings = get_settings()
         self.event_bus = get_event_bus()
         self.polling_tasks: dict[
@@ -264,37 +266,25 @@ class PollingService:
                 logger.error(f"Error updating device status for {device.hostname}: {e}")
 
     async def _collect_system_metrics(self, device: Device) -> None:
-        """Collect and store system metrics for a device"""
+        """Collect and store system metrics for a device using SSH Command Manager"""
         ssh_info = SSHConnectionInfo(
             host=device.hostname, port=device.ssh_port or 22, username=device.ssh_username or "root"
         )
 
         try:
-            # Get system metrics via SSH commands
-            commands = {
-                "cpu": "top -bn1 | grep 'Cpu(s)' | awk '{print $2}' | sed 's/%us,//'",
-                "memory": "free | grep Mem | awk '{printf \"%.2f\", ($3/$2) * 100.0}'",
-                "disk": "df -h / | awk 'NR==2{print $5}' | sed 's/%//'",
-                "load": "cat /proc/loadavg | awk '{print $1, $2, $3}'",
-                "uptime": "cat /proc/uptime | awk '{print $1}'",
-            }
-
-            results = {}
-            for key, cmd in commands.items():
-                try:
-                    result = await self.ssh_client.execute_command(ssh_info, cmd)
-                    results[key] = result.stdout.strip() if result.stdout else ""
-                except Exception as e:
-                    logger.warning(f"Failed to get {key} metric for {device.hostname}: {e}")
-                    results[key] = ""
-
-            # Parse results
-            cpu_usage = float(results["cpu"]) if results["cpu"] else 0.0
-            memory_usage = float(results["memory"]) if results["memory"] else 0.0
-            disk_usage = float(results["disk"]) if results["disk"] else 0.0
-            uptime_seconds = float(results["uptime"]) if results["uptime"] else 0.0
-
-            load_avg = results["load"].split() if results["load"] else ["0", "0", "0"]
+            # Use SSH Command Manager for robust system metrics collection
+            metrics_data = await self.ssh_command_manager.execute_command(
+                "system_metrics",
+                ssh_info
+            )
+            
+            # Extract parsed metrics
+            cpu_usage = metrics_data.get("cpu_usage", 0.0)
+            memory_usage = metrics_data.get("memory_usage", 0.0)
+            disk_usage = metrics_data.get("disk_usage", 0.0)
+            uptime_seconds = metrics_data.get("uptime", 0.0)
+            
+            load_avg = metrics_data.get("load_avg", ["0", "0", "0"])
             load_1m = float(load_avg[0]) if len(load_avg) > 0 else 0.0
             load_5m = float(load_avg[1]) if len(load_avg) > 1 else 0.0
             load_15m = float(load_avg[2]) if len(load_avg) > 2 else 0.0
@@ -355,65 +345,76 @@ class PollingService:
                 )
                 return
 
-            # Get list of drives
-            cmd = "lsblk -dno NAME,SIZE | grep -E '^[s|n|h]d[a-z]|^nvme[0-9]'"
-            result = await self.ssh_client.execute_command(ssh_info, cmd)
+            # Use SSH Command Manager for robust drive listing
+            try:
+                drive_list = await self.ssh_command_manager.execute_command(
+                    "list_drives",
+                    ssh_info
+                )
+            except Exception as e:
+                logger.warning(f"Failed to get drive list for {device.hostname}: {e}")
+                return
 
-            if not result.stdout:
+            if not drive_list:
                 return
 
             drives = []
-            for line in result.stdout.strip().split("\n"):
-                if line.strip():
-                    parts = line.split()
-                    if len(parts) >= 2:
-                        drive_name = parts[0]
-                        drive_size = parts[1]
+            for drive_data in drive_list:
+                drive_name = drive_data.get("name", "")
+                drive_size = drive_data.get("size", "")
 
-                        # Get SMART data if available
-                        smart_cmd = f"smartctl -A /dev/{drive_name} 2>/dev/null || echo 'SMART not available'"
-                        smart_result = await self.ssh_client.execute_command(ssh_info, smart_cmd)
+                # Get SMART data if available using SSH Command Manager
+                try:
+                    smart_result = await self.ssh_command_manager.execute_raw_command(
+                        f"smartctl -A /dev/{drive_name} 2>/dev/null || echo 'SMART not available'",
+                        ssh_info,
+                        timeout=10
+                    )
 
-                        # Parse SMART data (simplified)
-                        temperature = None
-                        health_status = "unknown"
+                    # Parse SMART data (simplified)
+                    temperature = None
+                    health_status = "unknown"
 
-                        if smart_result.stdout and "SMART not available" not in smart_result.stdout:
-                            lines = smart_result.stdout.split("\n")
-                            for line in lines:
-                                if (
-                                    "Temperature_Celsius" in line
-                                    or "Airflow_Temperature_Cel" in line
-                                ):
-                                    parts = line.split()
-                                    if len(parts) >= 10:
-                                        try:
-                                            temperature = int(parts[9])
-                                        except (ValueError, IndexError):
-                                            pass
-                                        break
-                            health_status = (
-                                "healthy"  # Simplified - would need proper SMART analysis
-                            )
-
-                        # Create or update drive health record
-                        drive_health = DriveHealth(
-                            device_id=device.id,
-                            time=datetime.now(UTC),
-                            drive_name=f"/dev/{drive_name}",
-                            model="Unknown",  # Would need additional parsing
-                            serial_number="Unknown",
-                            capacity_bytes=0,  # Would need to parse size
-                            temperature_celsius=temperature,
-                            health_status=health_status,
-                            smart_status="PASSED" if health_status == "healthy" else "UNKNOWN",
-                            power_on_hours=0,  # Would need SMART parsing
-                            reallocated_sectors=0,
-                            pending_sectors=0,
-                            uncorrectable_errors=0,
+                    if smart_result.stdout and "SMART not available" not in smart_result.stdout:
+                        lines = smart_result.stdout.split("\n")
+                        for line in lines:
+                            if (
+                                "Temperature_Celsius" in line
+                                or "Airflow_Temperature_Cel" in line
+                            ):
+                                parts = line.split()
+                                if len(parts) >= 10:
+                                    try:
+                                        temperature = int(parts[9])
+                                    except (ValueError, IndexError):
+                                        pass
+                                    break
+                        health_status = (
+                            "healthy"  # Simplified - would need proper SMART analysis
                         )
+                except Exception as e:
+                    logger.warning(f"Failed to get SMART data for {drive_name}: {e}")
+                    temperature = None
+                    health_status = "unknown"
 
-                        drives.append(drive_health)
+                # Create or update drive health record
+                drive_health = DriveHealth(
+                    device_id=device.id,
+                    time=datetime.now(UTC),
+                    drive_name=f"/dev/{drive_name}",
+                    model="Unknown",  # Would need additional parsing
+                    serial_number="Unknown",
+                    capacity_bytes=0,  # Would need to parse size
+                    temperature_celsius=temperature,
+                    health_status=health_status,
+                    smart_status="PASSED" if health_status == "healthy" else "UNKNOWN",
+                    power_on_hours=0,  # Would need SMART parsing
+                    reallocated_sectors=0,
+                    pending_sectors=0,
+                    uncorrectable_errors=0,
+                )
+
+                drives.append(drive_health)
 
             # Add all drive records
             async with self.session_factory() as db:
@@ -453,31 +454,34 @@ class PollingService:
                 # Docker not available
                 return
 
-            # Get container list with stats
-            cmd = "docker ps -a --format '{{json .}}'"
-            result = await self.ssh_client.execute_command(ssh_info, cmd)
+            # Use SSH Command Manager for robust container listing
+            try:
+                container_list = await self.ssh_command_manager.execute_command(
+                    "list_containers",
+                    ssh_info
+                )
+            except Exception as e:
+                logger.warning(f"Failed to get container list for {device.hostname}: {e}")
+                return
 
-            if not result.stdout:
+            if not container_list:
                 return
 
             containers = []
-            lines = result.stdout.strip().split("\n")
+            for container_data in container_list:
+                container_id = container_data.get("ID", "")
+                container_name = container_data.get("Names", "").lstrip("/")
 
-            for line in lines:
-                if not line.strip():
+                if not container_id:
                     continue
 
+                # Get detailed stats for this container using SSH Command Manager
                 try:
-                    container_data = json.loads(line)
-                    container_id = container_data.get("ID", "")
-                    container_name = container_data.get("Names", "").lstrip("/")
-
-                    if not container_id:
-                        continue
-
-                    # Get detailed stats for this container
-                    stats_cmd = f"docker stats --no-stream --format '{{{{json .}}}}' {container_id}"
-                    stats_result = await self.ssh_client.execute_command(ssh_info, stats_cmd)
+                    stats_result = await self.ssh_command_manager.execute_raw_command(
+                        f"docker stats --no-stream --format '{{json .}}' {container_id}",
+                        ssh_info,
+                        timeout=15
+                    )
 
                     stats_data = {}
                     if stats_result.stdout:

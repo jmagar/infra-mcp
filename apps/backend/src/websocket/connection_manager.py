@@ -5,29 +5,30 @@ Manages client connections, subscriptions, and message broadcasting
 for real-time infrastructure monitoring.
 """
 
-import logging
 import asyncio
 import json
+import logging
 from typing import Any
-
-from apps.backend.src.core.events import (
-    get_event_bus,
-    BaseEvent,
-    MetricCollectedEvent,
-    DeviceStatusChangedEvent,
-    ContainerStatusEvent,
-    DriveHealthEvent
-)
 from uuid import uuid4
+
 from fastapi import WebSocket
 from starlette.websockets import WebSocketState
 
+from apps.backend.src.core.events import (
+    BaseEvent,
+    ContainerStatusEvent,
+    DeviceStatusChangedEvent,
+    DriveHealthEvent,
+    MetricCollectedEvent,
+    get_event_bus,
+)
+
 from .message_protocol import (
-    WebSocketMessage,
-    SubscriptionMessage,
     HeartbeatMessage,
-    create_error_message,
+    SubscriptionMessage,
     SubscriptionTopics,
+    WebSocketMessage,
+    create_error_message,
 )
 
 logger = logging.getLogger(__name__)
@@ -49,7 +50,7 @@ class WebSocketConnection:
         """Send a message to this connection"""
         try:
             # Check if WebSocket is still open before sending
-            if self.websocket.application_state != WebSocketState.CONNECTED:
+            if self.websocket.client_state != WebSocketState.CONNECTED:
                 logger.debug(f"WebSocket {self.client_id} not connected, skipping message")
                 return
 
@@ -179,7 +180,16 @@ class ConnectionManager:
             return
 
         connection.update_subscriptions(subscription_msg.action, subscription_msg.topics)
-        # Subscription updated
+
+        # Send subscription confirmation to client
+        try:
+            confirmation = SubscriptionMessage(
+                action="confirmed",
+                topics=subscription_msg.topics
+            )
+            await connection.send_message(confirmation)
+        except Exception as e:
+            logger.warning(f"Failed to send subscription confirmation to {client_id}: {e}")
 
     async def handle_heartbeat(self, client_id: str):
         """Handle client heartbeat"""
@@ -294,7 +304,7 @@ class ConnectionManager:
             self._handle_monitoring_event,
             priority=10  # High priority for real-time updates
         )
-        
+
         self._event_handlers_registered = True
         logger.info("WebSocket event handlers registered")
 
@@ -303,20 +313,20 @@ class ConnectionManager:
         try:
             # Convert event to WebSocket message
             websocket_message = self._convert_event_to_websocket_message(event)
-            
+
             # Determine topic for broadcasting
             topic = self._get_topic_for_event(event)
-            
+
             # Broadcast to subscribed clients
             await self.broadcast_to_topic(topic, websocket_message)
-            
+
         except Exception as e:
             logger.error(f"Error handling monitoring event {event.event_type}: {e}")
 
     def _convert_event_to_websocket_message(self, event: BaseEvent) -> WebSocketMessage:
         """Convert an event to a WebSocket message"""
         from .message_protocol import DataMessage
-        
+
         # Create data message with event information
         return DataMessage(
             topic=self._get_topic_for_event(event),

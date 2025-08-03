@@ -63,6 +63,7 @@ from apps.backend.src.core.exceptions import (
     ExternalServiceError,
 )
 from apps.backend.src.api import api_router
+from apps.backend.src.api.monitoring import router as monitoring_router
 from apps.backend.src.websocket import websocket_router
 
 # Configure logging
@@ -634,6 +635,7 @@ async def root(request: Request):
 
 # Include API routers with /api prefix
 app.include_router(api_router, prefix="/api")
+app.include_router(monitoring_router)  # Enhanced monitoring endpoints
 app.include_router(websocket_router)
 
 

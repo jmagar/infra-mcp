@@ -6,6 +6,7 @@ consistent with the REST API authentication system.
 """
 
 import logging
+
 from fastapi import HTTPException, status
 from fastapi.security import HTTPBearer
 

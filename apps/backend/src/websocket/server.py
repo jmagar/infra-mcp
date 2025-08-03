@@ -6,17 +6,18 @@ Provides WebSocket endpoints for client connections and message handling.
 """
 
 import asyncio
-import logging
 import json
-from fastapi import APIRouter, WebSocket, WebSocketDisconnect, Depends
+import logging
 
-from .connection_manager import get_connection_manager, ConnectionManager
+from fastapi import APIRouter, Depends, WebSocket, WebSocketDisconnect
+
+from .auth import WebSocketAuthenticator, get_websocket_authenticator
+from .connection_manager import ConnectionManager, get_connection_manager
 from .message_protocol import (
+    HeartbeatMessage,
     MessageType,
     SubscriptionMessage,
-    HeartbeatMessage,
 )
-from .auth import get_websocket_authenticator, WebSocketAuthenticator
 
 logger = logging.getLogger(__name__)
 
@@ -151,7 +152,8 @@ async def websocket_endpoint(
                         break
 
                 elif message_type == MessageType.HEARTBEAT:
-                    heartbeat_msg = HeartbeatMessage(**message_data)
+                    # Validate heartbeat message format
+                    HeartbeatMessage(**message_data)
                     await connection_manager.handle_heartbeat(client_id)
 
                     # Echo heartbeat back
