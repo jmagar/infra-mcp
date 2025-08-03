@@ -145,7 +145,7 @@ class VMHealthOverview(BaseModel):
     vms_by_device: Dict[str, int] = Field(description="VM count by device")
     high_resource_vms: List[str] = Field(description="VMs with high resource usage")
     problematic_vms: List[str] = Field(description="VMs with issues")
-    timestamp: datetime = Field(default_factory=lambda: datetime.now(datetime.UTC), description="Report timestamp")
+    timestamp: datetime = Field(default_factory=lambda: datetime.now(timezone.utc), description="Report timestamp")
 
 
 class VMPerformanceMetrics(BaseModel):
@@ -208,7 +208,7 @@ class VMOperation(BaseModel):
     parameters: Dict[str, Any] = Field(default_factory=dict, description="Operation parameters")
     initiated_by: Optional[str] = Field(None, description="User who initiated operation")
     initiated_at: datetime = Field(
-        default_factory=lambda: datetime.now(datetime.UTC), description="Operation start time"
+        default_factory=lambda: datetime.now(timezone.utc), description="Operation start time"
     )
 
     @field_validator("operation")
@@ -242,7 +242,7 @@ class VMOperationResult(BaseModel):
     error_details: Optional[str] = Field(description="Error details if failed")
     duration_seconds: Optional[float] = Field(description="Operation duration")
     result_data: Dict[str, Any] = Field(default_factory=dict, description="Operation result data")
-    completed_at: datetime = Field(default_factory=lambda: datetime.now(datetime.UTC), description="Completion time")
+    completed_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc), description="Completion time")
 
     class Config:
         from_attributes = True

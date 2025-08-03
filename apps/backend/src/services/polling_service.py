@@ -5,7 +5,7 @@ Service layer for background device polling and metrics collection.
 import asyncio
 import json
 import logging
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import List, Optional, Any, Set, Dict
 from uuid import UUID
 
@@ -17,7 +17,7 @@ from apps.backend.src.core.config import get_settings
 from apps.backend.src.models.device import Device
 from apps.backend.src.models.metrics import SystemMetric, DriveHealth
 from apps.backend.src.models.container import ContainerSnapshot
-from apps.backend.src.utils.ssh_client import get_ssh_client, SSHConnectionInfo, execute_ssh_command
+from apps.backend.src.utils.ssh_client import get_ssh_client, SSHConnectionInfo
 from apps.backend.src.core.exceptions import (
     DeviceNotFoundError,
     SSHConnectionError,
@@ -32,16 +32,15 @@ class PollingService:
     def __init__(self):
         self.ssh_client = get_ssh_client()
         self.settings = get_settings()
-        self.polling_tasks: dict[UUID, asyncio.Task] = {}
+        self.polling_tasks: dict[UUID, dict[str, asyncio.Task]] = {}  # device_id -> {task_type: task}
         self.is_running = False
         self.db = None  # Will be initialized in start_polling
-        # Set polling interval - default to 5 minutes if not configured
-        if hasattr(self.settings, "polling") and hasattr(
-            self.settings.polling, "poll_interval_seconds"
-        ):
-            self.poll_interval = self.settings.polling.poll_interval_seconds
-        else:
-            self.poll_interval = 300  # 5 minutes default
+        
+        # Use configured intervals for different data types
+        self.container_interval = self.settings.polling.polling_container_interval
+        self.metrics_interval = self.settings.polling.polling_system_metrics_interval  
+        self.drive_health_interval = self.settings.polling.polling_drive_health_interval
+        self.max_concurrent_devices = self.settings.polling.polling_max_concurrent_devices
 
     async def start_polling(self) -> None:
         """Start the background polling service"""
@@ -68,14 +67,15 @@ class PollingService:
         logger.info("Stopping device polling service")
         self.is_running = False
 
-        # Cancel all polling tasks
-        for device_id, task in self.polling_tasks.items():
-            if not task.done():
-                task.cancel()
-                try:
-                    await task
-                except asyncio.CancelledError:
-                    pass
+        # Cancel all polling tasks for all devices
+        for device_id, tasks in self.polling_tasks.items():
+            for task_type, task in tasks.items():
+                if not task.done():
+                    task.cancel()
+                    try:
+                        await task
+                    except asyncio.CancelledError:
+                        pass
 
         self.polling_tasks.clear()
 
@@ -117,22 +117,112 @@ class PollingService:
         # Stop polling for devices no longer in the list
         to_stop = running_device_ids - current_device_ids
         for device_id in to_stop:
-            task = self.polling_tasks.pop(device_id)
-            if not task.done():
-                task.cancel()
-                try:
-                    await task
-                except asyncio.CancelledError:
-                    pass
+            tasks = self.polling_tasks.pop(device_id)
+            for task_type, task in tasks.items():
+                if not task.done():
+                    task.cancel()
+                    try:
+                        await task
+                    except asyncio.CancelledError:
+                        pass
             logger.info(f"Stopped polling for device {device_id}")
 
         # Start polling for new devices
         to_start = current_device_ids - running_device_ids
         for device in devices:
             if device.id in to_start:
-                task = asyncio.create_task(self._poll_device(device))
-                self.polling_tasks[device.id] = task
-                logger.info(f"Started polling for device {device.id} ({device.hostname})")
+                # Create separate tasks for each data type with different intervals
+                device_tasks = {
+                    "containers": asyncio.create_task(self._poll_containers(device)),
+                    "metrics": asyncio.create_task(self._poll_system_metrics(device)),
+                    "drive_health": asyncio.create_task(self._poll_drive_health(device))
+                }
+                self.polling_tasks[device.id] = device_tasks
+                logger.info(f"Started polling for device {device.id} ({device.hostname}) with separate intervals")
+
+    async def _poll_containers(self, device: Device) -> None:
+        """Continuously poll container data for a device"""
+        device_id = device.id
+        consecutive_failures = 0
+        max_consecutive_failures = 3
+
+        while self.is_running and device_id in self.polling_tasks:
+            try:
+                await self._collect_container_data(device)
+                consecutive_failures = 0
+                await asyncio.sleep(self.container_interval)
+
+            except SSHConnectionError:
+                consecutive_failures += 1
+                logger.warning(
+                    f"SSH connection failed for container polling on {device.hostname} (attempt {consecutive_failures})"
+                )
+                if consecutive_failures >= max_consecutive_failures:
+                    await self._update_device_status(device, "offline")
+                    await asyncio.sleep(self.container_interval * 2)
+                else:
+                    await asyncio.sleep(30)
+
+            except Exception as e:
+                consecutive_failures += 1
+                logger.error(f"Error polling containers for {device.hostname}: {e}")
+                await asyncio.sleep(60)
+
+    async def _poll_system_metrics(self, device: Device) -> None:
+        """Continuously poll system metrics for a device"""
+        device_id = device.id
+        consecutive_failures = 0
+        max_consecutive_failures = 3
+
+        while self.is_running and device_id in self.polling_tasks:
+            try:
+                await self._collect_system_metrics(device)
+                consecutive_failures = 0
+                await asyncio.sleep(self.metrics_interval)
+
+            except SSHConnectionError:
+                consecutive_failures += 1
+                logger.warning(
+                    f"SSH connection failed for metrics polling on {device.hostname} (attempt {consecutive_failures})"
+                )
+                if consecutive_failures >= max_consecutive_failures:
+                    await self._update_device_status(device, "offline")
+                    await asyncio.sleep(self.metrics_interval * 2)
+                else:
+                    await asyncio.sleep(30)
+
+            except Exception as e:
+                consecutive_failures += 1
+                logger.error(f"Error polling system metrics for {device.hostname}: {e}")
+                await asyncio.sleep(60)
+
+    async def _poll_drive_health(self, device: Device) -> None:
+        """Continuously poll drive health for a device"""
+        device_id = device.id
+        consecutive_failures = 0
+        max_consecutive_failures = 3
+
+        while self.is_running and device_id in self.polling_tasks:
+            try:
+                await self._collect_drive_health(device)
+                consecutive_failures = 0
+                await asyncio.sleep(self.drive_health_interval)
+
+            except SSHConnectionError:
+                consecutive_failures += 1
+                logger.warning(
+                    f"SSH connection failed for drive health polling on {device.hostname} (attempt {consecutive_failures})"
+                )
+                if consecutive_failures >= max_consecutive_failures:
+                    await self._update_device_status(device, "offline")
+                    await asyncio.sleep(self.drive_health_interval * 2)
+                else:
+                    await asyncio.sleep(30)
+
+            except Exception as e:
+                consecutive_failures += 1
+                logger.error(f"Error polling drive health for {device.hostname}: {e}")
+                await asyncio.sleep(60)
 
     async def _poll_device(self, device: Device) -> None:
         """Poll a single device for metrics and container data"""
@@ -158,7 +248,7 @@ class PollingService:
                 consecutive_failures = 0
 
                 # Wait for next poll
-                await asyncio.sleep(self.poll_interval)
+                await asyncio.sleep(self.metrics_interval)
 
             except SSHConnectionError:
                 consecutive_failures += 1
@@ -169,7 +259,7 @@ class PollingService:
                 if consecutive_failures >= max_consecutive_failures:
                     await self._update_device_status(device, "offline")
                     # Increase poll interval for offline devices
-                    await asyncio.sleep(self.poll_interval * 2)
+                    await asyncio.sleep(self.metrics_interval * 2)
                 else:
                     await asyncio.sleep(30)  # Short retry delay
 
@@ -184,8 +274,8 @@ class PollingService:
             try:
                 device.status = status
                 if status == "online":
-                    device.last_seen = datetime.now(datetime.UTC)
-                device.updated_at = datetime.now(datetime.UTC)
+                    device.last_seen = datetime.now(timezone.utc)
+                device.updated_at = datetime.now(timezone.utc)
 
                 await db.commit()
 
@@ -212,7 +302,7 @@ class PollingService:
             results = {}
             for key, cmd in commands.items():
                 try:
-                    result = await execute_ssh_command(ssh_info, cmd)
+                    result = await self.ssh_client.execute_command(ssh_info, cmd)
                     results[key] = result.stdout.strip() if result.stdout else ""
                 except Exception as e:
                     logger.warning(f"Failed to get {key} metric for {device.hostname}: {e}")
@@ -232,7 +322,7 @@ class PollingService:
             # Create system metric record
             metric = SystemMetric(
                 device_id=device.id,
-                time=datetime.now(datetime.UTC),
+                time=datetime.now(timezone.utc),
                 cpu_usage_percent=cpu_usage,
                 memory_usage_percent=memory_usage,
                 disk_usage_percent=disk_usage,
@@ -242,15 +332,13 @@ class PollingService:
                 uptime_seconds=int(uptime_seconds),
                 network_bytes_sent=0,  # Would need additional commands
                 network_bytes_recv=0,
-                disk_bytes_read=0,
-                disk_bytes_written=0,
             )
 
             async with self.session_factory() as db:
                 db.add(metric)
                 await db.commit()
 
-                logger.debug(f"Collected system metrics for {device.hostname}")
+                # System metrics collected successfully
 
         except Exception as e:
             logger.error(f"Error collecting system metrics for {device.hostname}: {e}")
@@ -262,9 +350,17 @@ class PollingService:
         )
 
         try:
+            # Check if this is a WSL environment - skip drive health collection
+            wsl_check_cmd = "grep -q microsoft /proc/version 2>/dev/null && echo 'WSL' || echo 'NOT_WSL'"
+            wsl_result = await self.ssh_client.execute_command(ssh_info, wsl_check_cmd)
+            
+            if wsl_result.stdout and "WSL" in wsl_result.stdout:
+                logger.debug(f"Skipping drive health collection for WSL environment: {device.hostname}")
+                return
+            
             # Get list of drives
             cmd = "lsblk -dno NAME,SIZE | grep -E '^[s|n|h]d[a-z]|^nvme[0-9]'"
-            result = await execute_ssh_command(ssh_info, cmd)
+            result = await self.ssh_client.execute_command(ssh_info, cmd)
 
             if not result.stdout:
                 return
@@ -279,7 +375,7 @@ class PollingService:
 
                         # Get SMART data if available
                         smart_cmd = f"smartctl -A /dev/{drive_name} 2>/dev/null || echo 'SMART not available'"
-                        smart_result = await execute_ssh_command(ssh_info, smart_cmd)
+                        smart_result = await self.ssh_client.execute_command(ssh_info, smart_cmd)
 
                         # Parse SMART data (simplified)
                         temperature = None
@@ -306,8 +402,8 @@ class PollingService:
                         # Create or update drive health record
                         drive_health = DriveHealth(
                             device_id=device.id,
-                            time=datetime.now(datetime.UTC),
-                            device=f"/dev/{drive_name}",
+                            time=datetime.now(timezone.utc),
+                            drive_name=f"/dev/{drive_name}",
                             model="Unknown",  # Would need additional parsing
                             serial_number="Unknown",
                             capacity_bytes=0,  # Would need to parse size
@@ -315,10 +411,9 @@ class PollingService:
                             health_status=health_status,
                             smart_status="PASSED" if health_status == "healthy" else "UNKNOWN",
                             power_on_hours=0,  # Would need SMART parsing
-                            power_cycle_count=0,
                             reallocated_sectors=0,
                             pending_sectors=0,
-                            uncorrectable_sectors=0,
+                            uncorrectable_errors=0,
                         )
 
                         drives.append(drive_health)
@@ -330,7 +425,7 @@ class PollingService:
 
                 await db.commit()
 
-                logger.debug(f"Collected drive health for {device.hostname}: {len(drives)} drives")
+                # Drive health collected successfully
 
         except Exception as e:
             logger.error(f"Error collecting drive health for {device.hostname}: {e}")
@@ -343,14 +438,14 @@ class PollingService:
 
         try:
             # Check if Docker is available
-            docker_check = await execute_ssh_command(ssh_info, "docker --version")
+            docker_check = await self.ssh_client.execute_command(ssh_info, "docker --version")
             if not docker_check.stdout:
-                logger.debug(f"Docker not available on {device.hostname}")
+                # Docker not available
                 return
 
             # Get container list with stats
             cmd = "docker ps -a --format '{{json .}}'"
-            result = await execute_ssh_command(ssh_info, cmd)
+            result = await self.ssh_client.execute_command(ssh_info, cmd)
 
             if not result.stdout:
                 return
@@ -372,7 +467,7 @@ class PollingService:
 
                     # Get detailed stats for this container
                     stats_cmd = f"docker stats --no-stream --format '{{{{json .}}}}' {container_id}"
-                    stats_result = await execute_ssh_command(ssh_info, stats_cmd)
+                    stats_result = await self.ssh_client.execute_command(ssh_info, stats_cmd)
 
                     stats_data = {}
                     if stats_result.stdout:
@@ -402,7 +497,7 @@ class PollingService:
                     # Create container snapshot
                     snapshot = ContainerSnapshot(
                         device_id=device.id,
-                        time=datetime.now(datetime.UTC),
+                        time=datetime.now(timezone.utc),
                         container_id=container_id,
                         container_name=container_name,
                         image=container_data.get("Image", ""),
@@ -435,9 +530,7 @@ class PollingService:
 
                 await db.commit()
 
-                logger.debug(
-                    f"Collected container data for {device.hostname}: {len(containers)} containers"
-                )
+                # Container data collected successfully
 
         except Exception as e:
             logger.error(f"Error collecting container data for {device.hostname}: {e}")
@@ -482,7 +575,7 @@ class PollingService:
                 "device_id": str(device_id),
                 "hostname": device.hostname,
                 "status": "success",
-                "timestamp": datetime.now(datetime.UTC).isoformat(),
+                "timestamp": datetime.now(timezone.utc).isoformat(),
                 "message": "Device polled successfully",
             }
 
@@ -492,7 +585,7 @@ class PollingService:
                 "device_id": str(device_id),
                 "hostname": device.hostname,
                 "status": "error",
-                "timestamp": datetime.now(datetime.UTC).isoformat(),
+                "timestamp": datetime.now(timezone.utc).isoformat(),
                 "error": str(e),
             }
 
@@ -500,7 +593,9 @@ class PollingService:
         """Get current polling service status"""
         return {
             "is_running": self.is_running,
-            "poll_interval_seconds": self.poll_interval,
+            "metrics_interval_seconds": self.metrics_interval,
+            "container_interval_seconds": self.container_interval,
+            "drive_health_interval_seconds": self.drive_health_interval,
             "active_devices": len(self.polling_tasks),
             "device_ids": [str(device_id) for device_id in self.polling_tasks.keys()],
         }

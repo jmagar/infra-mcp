@@ -92,7 +92,7 @@ async def get_ports_resource(uri: str) -> str:
 
         resource_data = {
             "device": device,
-            "timestamp": result.get("timestamp", datetime.now(datetime.UTC).isoformat()),
+            "timestamp": result.get("timestamp", datetime.now(timezone.utc).isoformat()),
             "command": "ss -tulpn",
             "total_ports": len(ports_data),
             "ports": ports_data,

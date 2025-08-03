@@ -52,7 +52,7 @@ class NotificationMessage(BaseModel):
 
     def __init__(self, **kwargs):
         if "timestamp" not in kwargs:
-            kwargs["timestamp"] = datetime.now(datetime.UTC)
+            kwargs["timestamp"] = datetime.now(timezone.utc)
         super().__init__(**kwargs)
 
 

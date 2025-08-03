@@ -121,7 +121,7 @@ async def list_proxy_configs(
                     "created_at": config.created_at,
                     "updated_at": config.updated_at,
                     "sync_status": _determine_sync_status(config, file_info),
-                    "sync_last_checked": datetime.now(datetime.UTC),
+                    "sync_last_checked": datetime.now(timezone.utc),
                     "file_exists": file_info.get("exists", False),
                     "file_readable": file_info.get("readable", False),
                 }
@@ -136,7 +136,7 @@ async def list_proxy_configs(
                     "page": (offset // limit) + 1 if limit > 0 else 1,
                     "total_pages": (total_count + limit - 1) // limit if limit > 0 else 1,
                 },
-                "query_timestamp": datetime.now(datetime.UTC).isoformat(),
+                "query_timestamp": datetime.now(timezone.utc).isoformat(),
                 "real_time_check": True,
             }
 
@@ -247,7 +247,7 @@ async def get_proxy_config(
                 "created_at": config.created_at,
                 "updated_at": config.updated_at,
                 "sync_status": _determine_sync_status(config, file_info),
-                "sync_last_checked": datetime.now(datetime.UTC),
+                "sync_last_checked": datetime.now(timezone.utc),
                 "file_info": file_info,
                 "recent_changes": [
                     {
@@ -259,7 +259,7 @@ async def get_proxy_config(
                     }
                     for change in recent_changes
                 ],
-                "query_timestamp": datetime.now(datetime.UTC).isoformat(),
+                "query_timestamp": datetime.now(timezone.utc).isoformat(),
                 "real_time_check": True,
             }
 
@@ -285,7 +285,7 @@ async def scan_proxy_configs(
         Dict containing scan results
     """
     try:
-        scan_start = datetime.now(datetime.UTC)
+        scan_start = datetime.now(timezone.utc)
 
         # Execute remote directory listing
         ls_command = (
@@ -309,7 +309,7 @@ async def scan_proxy_configs(
                     file_path = parts[0]
                     file_size = int(parts[1])
                     mtime = int(parts[2])
-                    last_modified = datetime.fromtimestamp(mtime, tz=datetime.UTC)
+                    last_modified = datetime.fromtimestamp(mtime, tz=timezone.utc)
 
                     files_found.append(file_path)
                     file_info[file_path] = {
@@ -349,7 +349,7 @@ async def scan_proxy_configs(
             "configs_found": configs_found,
             "sync_to_database": sync_to_database,
             "scan_duration_ms": int(
-                (datetime.now(datetime.UTC) - scan_start).total_seconds() * 1000
+                (datetime.now(timezone.utc) - scan_start).total_seconds() * 1000
             ),
         }
 
@@ -377,7 +377,7 @@ async def sync_proxy_config(config_id: int, force_update: bool = False) -> Dict[
         Dict containing sync results
     """
     try:
-        sync_start = datetime.now(datetime.UTC)
+        sync_start = datetime.now(timezone.utc)
 
         async with get_async_session() as session:
             # Get configuration
@@ -483,7 +483,7 @@ async def sync_proxy_config(config_id: int, force_update: bool = False) -> Dict[
             await session.commit()
 
             sync_result["sync_duration_ms"] = int(
-                (datetime.now(datetime.UTC) - sync_start).total_seconds() * 1000
+                (datetime.now(timezone.utc) - sync_start).total_seconds() * 1000
             )
             return sync_result
 
@@ -567,7 +567,7 @@ async def get_proxy_config_summary(device: Optional[str] = None) -> Dict[str, An
                 "ssl_enabled_count": ssl_count,
                 "last_sync": last_sync,
                 "status_distribution": status_counts,
-                "query_timestamp": datetime.now(datetime.UTC).isoformat(),
+                "query_timestamp": datetime.now(timezone.utc).isoformat(),
                 "device_filter": device,
             }
 
@@ -598,7 +598,7 @@ async def _get_real_time_file_info(device: str, file_path: str) -> Dict[str, Any
             file_size = int(parts[0])
             mtime = int(parts[1])
             permissions = parts[2]
-            last_modified = datetime.fromtimestamp(mtime, tz=datetime.UTC)
+            last_modified = datetime.fromtimestamp(mtime, tz=timezone.utc)
 
             # Check if readable (owner, group, or other has read permission)
             readable = "r" in permissions
@@ -684,7 +684,7 @@ async def _sync_configs_to_database(
                         existing_config.file_path = config_info["file_path"]
                         existing_config.file_size = config_info["file_size"]
                         existing_config.last_modified = config_info["last_modified"]
-                        existing_config.sync_last_checked = datetime.now(datetime.UTC)
+                        existing_config.sync_last_checked = datetime.now(timezone.utc)
                         existing_config.sync_status = "synced"
 
                         sync_result["updated_configs"] += 1
@@ -704,7 +704,7 @@ async def _sync_configs_to_database(
                             file_path=config_info["file_path"],
                             file_size=config_info["file_size"],
                             last_modified=config_info["last_modified"],
-                            sync_last_checked=datetime.now(datetime.UTC),
+                            sync_last_checked=datetime.now(timezone.utc),
                             sync_status="pending",  # Will be synced later
                         )
                         session.add(new_config)

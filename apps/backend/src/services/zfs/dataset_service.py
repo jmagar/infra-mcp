@@ -74,7 +74,7 @@ class ZFSDatasetService(ZFSBaseService):
             return {
                 "dataset_name": dataset_name,
                 "properties": properties,
-                "timestamp": datetime.now(datetime.UTC).isoformat(),
+                "timestamp": datetime.now(timezone.utc).isoformat(),
             }
 
         except Exception as e:
@@ -110,7 +110,7 @@ class ZFSDatasetService(ZFSBaseService):
             return {
                 "dataset_name": dataset_name,
                 "properties": properties or {},
-                "created_at": datetime.now(datetime.UTC).isoformat(),
+                "created_at": datetime.now(timezone.utc).isoformat(),
                 "status": "created",
             }
 
@@ -135,7 +135,7 @@ class ZFSDatasetService(ZFSBaseService):
             return {
                 "dataset_name": dataset_name,
                 "recursive": recursive,
-                "destroyed_at": datetime.now(datetime.UTC).isoformat(),
+                "destroyed_at": datetime.now(timezone.utc).isoformat(),
                 "status": "destroyed",
             }
 
@@ -159,7 +159,7 @@ class ZFSDatasetService(ZFSBaseService):
                 "dataset_name": dataset_name,
                 "property_name": property_name,
                 "value": value,
-                "set_at": datetime.now(datetime.UTC).isoformat(),
+                "set_at": datetime.now(timezone.utc).isoformat(),
                 "status": "property_set",
             }
 

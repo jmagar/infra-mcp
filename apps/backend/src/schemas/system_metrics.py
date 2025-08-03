@@ -75,7 +75,7 @@ class SystemMetricBase(BaseModel):
 class SystemMetricCreate(SystemMetricBase):
     """Schema for creating system metrics"""
 
-    time: datetime = Field(default_factory=lambda: datetime.now(datetime.UTC), description="Metric timestamp")
+    time: datetime = Field(default_factory=lambda: datetime.now(timezone.utc), description="Metric timestamp")
 
 
 class SystemMetricResponse(SystemMetricBase):
@@ -191,7 +191,7 @@ class SystemMetricsAggregatedList(BaseModel):
     total_count: int = Field(description="Total number of aggregated records")
     query_params: SystemMetricsQuery = Field(description="Query parameters used")
     generated_at: datetime = Field(
-        default_factory=lambda: datetime.now(datetime.UTC), description="Response generation timestamp"
+        default_factory=lambda: datetime.now(timezone.utc), description="Response generation timestamp"
     )
 
 

@@ -106,7 +106,7 @@ class ErrorResponse(BaseModel):
     error: str = Field(description="Error type")
     message: str = Field(description="Error message")
     details: Optional[Dict[str, Any]] = Field(description="Additional error details")
-    timestamp: datetime = Field(default_factory=lambda: datetime.now(datetime.UTC), description="Error timestamp")
+    timestamp: datetime = Field(default_factory=lambda: datetime.now(timezone.utc), description="Error timestamp")
 
 
 class HealthCheckResponse(BaseModel):
@@ -118,7 +118,7 @@ class HealthCheckResponse(BaseModel):
     database: Dict[str, Any] = Field(description="Database health information")
     services: Dict[str, str] = Field(description="Service status map")
     timestamp: datetime = Field(
-        default_factory=lambda: datetime.now(datetime.UTC), description="Health check timestamp"
+        default_factory=lambda: datetime.now(timezone.utc), description="Health check timestamp"
     )
 
 
@@ -208,7 +208,7 @@ class StatusResponse(BaseModel):
 
     status: str = Field(description="Operation status")
     message: Optional[str] = Field(description="Status message")
-    timestamp: datetime = Field(default_factory=lambda: datetime.now(datetime.UTC), description="Status timestamp")
+    timestamp: datetime = Field(default_factory=lambda: datetime.now(timezone.utc), description="Status timestamp")
 
 
 class CreatedResponse(BaseModel, Generic[T]):
@@ -218,7 +218,7 @@ class CreatedResponse(BaseModel, Generic[T]):
     resource_type: str = Field(description="Type of resource created")
     data: Optional[T] = Field(description="Created resource data")
     message: str = Field(default="Resource created successfully", description="Success message")
-    timestamp: datetime = Field(default_factory=lambda: datetime.now(datetime.UTC), description="Creation timestamp")
+    timestamp: datetime = Field(default_factory=lambda: datetime.now(timezone.utc), description="Creation timestamp")
 
     class Config:
         arbitrary_types_allowed = True
@@ -232,7 +232,7 @@ class UpdatedResponse(BaseModel, Generic[T]):
     data: Optional[T] = Field(description="Updated resource data")
     changes: Dict[str, Any] = Field(description="Fields that were changed")
     message: str = Field(default="Resource updated successfully", description="Success message")
-    timestamp: datetime = Field(default_factory=lambda: datetime.now(datetime.UTC), description="Update timestamp")
+    timestamp: datetime = Field(default_factory=lambda: datetime.now(timezone.utc), description="Update timestamp")
 
     class Config:
         arbitrary_types_allowed = True
@@ -244,7 +244,7 @@ class DeletedResponse(BaseModel):
     id: str = Field(description="ID of deleted resource")
     resource_type: str = Field(description="Type of resource deleted")
     message: str = Field(default="Resource deleted successfully", description="Success message")
-    timestamp: datetime = Field(default_factory=lambda: datetime.now(datetime.UTC), description="Deletion timestamp")
+    timestamp: datetime = Field(default_factory=lambda: datetime.now(timezone.utc), description="Deletion timestamp")
 
 
 class ValidationErrorResponse(BaseModel):
@@ -254,7 +254,7 @@ class ValidationErrorResponse(BaseModel):
     message: str = Field(description="Error message")
     field_errors: List[Dict[str, Any]] = Field(description="Field-specific validation errors")
     error_count: int = Field(description="Total number of validation errors")
-    timestamp: datetime = Field(default_factory=lambda: datetime.now(datetime.UTC), description="Error timestamp")
+    timestamp: datetime = Field(default_factory=lambda: datetime.now(timezone.utc), description="Error timestamp")
 
 
 class HealthMetrics(BaseModel):
@@ -280,7 +280,7 @@ class OperationResult(BaseModel, Generic[T]):
     error_message: Optional[str] = Field(description="Error message if operation failed")
     warnings: List[str] = Field(default_factory=list, description="Warning messages")
     execution_time_ms: Optional[int] = Field(description="Operation execution time in milliseconds")
-    timestamp: datetime = Field(default_factory=lambda: datetime.now(datetime.UTC), description="Operation timestamp")
+    timestamp: datetime = Field(default_factory=lambda: datetime.now(timezone.utc), description="Operation timestamp")
 
     class Config:
         arbitrary_types_allowed = True
@@ -317,5 +317,5 @@ class SystemInfo(BaseModel):
     app_version: str = Field(description="Application version")
     startup_time: datetime = Field(description="Application startup time")
     current_time: datetime = Field(
-        default_factory=lambda: datetime.now(datetime.UTC), description="Current system time"
+        default_factory=lambda: datetime.now(timezone.utc), description="Current system time"
     )

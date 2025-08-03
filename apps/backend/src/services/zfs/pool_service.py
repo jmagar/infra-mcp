@@ -79,7 +79,7 @@ class ZFSPoolService(ZFSBaseService):
                 "pool_name": pool_name,
                 "status_output": status_output,
                 "properties": properties,
-                "timestamp": datetime.now(datetime.UTC).isoformat(),
+                "timestamp": datetime.now(timezone.utc).isoformat(),
             }
 
         except Exception as e:
@@ -109,7 +109,7 @@ class ZFSPoolService(ZFSBaseService):
             return {
                 "pool_name": pool_name,
                 "properties": properties,
-                "timestamp": datetime.now(datetime.UTC).isoformat(),
+                "timestamp": datetime.now(timezone.utc).isoformat(),
             }
 
         except Exception as e:

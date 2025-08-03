@@ -74,7 +74,7 @@ class ZFSSnapshotService(ZFSBaseService):
                 "snapshot_name": snapshot_name,
                 "full_name": full_snapshot_name,
                 "recursive": recursive,
-                "created_at": datetime.now(datetime.UTC).isoformat(),
+                "created_at": datetime.now(timezone.utc).isoformat(),
                 "status": "created",
             }
 
@@ -103,7 +103,7 @@ class ZFSSnapshotService(ZFSBaseService):
             return {
                 "snapshot_name": snapshot_name,
                 "recursive": recursive,
-                "destroyed_at": datetime.now(datetime.UTC).isoformat(),
+                "destroyed_at": datetime.now(timezone.utc).isoformat(),
                 "status": "destroyed",
             }
 
@@ -126,7 +126,7 @@ class ZFSSnapshotService(ZFSBaseService):
             return {
                 "source_snapshot": snapshot_name,
                 "clone_name": clone_name,
-                "created_at": datetime.now(datetime.UTC).isoformat(),
+                "created_at": datetime.now(timezone.utc).isoformat(),
                 "status": "cloned",
             }
 
@@ -163,7 +163,7 @@ class ZFSSnapshotService(ZFSBaseService):
                 "destination": destination,
                 "incremental": incremental,
                 "output": output,
-                "sent_at": datetime.now(datetime.UTC).isoformat(),
+                "sent_at": datetime.now(timezone.utc).isoformat(),
                 "status": "sent",
             }
 
@@ -184,7 +184,7 @@ class ZFSSnapshotService(ZFSBaseService):
             return {
                 "dataset_name": dataset_name,
                 "output": output,
-                "received_at": datetime.now(datetime.UTC).isoformat(),
+                "received_at": datetime.now(timezone.utc).isoformat(),
                 "status": "received",
             }
 
@@ -208,7 +208,7 @@ class ZFSSnapshotService(ZFSBaseService):
                 "snapshot1": snapshot1,
                 "snapshot2": snapshot2,
                 "differences": output,
-                "compared_at": datetime.now(datetime.UTC).isoformat(),
+                "compared_at": datetime.now(timezone.utc).isoformat(),
             }
 
         except Exception as e:

@@ -9,7 +9,7 @@ code duplication and ensures consistency between MCP and REST interfaces.
 import logging
 import re
 import json
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Dict, List, Optional, Any
 
 from apps.backend.src.core.config import get_settings
@@ -98,7 +98,7 @@ async def list_containers(
                 "query_info": {
                     "status_filter": status,
                     "include_stopped": all_containers,
-                    "timestamp": datetime.now(datetime.UTC).isoformat(),
+                    "timestamp": datetime.now(timezone.utc).isoformat(),
                     "execution_time_ms": 0,
                 },
             }
@@ -223,7 +223,7 @@ async def list_containers(
             "query_info": {
                 "status_filter": status,
                 "include_stopped": all_containers,
-                "timestamp": datetime.now(datetime.UTC).isoformat(),
+                "timestamp": datetime.now(timezone.utc).isoformat(),
                 "execution_time_ms": int(result.execution_time * 1000),
             },
         }
@@ -454,7 +454,7 @@ async def get_container_info(device: str, container_name: str, timeout: int = 60
             },
             "query_info": {
                 "container_identifier": container_name,
-                "timestamp": datetime.now(datetime.UTC).isoformat(),
+                "timestamp": datetime.now(timezone.utc).isoformat(),
                 "execution_time_ms": int(result.raw_result.execution_time * 1000),
             },
         }
@@ -653,7 +653,7 @@ async def get_container_logs(
                 "container_identifier": container_name,
                 "since_filter": since,
                 "tail_lines": tail,
-                "timestamp": datetime.now(datetime.UTC).isoformat(),
+                "timestamp": datetime.now(timezone.utc).isoformat(),
                 "execution_time_ms": int(result.raw_result.execution_time * 1000),
             },
         }
@@ -953,7 +953,7 @@ async def get_service_dependencies(
                 "query_info": {
                     "container_identifier": container_name,
                     "analysis_type": "standalone_container",
-                    "timestamp": datetime.now(datetime.UTC).isoformat(),
+                    "timestamp": datetime.now(timezone.utc).isoformat(),
                     "execution_time_ms": int(
                         (
                             containers_result.raw_result.execution_time
@@ -1122,7 +1122,7 @@ async def get_service_dependencies(
                 "container_identifier": container_name,
                 "analysis_type": "compose_service",
                 "containers_analyzed": len(containers_data),
-                "timestamp": datetime.now(datetime.UTC).isoformat(),
+                "timestamp": datetime.now(timezone.utc).isoformat(),
                 "execution_time_ms": int(
                     (
                         containers_result.raw_result.execution_time
@@ -1190,7 +1190,7 @@ async def start_container(device: str, container_name: str, timeout: int = 60) -
             "device": device,
             "success": True,
             "output": result.stdout,
-            "timestamp": datetime.now(datetime.UTC).isoformat(),
+            "timestamp": datetime.now(timezone.utc).isoformat(),
             "execution_time_ms": int(result.execution_time * 1000),
         }
 
@@ -1254,7 +1254,7 @@ async def stop_container(
             "force": force,
             "timeout": timeout,
             "output": result.stdout,
-            "timestamp": datetime.now(datetime.UTC).isoformat(),
+            "timestamp": datetime.now(timezone.utc).isoformat(),
             "execution_time_ms": int(result.execution_time * 1000),
         }
 
@@ -1310,7 +1310,7 @@ async def restart_container(
             "success": True,
             "timeout": timeout,
             "output": result.stdout,
-            "timestamp": datetime.now(datetime.UTC).isoformat(),
+            "timestamp": datetime.now(timezone.utc).isoformat(),
             "execution_time_ms": int(result.execution_time * 1000),
         }
 
@@ -1381,7 +1381,7 @@ async def remove_container(
             "force": force,
             "remove_volumes": remove_volumes,
             "output": result.stdout,
-            "timestamp": datetime.now(datetime.UTC).isoformat(),
+            "timestamp": datetime.now(timezone.utc).isoformat(),
             "execution_time_ms": int(result.execution_time * 1000),
         }
 

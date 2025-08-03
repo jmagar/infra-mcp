@@ -6,7 +6,7 @@ to gather information about their capabilities and store the results in the devi
 """
 
 import logging
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any
 from sqlalchemy import select
 
@@ -162,7 +162,7 @@ async def _store_analysis_results(device: str, analysis_results: dict[str, Any])
         # Update device status and last seen
         if analysis_results["connectivity"].get("ssh", {}).get("status") == "success":
             device_record.status = "online"
-            device_record.last_seen = datetime.now(datetime.UTC)
+            device_record.last_seen = datetime.now(timezone.utc)
 
         await session.commit()
         logger.info(f"Analysis results stored for device {device} with tags: {capability_tags}")

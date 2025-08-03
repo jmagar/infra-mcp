@@ -290,7 +290,7 @@ async def get_container_stats(
                     "block_io": parts[5].strip(),
                     "pids": parts[6].strip(),
                 },
-                "timestamp": datetime.now(datetime.UTC).isoformat(),
+                "timestamp": datetime.now(timezone.utc).isoformat(),
                 "execution_time": result.execution_time,
             }
         else:

@@ -61,7 +61,7 @@ class ComposeDeploymentService:
         Returns:
             ComposeModificationResult with all modifications applied
         """
-        start_time = datetime.now(datetime.UTC)
+        start_time = datetime.now(timezone.utc)
         
         try:
             # Get device configuration
@@ -126,7 +126,7 @@ class ComposeDeploymentService:
             
         finally:
             result.execution_time_ms = int(
-                (datetime.now(datetime.UTC) - start_time).total_seconds() * 1000
+                (datetime.now(timezone.utc) - start_time).total_seconds() * 1000
             )
 
     async def deploy_compose_to_device(
@@ -141,7 +141,7 @@ class ComposeDeploymentService:
         Returns:
             ComposeDeploymentResult with deployment status
         """
-        start_time = datetime.now(datetime.UTC)
+        start_time = datetime.now(timezone.utc)
         
         result = ComposeDeploymentResult(
             device=request.device,
@@ -188,7 +188,7 @@ class ComposeDeploymentService:
             
         finally:
             result.execution_time_ms = int(
-                (datetime.now(datetime.UTC) - start_time).total_seconds() * 1000
+                (datetime.now(timezone.utc) - start_time).total_seconds() * 1000
             )
             
         return result
@@ -203,7 +203,7 @@ class ComposeDeploymentService:
         Returns:
             PortScanResult with port availability information
         """
-        start_time = datetime.now(datetime.UTC)
+        start_time = datetime.now(timezone.utc)
         
         result = PortScanResult(
             device=request.device,
@@ -233,7 +233,7 @@ class ComposeDeploymentService:
             
         finally:
             result.execution_time_ms = int(
-                (datetime.now(datetime.UTC) - start_time).total_seconds() * 1000
+                (datetime.now(timezone.utc) - start_time).total_seconds() * 1000
             )
             
         return result
@@ -248,7 +248,7 @@ class ComposeDeploymentService:
         Returns:
             NetworkScanResult with network information
         """
-        start_time = datetime.now(datetime.UTC)
+        start_time = datetime.now(timezone.utc)
         
         result = NetworkScanResult(
             device=request.device,
@@ -288,7 +288,7 @@ class ComposeDeploymentService:
             
         finally:
             result.execution_time_ms = int(
-                (datetime.now(datetime.UTC) - start_time).total_seconds() * 1000
+                (datetime.now(timezone.utc) - start_time).total_seconds() * 1000
             )
             
         return result

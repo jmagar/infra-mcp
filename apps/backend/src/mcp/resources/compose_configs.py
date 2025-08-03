@@ -81,7 +81,7 @@ async def get_compose_config_resource(uri: str) -> dict[str, Any]:
         return {
             "error": str(e),
             "uri": uri,
-            "timestamp": datetime.now(datetime.UTC).isoformat(),
+            "timestamp": datetime.now(timezone.utc).isoformat(),
             "resource_type": "error",
         }
 
@@ -109,7 +109,7 @@ async def _get_service_compose_resource(
                     "database_device_paths",
                     "common_path_patterns",
                 ],
-                "timestamp": datetime.now(datetime.UTC).isoformat(),
+                "timestamp": datetime.now(timezone.utc).isoformat(),
                 "resource_type": "service_not_found",
             }
 
@@ -123,7 +123,7 @@ async def _get_service_compose_resource(
                 "device": device,
                 "file_path": compose_file_path,
                 "file_info": file_info,
-                "timestamp": datetime.now(datetime.UTC).isoformat(),
+                "timestamp": datetime.now(timezone.utc).isoformat(),
                 "resource_type": "file_not_found",
             }
 
@@ -137,7 +137,7 @@ async def _get_service_compose_resource(
                 "device": device,
                 "file_path": compose_file_path,
                 "file_info": file_info,
-                "timestamp": datetime.now(datetime.UTC).isoformat(),
+                "timestamp": datetime.now(timezone.utc).isoformat(),
                 "resource_type": "read_error",
             }
 
@@ -150,7 +150,7 @@ async def _get_service_compose_resource(
             "file_name": Path(compose_file_path).name,
             "file_info": file_info,
             "content_length": len(content),
-            "timestamp": datetime.now(datetime.UTC).isoformat(),
+            "timestamp": datetime.now(timezone.utc).isoformat(),
             "resource_type": "docker_compose_service",
             "format": format_type,
         }
@@ -199,7 +199,7 @@ async def _get_service_compose_resource(
             "error": str(e),
             "service_name": service_name,
             "device": device,
-            "timestamp": datetime.now(datetime.UTC).isoformat(),
+            "timestamp": datetime.now(timezone.utc).isoformat(),
             "resource_type": "service_error",
         }
 
@@ -375,7 +375,7 @@ async def _get_file_info(device: str, file_path: str) -> dict[str, Any]:
                     "file_path": parts[0],
                     "file_size": int(parts[1]),
                     "last_modified": datetime.fromtimestamp(
-                        int(parts[2]), tz=datetime.UTC
+                        int(parts[2]), tz=timezone.utc
                     ).isoformat(),
                     "permissions": parts[3],
                     "readable": "r" in parts[3],
@@ -444,7 +444,7 @@ async def _get_device_compose_stacks(device: str) -> dict[str, Any]:
                 [s for s in all_stacks.values() if s["status"] == "discovered"]
             ),
             "stacks": list(all_stacks.values()),
-            "timestamp": datetime.now(datetime.UTC).isoformat(),
+            "timestamp": datetime.now(timezone.utc).isoformat(),
             "resource_type": "docker_compose_stacks",
         }
 
@@ -453,7 +453,7 @@ async def _get_device_compose_stacks(device: str) -> dict[str, Any]:
         return {
             "error": str(e),
             "device": device,
-            "timestamp": datetime.now(datetime.UTC).isoformat(),
+            "timestamp": datetime.now(timezone.utc).isoformat(),
             "resource_type": "stacks_error",
         }
 
@@ -623,7 +623,7 @@ async def _get_global_compose_listing() -> dict[str, Any]:
                 "uri": "docker://configs",
                 "total_devices": len(devices),
                 "devices": [],
-                "timestamp": datetime.now(datetime.UTC).isoformat(),
+                "timestamp": datetime.now(timezone.utc).isoformat(),
                 "resource_type": "docker_compose_global",
             }
 
@@ -681,7 +681,7 @@ async def _get_global_compose_listing() -> dict[str, Any]:
         return {
             "error": str(e),
             "uri": "docker://configs",
-            "timestamp": datetime.now(datetime.UTC).isoformat(),
+            "timestamp": datetime.now(timezone.utc).isoformat(),
             "resource_type": "global_error",
         }
 

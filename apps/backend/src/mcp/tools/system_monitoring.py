@@ -438,7 +438,7 @@ async def get_drive_health(
             "query_info": {
                 "specific_drive": drive,
                 "drives_checked": len(drives_to_check),
-                "timestamp": datetime.now(datetime.UTC).isoformat(),
+                "timestamp": datetime.now(timezone.utc).isoformat(),
             },
         }
 
@@ -559,7 +559,7 @@ async def get_system_logs(
                                         # Systemd timestamp is in microseconds
                                         timestamp_seconds = int(entry["timestamp"]) / 1000000
                                         dt = datetime.fromtimestamp(
-                                            timestamp_seconds, tz=datetime.UTC
+                                            timestamp_seconds, tz=timezone.utc
                                         )
                                         entry["timestamp"] = dt.isoformat()
                                     except:
@@ -685,7 +685,7 @@ async def get_system_logs(
                                             dt = datetime.strptime(
                                                 full_timestamp, "%Y %b %d %H:%M:%S"
                                             )
-                                            dt = dt.replace(tzinfo=datetime.UTC)
+                                            dt = dt.replace(tzinfo=timezone.utc)
                                             iso_timestamp = dt.isoformat()
                                         except:
                                             iso_timestamp = timestamp_str
@@ -791,7 +791,7 @@ async def get_system_logs(
                 "service_filter": service,
                 "since_filter": since,
                 "lines_requested": lines,
-                "timestamp": datetime.now(datetime.UTC).isoformat(),
+                "timestamp": datetime.now(timezone.utc).isoformat(),
             },
         }
 
@@ -1137,7 +1137,7 @@ async def get_drive_stats(
             "query_info": {
                 "specific_drive": drive,
                 "drives_checked": len(drives_to_check),
-                "timestamp": datetime.now(datetime.UTC).isoformat(),
+                "timestamp": datetime.now(timezone.utc).isoformat(),
             },
         }
 
@@ -1272,7 +1272,7 @@ async def get_network_ports(device: str, timeout: int = 30) -> Dict[str, Any]:
                 "command": "ss -tulpn",
             },
             "query_info": {
-                "timestamp": datetime.now(datetime.UTC).isoformat(),
+                "timestamp": datetime.now(timezone.utc).isoformat(),
                 "command_timeout": timeout,
                 "execution_time": ss_result.execution_time
                 if hasattr(ss_result, "execution_time")

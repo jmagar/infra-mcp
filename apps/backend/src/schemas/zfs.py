@@ -170,7 +170,7 @@ class ZFSHealthOverview(BaseModel):
     health_by_device: Dict[str, str] = Field(description="Health status by device")
     recent_scrub_errors: int = Field(description="Recent scrub errors count")
     overdue_scrubs: int = Field(description="Number of pools with overdue scrubs")
-    timestamp: datetime = Field(default_factory=lambda: datetime.now(datetime.UTC), description="Report timestamp")
+    timestamp: datetime = Field(default_factory=lambda: datetime.now(timezone.utc), description="Report timestamp")
 
 
 class ZFSDatasetInfo(BaseModel):

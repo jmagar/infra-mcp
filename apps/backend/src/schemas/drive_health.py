@@ -80,7 +80,7 @@ class DriveHealthBase(BaseModel):
 class DriveHealthCreate(DriveHealthBase):
     """Schema for creating drive health record"""
 
-    time: datetime = Field(default_factory=lambda: datetime.now(datetime.UTC), description="Measurement timestamp")
+    time: datetime = Field(default_factory=lambda: datetime.now(timezone.utc), description="Measurement timestamp")
 
 
 class DriveHealthResponse(DriveHealthBase):

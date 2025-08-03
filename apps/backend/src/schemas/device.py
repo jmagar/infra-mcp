@@ -188,7 +188,7 @@ class DeviceHealthList(BaseModel):
 
     devices: List[DeviceHealth] = Field(description="List of device health statuses")
     summary: Dict[str, int] = Field(description="Health summary statistics")
-    timestamp: datetime = Field(default_factory=lambda: datetime.now(datetime.UTC), description="Report timestamp")
+    timestamp: datetime = Field(default_factory=lambda: datetime.now(timezone.utc), description="Report timestamp")
 
 
 class DeviceConnectionTest(BaseModel):
@@ -201,7 +201,7 @@ class DeviceConnectionTest(BaseModel):
     connection_status: str = Field(description="Connection test result")
     response_time_ms: Optional[float] = Field(description="Connection response time")
     error_message: Optional[str] = Field(description="Error message if connection failed")
-    test_timestamp: datetime = Field(default_factory=lambda: datetime.now(datetime.UTC))
+    test_timestamp: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 
     @field_validator("ip_address", mode="before")
     @classmethod
@@ -304,7 +304,7 @@ class DeviceImportResponse(BaseModel):
     summary: Dict[str, int] = Field(description="Summary of actions taken")
     dry_run: bool = Field(description="Whether this was a dry run")
     import_timestamp: datetime = Field(
-        default_factory=lambda: datetime.now(datetime.UTC), description="When the import was performed"
+        default_factory=lambda: datetime.now(timezone.utc), description="When the import was performed"
     )
 
     @classmethod

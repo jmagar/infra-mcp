@@ -57,7 +57,7 @@ class ZFSAnalysisService(ZFSBaseService):
                 "snapshots": snapshots,
                 "health_check": health,
                 "arc_statistics": arc_stats,
-                "generated_at": datetime.now(datetime.UTC).isoformat(),
+                "generated_at": datetime.now(timezone.utc).isoformat(),
             }
 
         except Exception as e:
@@ -105,7 +105,7 @@ class ZFSAnalysisService(ZFSBaseService):
                         f"Dataset {dataset} has {len(dataset_snapshots)} snapshots - consider cleanup"
                     )
 
-            usage_analysis["analyzed_at"] = datetime.now(datetime.UTC).isoformat()
+            usage_analysis["analyzed_at"] = datetime.now(timezone.utc).isoformat()
             return usage_analysis
 
         except Exception as e:
@@ -159,7 +159,7 @@ class ZFSAnalysisService(ZFSBaseService):
                 "current_arc_stats": arc_stats,
                 "pool_status": pools,
                 "recommendations": recommendations,
-                "analyzed_at": datetime.now(datetime.UTC).isoformat(),
+                "analyzed_at": datetime.now(timezone.utc).isoformat(),
             }
 
         except Exception as e:
@@ -189,7 +189,7 @@ class ZFSAnalysisService(ZFSBaseService):
                 "current_properties": dataset_props,
                 "snapshot_count": len(snapshots),
                 "recent_snapshots": snapshots[:5],  # Last 5 snapshots
-                "analyzed_at": datetime.now(datetime.UTC).isoformat(),
+                "analyzed_at": datetime.now(timezone.utc).isoformat(),
             }
 
         except Exception as e:

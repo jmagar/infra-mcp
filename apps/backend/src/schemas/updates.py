@@ -27,7 +27,7 @@ class SystemUpdateBase(BaseModel):
     changelog: Optional[str] = Field(None, description="Package changelog")
     update_status: str = Field(default="available", description="Update status")
     last_checked: datetime = Field(
-        default_factory=lambda: datetime.now(datetime.UTC), description="Last check timestamp"
+        default_factory=lambda: datetime.now(timezone.utc), description="Last check timestamp"
     )
     extra_metadata: Dict[str, Any] = Field(default_factory=dict, description="Additional metadata")
 
@@ -152,7 +152,7 @@ class UpdateHealthOverview(BaseModel):
     recent_installations: int = Field(description="Recent update installations")
     failed_installations: int = Field(description="Failed update installations")
     update_compliance_score: float = Field(description="Overall update compliance score")
-    timestamp: datetime = Field(default_factory=lambda: datetime.now(datetime.UTC), description="Report timestamp")
+    timestamp: datetime = Field(default_factory=lambda: datetime.now(timezone.utc), description="Report timestamp")
 
 
 class UpdateInstallation(BaseModel):
@@ -170,7 +170,7 @@ class UpdateInstallation(BaseModel):
     test_mode: bool = Field(default=False, description="Run in test mode")
     initiated_by: str = Field(description="User who initiated installation")
     initiated_at: datetime = Field(
-        default_factory=lambda: datetime.now(datetime.UTC), description="Installation request time"
+        default_factory=lambda: datetime.now(timezone.utc), description="Installation request time"
     )
 
     @field_validator("install_type")
@@ -233,7 +233,7 @@ class UpdatePolicy(BaseModel):
     compliance_reporting: bool = Field(default=True, description="Enable compliance reporting")
     is_active: bool = Field(default=True, description="Whether policy is active")
     created_at: datetime = Field(
-        default_factory=lambda: datetime.now(datetime.UTC), description="Policy creation time"
+        default_factory=lambda: datetime.now(timezone.utc), description="Policy creation time"
     )
 
 
@@ -262,7 +262,7 @@ class UpdateSchedule(BaseModel):
     rollback_on_failure: bool = Field(default=True, description="Rollback on failure")
     is_active: bool = Field(default=True, description="Whether schedule is active")
     created_at: datetime = Field(
-        default_factory=lambda: datetime.now(datetime.UTC), description="Schedule creation time"
+        default_factory=lambda: datetime.now(timezone.utc), description="Schedule creation time"
     )
     last_run: Optional[datetime] = Field(None, description="Last execution time")
     next_run: Optional[datetime] = Field(None, description="Next scheduled execution")

@@ -129,7 +129,7 @@ async def add_device(
                         "Use other MCP tools to manage containers, check system metrics, etc.",
                         "Update device configuration via update_device tool if needed",
                     ],
-                    "timestamp": datetime.now(datetime.UTC).isoformat(),
+                    "timestamp": datetime.now(timezone.utc).isoformat(),
                 }
 
             elif response.status_code == 409:
@@ -302,7 +302,7 @@ async def list_devices(
                     "monitoring_enabled": sum(1 for d in device_list if d["monitoring_enabled"]),
                 },
                 "query_info": {
-                    "timestamp": datetime.now(datetime.UTC).isoformat(),
+                    "timestamp": datetime.now(timezone.utc).isoformat(),
                     "execution_time_ms": 0,  # Database queries are typically fast
                 },
             }
@@ -408,7 +408,7 @@ async def get_device_info(
                 "ssh_accessible": False,
                 "response_time_ms": None,
                 "error_message": None,
-                "last_test": datetime.now(datetime.UTC).isoformat(),
+                "last_test": datetime.now(timezone.utc).isoformat(),
             }
 
             # System info (only available if connected)
@@ -476,11 +476,11 @@ async def get_device_info(
                             "memory_usage": free_result.stdout.strip()
                             if free_result.return_code == 0
                             else None,
-                            "timestamp": datetime.now(datetime.UTC).isoformat(),
+                            "timestamp": datetime.now(timezone.utc).isoformat(),
                         }
 
                         # Update device last_seen in database
-                        device_record.last_seen = datetime.now(datetime.UTC)
+                        device_record.last_seen = datetime.now(timezone.utc)
                         device_record.status = DeviceStatus.online
                         await db.commit()
 
@@ -521,7 +521,7 @@ async def get_device_info(
                     "found_by": "uuid"
                     if (device.count("-") == 4 and len(device) == 36)
                     else "hostname_or_ip",
-                    "timestamp": datetime.now(datetime.UTC).isoformat(),
+                    "timestamp": datetime.now(timezone.utc).isoformat(),
                 },
             }
 
@@ -603,7 +603,7 @@ async def get_device_summary(device: str, timeout: int = 30) -> dict[str, Any]:
                 "health_score": 0,
                 "issues": [],
                 "warnings": [],
-                "last_assessment": datetime.now(datetime.UTC).isoformat(),
+                "last_assessment": datetime.now(timezone.utc).isoformat(),
             }
 
             # Initialize connectivity status
@@ -791,7 +791,7 @@ async def get_device_summary(device: str, timeout: int = 30) -> dict[str, Any]:
                             pass
 
                         # Update device status
-                        device_record.last_seen = datetime.now(datetime.UTC)
+                        device_record.last_seen = datetime.now(timezone.utc)
                         device_record.status = DeviceStatus.online
                         await db.commit()
 
@@ -894,7 +894,7 @@ async def get_device_summary(device: str, timeout: int = 30) -> dict[str, Any]:
                 "query_info": {
                     "queried_identifier": device,
                     "monitoring_enabled": device_record.monitoring_enabled,
-                    "timestamp": datetime.now(datetime.UTC).isoformat(),
+                    "timestamp": datetime.now(timezone.utc).isoformat(),
                 },
             }
 
