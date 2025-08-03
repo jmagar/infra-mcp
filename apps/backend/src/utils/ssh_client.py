@@ -141,31 +141,31 @@ class SSHConnectionPool:
         return connection_info.host
 
     async def _create_connection(self, connection_info: SSHConnectionInfo) -> SSHClientConnection:
-        """Create a new SSH connection using system SSH configuration"""
+        """Create a new SSH connection using AsyncSSH best practices"""
         # Ensure host is a string
         if not isinstance(connection_info.host, str):
             raise TypeError(
                 f"Host must be a string, got {type(connection_info.host)}: {connection_info.host}"
             )
 
-        connect_kwargs = {
-            "host": connection_info.host,
-            "connect_timeout": connection_info.connect_timeout,
-            "known_hosts": None,  # Disable host key checking for infrastructure monitoring
-            "login_timeout": connection_info.connect_timeout,
-        }
-
-        # Let asyncssh use system SSH config entirely - don't override anything
-        # This allows ~/.ssh/config to handle username, port, keys, etc.
-
         try:
-            logger.debug(f"Attempting SSH connection with kwargs: {connect_kwargs}")
-            connection = await asyncssh.connect(**connect_kwargs)
+            # Use the simplest possible AsyncSSH connection - just hostname
+            # This relies entirely on SSH config (~/.ssh/config) for all connection details
+            logger.debug(f"Attempting SSH connection to {connection_info.host} using SSH config")
+            
+            # AsyncSSH connect() with minimal parameters to avoid type mismatches
+            connection = await asyncssh.connect(
+                connection_info.host,
+                known_hosts=None  # Disable host key checking for infrastructure monitoring
+            )
+            
             logger.debug(f"Created SSH connection to {connection_info.host}")
             return connection
 
         except Exception as e:
             logger.error(f"Failed to create SSH connection to {connection_info.host}: {e}")
+            # Log the actual exception type and details for debugging
+            logger.debug(f"SSH connection error details: {type(e).__name__}: {e}")
             raise
 
     @asynccontextmanager

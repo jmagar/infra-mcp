@@ -7,7 +7,6 @@ Provides utilities for detecting different system environments and their capabil
 import logging
 import subprocess
 from dataclasses import dataclass
-from typing import Any
 
 logger = logging.getLogger(__name__)
 

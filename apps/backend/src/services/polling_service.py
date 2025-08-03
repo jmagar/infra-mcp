@@ -11,8 +11,6 @@ from typing import Any
 from uuid import UUID
 
 from sqlalchemy import select, and_
-
-from apps.backend.src.core.database import get_async_session
 from apps.backend.src.core.config import get_settings
 from apps.backend.src.core.events import (
     get_event_bus,
@@ -92,6 +90,11 @@ class PollingService:
 
     async def _polling_loop(self) -> None:
         """Main polling loop that manages device polling tasks"""
+        # Wait a bit after startup to let the system stabilize
+        startup_delay = self.settings.polling.polling_startup_delay
+        logger.info(f"Polling service starting - waiting {startup_delay} seconds before initial device polling")
+        await asyncio.sleep(startup_delay)
+        
         while self.is_running:
             try:
                 # Get all devices that should be polled
@@ -136,104 +139,99 @@ class PollingService:
                         await task
             logger.info(f"Stopped polling for device {device_id}")
 
-        # Start polling for new devices
+        # Start polling for new devices with staggered startup
         to_start = current_device_ids - running_device_ids
+        device_delay = 0
+        task_stagger = self.settings.polling.polling_task_stagger_delay
+        device_stagger = self.settings.polling.polling_device_stagger_delay
+        
         for device in devices:
             if device.id in to_start:
                 # Create separate tasks for each data type with different intervals
                 device_tasks = {
-                    "containers": asyncio.create_task(self._poll_containers(device)),
-                    "metrics": asyncio.create_task(self._poll_system_metrics(device)),
-                    "drive_health": asyncio.create_task(self._poll_drive_health(device)),
+                    "containers": asyncio.create_task(self._poll_containers(device, device_delay)),
+                    "metrics": asyncio.create_task(self._poll_system_metrics(device, device_delay + task_stagger)),
+                    "drive_health": asyncio.create_task(self._poll_drive_health(device, device_delay + (task_stagger * 2))),
                 }
                 self.polling_tasks[device.id] = device_tasks
                 logger.info(
-                    f"Started polling for device {device.id} ({device.hostname}) with separate intervals"
+                    f"Started staggered polling for device {device.id} ({device.hostname}) with {device_delay}s delay"
                 )
+                # Stagger device startups to avoid SSH congestion
+                device_delay += device_stagger
 
-    async def _poll_containers(self, device: Device) -> None:
+    async def _poll_data_type(
+        self, 
+        device: Device, 
+        collection_method, 
+        interval: int, 
+        data_type: str,
+        startup_delay: int = 0
+    ) -> None:
+        """Generic method to continuously poll data for a device with common error handling"""
+        device_id = device.id
+        consecutive_failures = 0
+        max_consecutive_failures = 3
+
+        # Initial startup delay to stagger device polling
+        if startup_delay > 0:
+            logger.debug(f"{data_type} polling for {device.hostname} waiting {startup_delay}s before starting")
+            await asyncio.sleep(startup_delay)
+
+        while self.is_running and device_id in self.polling_tasks:
+            try:
+                await collection_method(device)
+                consecutive_failures = 0
+                await asyncio.sleep(interval)
+
+            except SSHConnectionError:
+                consecutive_failures += 1
+                backoff_delay = min(30 * (2 ** (consecutive_failures - 1)), 300)  # Exponential backoff, max 5 minutes
+                logger.warning(
+                    f"SSH connection failed for {data_type} polling on {device.hostname} "
+                    f"(attempt {consecutive_failures}/{max_consecutive_failures}) - waiting {backoff_delay}s"
+                )
+                if consecutive_failures >= max_consecutive_failures:
+                    await self._update_device_status(device, "offline")
+                    await asyncio.sleep(interval * 2)
+                else:
+                    await asyncio.sleep(backoff_delay)
+
+            except Exception as e:
+                consecutive_failures += 1
+                backoff_delay = min(60 * consecutive_failures, 300)  # Linear backoff for other errors
+                logger.error(f"Error polling {data_type} for {device.hostname}: {e} - waiting {backoff_delay}s")
+                await asyncio.sleep(backoff_delay)
+
+    async def _poll_containers(self, device: Device, startup_delay: int = 0) -> None:
         """Continuously poll container data for a device"""
-        device_id = device.id
-        consecutive_failures = 0
-        max_consecutive_failures = 3
+        return await self._poll_data_type(
+            device, 
+            self._collect_container_data, 
+            self.container_interval, 
+            "containers",
+            startup_delay
+        )
 
-        while self.is_running and device_id in self.polling_tasks:
-            try:
-                await self._collect_container_data(device)
-                consecutive_failures = 0
-                await asyncio.sleep(self.container_interval)
-
-            except SSHConnectionError:
-                consecutive_failures += 1
-                logger.warning(
-                    f"SSH connection failed for container polling on {device.hostname} (attempt {consecutive_failures})"
-                )
-                if consecutive_failures >= max_consecutive_failures:
-                    await self._update_device_status(device, "offline")
-                    await asyncio.sleep(self.container_interval * 2)
-                else:
-                    await asyncio.sleep(30)
-
-            except Exception as e:
-                consecutive_failures += 1
-                logger.error(f"Error polling containers for {device.hostname}: {e}")
-                await asyncio.sleep(60)
-
-    async def _poll_system_metrics(self, device: Device) -> None:
+    async def _poll_system_metrics(self, device: Device, startup_delay: int = 0) -> None:
         """Continuously poll system metrics for a device"""
-        device_id = device.id
-        consecutive_failures = 0
-        max_consecutive_failures = 3
+        return await self._poll_data_type(
+            device, 
+            self._collect_system_metrics, 
+            self.metrics_interval, 
+            "system metrics",
+            startup_delay
+        )
 
-        while self.is_running and device_id in self.polling_tasks:
-            try:
-                await self._collect_system_metrics(device)
-                consecutive_failures = 0
-                await asyncio.sleep(self.metrics_interval)
-
-            except SSHConnectionError:
-                consecutive_failures += 1
-                logger.warning(
-                    f"SSH connection failed for metrics polling on {device.hostname} (attempt {consecutive_failures})"
-                )
-                if consecutive_failures >= max_consecutive_failures:
-                    await self._update_device_status(device, "offline")
-                    await asyncio.sleep(self.metrics_interval * 2)
-                else:
-                    await asyncio.sleep(30)
-
-            except Exception as e:
-                consecutive_failures += 1
-                logger.error(f"Error polling system metrics for {device.hostname}: {e}")
-                await asyncio.sleep(60)
-
-    async def _poll_drive_health(self, device: Device) -> None:
+    async def _poll_drive_health(self, device: Device, startup_delay: int = 0) -> None:
         """Continuously poll drive health for a device"""
-        device_id = device.id
-        consecutive_failures = 0
-        max_consecutive_failures = 3
-
-        while self.is_running and device_id in self.polling_tasks:
-            try:
-                await self._collect_drive_health(device)
-                consecutive_failures = 0
-                await asyncio.sleep(self.drive_health_interval)
-
-            except SSHConnectionError:
-                consecutive_failures += 1
-                logger.warning(
-                    f"SSH connection failed for drive health polling on {device.hostname} (attempt {consecutive_failures})"
-                )
-                if consecutive_failures >= max_consecutive_failures:
-                    await self._update_device_status(device, "offline")
-                    await asyncio.sleep(self.drive_health_interval * 2)
-                else:
-                    await asyncio.sleep(30)
-
-            except Exception as e:
-                consecutive_failures += 1
-                logger.error(f"Error polling drive health for {device.hostname}: {e}")
-                await asyncio.sleep(60)
+        return await self._poll_data_type(
+            device, 
+            self._collect_drive_health, 
+            self.drive_health_interval, 
+            "drive health",
+            startup_delay
+        )
 
     async def _update_device_status(self, device: Device, status: str) -> None:
         """Update device status and last seen timestamp"""
@@ -379,10 +377,8 @@ class PollingService:
                             ):
                                 parts = line.split()
                                 if len(parts) >= 10:
-                                    try:
+                                    with contextlib.suppress(ValueError, IndexError):
                                         temperature = int(parts[9])
-                                    except (ValueError, IndexError):
-                                        pass
                                     break
                         health_status = (
                             "healthy"  # Simplified - would need proper SMART analysis

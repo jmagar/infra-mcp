@@ -63,7 +63,7 @@ from apps.backend.src.core.exceptions import (
     ExternalServiceError,
 )
 from apps.backend.src.api import api_router
-from apps.backend.src.api.monitoring import router as monitoring_router, set_polling_service
+from apps.backend.src.api.monitoring import router as monitoring_router
 from apps.backend.src.websocket import websocket_router
 
 # Configure logging
@@ -114,13 +114,10 @@ async def lifespan(app: FastAPI):
         if settings.polling.polling_enabled:
             polling_service = PollingService()
             app.state.polling_service = polling_service
-            set_polling_service(polling_service)  # Set global reference for monitoring
             await polling_service.start_polling()
             logger.info("Polling service started successfully")
         else:
-            polling_service = None
             app.state.polling_service = None
-            set_polling_service(None)  # Clear global reference
             logger.info("Polling service disabled via configuration")
 
         # Log configuration
@@ -141,9 +138,10 @@ async def lifespan(app: FastAPI):
         logger.info("Shutting down Infrastructure Management API Server...")
 
         # Stop polling service
+        polling_service = getattr(app.state, 'polling_service', None)
         if polling_service is not None:
             await polling_service.stop_polling()
-            set_polling_service(None)  # Clear global reference
+            app.state.polling_service = None
             logger.info("Polling service stopped")
         else:
             logger.info("Polling service was not running")

@@ -122,6 +122,11 @@ class PollingSettings(BaseSettings):
     polling_system_metrics_interval: int = Field(default=300, env="POLLING_SYSTEM_METRICS_INTERVAL")
     polling_drive_health_interval: int = Field(default=3600, env="POLLING_DRIVE_HEALTH_INTERVAL")
     polling_max_concurrent_devices: int = Field(default=10, env="POLLING_MAX_CONCURRENT_DEVICES")
+    
+    # Startup timing settings to reduce SSH congestion
+    polling_startup_delay: int = Field(default=30, env="POLLING_STARTUP_DELAY")
+    polling_device_stagger_delay: int = Field(default=30, env="POLLING_DEVICE_STAGGER_DELAY")
+    polling_task_stagger_delay: int = Field(default=10, env="POLLING_TASK_STAGGER_DELAY")
 
     model_config = SettingsConfigDict(env_file=".env", case_sensitive=False, extra="ignore")
 

@@ -13,11 +13,12 @@ import logging
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from enum import Enum
-from typing import Any, Optional, Union, Callable
+from typing import Any, Optional
+from collections.abc import Callable
 from datetime import datetime, timedelta, timezone
 
 from apps.backend.src.utils.ssh_client import SSHClient, SSHConnectionInfo, SSHExecutionResult
-from apps.backend.src.core.exceptions import SSHCommandError, SSHConnectionError
+from apps.backend.src.core.exceptions import SSHCommandError
 
 logger = logging.getLogger(__name__)
 
@@ -344,7 +345,7 @@ class SSHCommandManager:
                 f"Missing parameter for command {command_name}: {e}",
                 command=command_def.command_template,
                 hostname=connection_info.host
-            )
+            ) from e
         
         # Check cache first
         cache_key = self._generate_cache_key(formatted_command, connection_info)
