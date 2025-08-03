@@ -18,6 +18,7 @@ from apps.backend.src.models.device import Device
 from apps.backend.src.models.metrics import SystemMetric, DriveHealth
 from apps.backend.src.models.container import ContainerSnapshot
 from apps.backend.src.utils.ssh_client import get_ssh_client, SSHConnectionInfo
+from apps.backend.src.utils.environment import WSL_DETECTION_COMMAND, EnvironmentDetector
 from apps.backend.src.core.exceptions import (
     DeviceNotFoundError,
     SSHConnectionError,
@@ -351,8 +352,7 @@ class PollingService:
 
         try:
             # Check if this is a WSL environment - skip drive health collection
-            wsl_check_cmd = "grep -q microsoft /proc/version 2>/dev/null && echo 'WSL' || echo 'NOT_WSL'"
-            wsl_result = await self.ssh_client.execute_command(ssh_info, wsl_check_cmd)
+            wsl_result = await self.ssh_client.execute_command(ssh_info, WSL_DETECTION_COMMAND)
             
             if wsl_result.stdout and "WSL" in wsl_result.stdout:
                 logger.debug(f"Skipping drive health collection for WSL environment: {device.hostname}")

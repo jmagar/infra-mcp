@@ -61,6 +61,8 @@ from apps.backend.src.core.exceptions import (
     BusinessLogicError,
     ExternalServiceError,
 )
+from apps.backend.src.api import api_router
+from apps.backend.src.websocket import websocket_router
 
 # Configure logging
 logging.basicConfig(
@@ -68,7 +70,7 @@ logging.basicConfig(
 )
 
 # Reduce SSH logging spam - set asyncssh to WARNING level only
-logging.getLogger('asyncssh').setLevel(logging.WARNING)
+logging.getLogger("asyncssh").setLevel(logging.WARNING)
 
 logger = logging.getLogger(__name__)
 
@@ -332,7 +334,7 @@ async def infrastructure_exception_handler(request: Request, exc: Infrastructure
         f"{exc.error_code} - {exc.message}",
         extra={
             "error_code": exc.error_code,
-            "device_id": getattr(exc, 'device_id', None),
+            "device_id": getattr(exc, "device_id", None),
             "operation": exc.operation,
             "details": exc.details,
         },
@@ -377,7 +379,7 @@ async def infrastructure_exception_handler(request: Request, exc: Infrastructure
                 "path": str(request.url.path),
                 "method": request.method,
                 "details": exc.details,
-                "device_id": getattr(exc, 'device_id', None),
+                "device_id": getattr(exc, "device_id", None),
                 "operation": exc.operation,
             }
         },
@@ -622,9 +624,6 @@ async def root(request: Request):
 
 
 # Include API routers with /api prefix
-from apps.backend.src.api import api_router
-from apps.backend.src.websocket import websocket_router
-
 app.include_router(api_router, prefix="/api")
 app.include_router(websocket_router)
 
