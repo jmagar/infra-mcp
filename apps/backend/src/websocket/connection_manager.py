@@ -326,13 +326,33 @@ class ConnectionManager:
     def _convert_event_to_websocket_message(self, event: BaseEvent) -> WebSocketMessage:
         """Convert an event to a WebSocket message"""
         from .message_protocol import DataMessage
+        
+        # Extract device_id from event
+        device_id = getattr(event, 'device_id', 'unknown')
+        
+        # Determine metric type based on event type
+        metric_type = self._get_metric_type_for_event(event)
 
         # Create data message with event information
         return DataMessage(
-            topic=self._get_topic_for_event(event),
+            device_id=device_id,
+            metric_type=metric_type,
             data=event.model_dump(),
             timestamp=event.timestamp
         )
+
+    def _get_metric_type_for_event(self, event: BaseEvent) -> str:
+        """Determine the metric type for an event"""
+        if isinstance(event, MetricCollectedEvent):
+            return "system_metrics"
+        elif isinstance(event, ContainerStatusEvent):
+            return "container_snapshots"
+        elif isinstance(event, DriveHealthEvent):
+            return "drive_health"
+        elif isinstance(event, DeviceStatusChangedEvent):
+            return "device_status"
+        else:
+            return "events"
 
     def _get_topic_for_event(self, event: BaseEvent) -> str:
         """Determine the WebSocket topic for an event"""

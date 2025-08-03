@@ -6,10 +6,10 @@ particularly connecting polling service data collection to WebSocket broadcastin
 """
 
 import asyncio
+import contextlib
 import logging
-from abc import ABC, abstractmethod
-from datetime import datetime, UTC
-from typing import Any, Callable, Awaitable, Dict, List, Optional, Union
+from datetime import datetime, timezone
+from typing import Any, Callable, Awaitable
 from uuid import UUID, uuid4
 
 from pydantic import BaseModel, Field
@@ -22,9 +22,9 @@ class BaseEvent(BaseModel):
     
     event_id: str = Field(default_factory=lambda: str(uuid4()))
     event_type: str
-    timestamp: datetime = Field(default_factory=lambda: datetime.now(UTC))
+    timestamp: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
     source: str = "infrastructor"
-    metadata: Dict[str, Any] = Field(default_factory=dict)
+    metadata: dict[str, Any] = Field(default_factory=dict)
 
     class Config:
         json_encoders = {
@@ -58,7 +58,7 @@ class DeviceStatusChangedEvent(BaseEvent):
     hostname: str
     old_status: str
     new_status: str
-    status_reason: Optional[str] = None
+    status_reason: str | None = None
 
 
 class ContainerStatusEvent(BaseEvent):
@@ -84,9 +84,9 @@ class DriveHealthEvent(BaseEvent):
     hostname: str
     drive_name: str
     health_status: str
-    temperature_celsius: Optional[int] = None
-    model: Optional[str] = None
-    serial_number: Optional[str] = None
+    temperature_celsius: int | None = None
+    model: str | None = None
+    serial_number: str | None = None
 
 
 class EventHandler:
@@ -95,7 +95,7 @@ class EventHandler:
     def __init__(
         self,
         handler: Callable[[BaseEvent], Awaitable[None]],
-        event_types: List[str],
+        event_types: list[str],
         priority: int = 0
     ):
         self.handler = handler
@@ -128,15 +128,17 @@ class EventBus:
     """
     
     def __init__(self, max_queue_size: int = 1000):
-        self._handlers: Dict[str, List[EventHandler]] = {}
+        self._handlers: dict[str, list[EventHandler]] = {}
         self._event_queue: asyncio.Queue = asyncio.Queue(maxsize=max_queue_size)
-        self._processor_task: Optional[asyncio.Task] = None
+        self._processor_task: asyncio.Task | None = None
         self._running = False
+        self._handler_tasks: set[asyncio.Task] = set()
         self._stats = {
             "events_processed": 0,
             "events_failed": 0,
             "events_dropped": 0,
-            "handlers_count": 0
+            "handlers_count": 0,
+            "active_handler_tasks": 0
         }
     
     async def start(self) -> None:
@@ -158,10 +160,8 @@ class EventBus:
         
         if self._processor_task:
             self._processor_task.cancel()
-            try:
+            with contextlib.suppress(asyncio.CancelledError):
                 await self._processor_task
-            except asyncio.CancelledError:
-                pass
         
         # Process remaining events
         while not self._event_queue.empty():
@@ -173,11 +173,14 @@ class EventBus:
             except Exception as e:
                 logger.error(f"Error processing remaining event: {e}")
         
+        # Cancel and cleanup remaining handler tasks
+        await self._cleanup_handler_tasks()
+        
         logger.info("Event bus stopped")
     
     def subscribe(
         self,
-        event_types: Union[str, List[str]],
+        event_types: str | list[str],
         handler: Callable[[BaseEvent], Awaitable[None]],
         priority: int = 0
     ) -> str:
@@ -262,7 +265,7 @@ class EventBus:
             logger.warning(f"Event queue full, dropping event: {event.event_type}")
             return False
     
-    async def emit(self, event: BaseEvent, timeout: Optional[float] = None) -> bool:
+    async def emit(self, event: BaseEvent, timeout: float | None = None) -> bool:
         """
         Emit an event with optional timeout
         
@@ -323,10 +326,16 @@ class EventBus:
         logger.debug(f"Processing event {event.event_type} with {len(handlers)} handlers")
         
         # Execute handlers concurrently but don't wait for completion
-        handler_tasks = [
-            asyncio.create_task(handler.handle(event))
-            for handler in handlers
-        ]
+        handler_tasks = []
+        for handler in handlers:
+            task = asyncio.create_task(handler.handle(event))
+            # Add cleanup callback to remove task from tracking when done
+            task.add_done_callback(self._remove_handler_task)
+            handler_tasks.append(task)
+        
+        # Track handler tasks for lifecycle management
+        self._handler_tasks.update(handler_tasks)
+        self._stats["active_handler_tasks"] = len(self._handler_tasks)
         
         # Fire and forget - don't wait for completion to avoid blocking
         # Log any immediate failures but don't propagate them
@@ -338,7 +347,37 @@ class EventBus:
             self._stats["events_failed"] += 1
             logger.error(f"Error starting event handlers: {e}")
     
-    def get_stats(self) -> Dict[str, Any]:
+    def _remove_handler_task(self, task: asyncio.Task) -> None:
+        """Remove completed handler task from tracking set"""
+        self._handler_tasks.discard(task)
+        self._stats["active_handler_tasks"] = len(self._handler_tasks)
+    
+    async def _cleanup_handler_tasks(self) -> None:
+        """Cancel and cleanup all remaining handler tasks"""
+        if not self._handler_tasks:
+            return
+        
+        logger.info(f"Cancelling {len(self._handler_tasks)} remaining handler tasks")
+        
+        # Cancel all remaining tasks
+        for task in self._handler_tasks:
+            if not task.done():
+                task.cancel()
+        
+        # Wait for tasks to complete cancellation with timeout
+        if self._handler_tasks:
+            with contextlib.suppress(asyncio.TimeoutError):
+                await asyncio.wait_for(
+                    asyncio.gather(*self._handler_tasks, return_exceptions=True),
+                    timeout=5.0
+                )
+        
+        # Clear the task set
+        self._handler_tasks.clear()
+        self._stats["active_handler_tasks"] = 0
+        logger.info("Handler task cleanup completed")
+    
+    def get_stats(self) -> dict[str, Any]:
         """Get event bus statistics"""
         return {
             **self._stats,
@@ -347,10 +386,14 @@ class EventBus:
             "is_running": self._running,
             "event_types": list(self._handlers.keys())
         }
+    
+    def is_running(self) -> bool:
+        """Check if the event bus is currently running"""
+        return self._running
 
 
 # Global event bus instance
-_event_bus: Optional[EventBus] = None
+_event_bus: EventBus | None = None
 
 
 def get_event_bus() -> EventBus:
@@ -364,7 +407,7 @@ def get_event_bus() -> EventBus:
 async def initialize_event_bus() -> EventBus:
     """Initialize and start the global event bus"""
     event_bus = get_event_bus()
-    if not event_bus._running:
+    if not event_bus.is_running():
         await event_bus.start()
     return event_bus
 
@@ -372,5 +415,5 @@ async def initialize_event_bus() -> EventBus:
 async def shutdown_event_bus() -> None:
     """Shutdown the global event bus"""
     global _event_bus
-    if _event_bus and _event_bus._running:
+    if _event_bus and _event_bus.is_running():
         await _event_bus.stop()

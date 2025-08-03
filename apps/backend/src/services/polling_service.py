@@ -3,14 +3,14 @@ Service layer for background device polling and metrics collection.
 """
 
 import asyncio
+import contextlib
 import json
 import logging
-from datetime import datetime, UTC
-from typing import List, Optional, Any, Set
+from datetime import datetime, timezone
+from typing import Any
 from uuid import UUID
 
-from sqlalchemy import select, and_, or_, desc, func
-from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy import select, and_
 
 from apps.backend.src.core.database import get_async_session
 from apps.backend.src.core.config import get_settings
@@ -81,14 +81,12 @@ class PollingService:
         self.is_running = False
 
         # Cancel all polling tasks for all devices
-        for device_id, tasks in self.polling_tasks.items():
-            for task_type, task in tasks.items():
+        for _device_id, tasks in self.polling_tasks.items():
+            for _task_type, task in tasks.items():
                 if not task.done():
                     task.cancel()
-                    try:
+                    with contextlib.suppress(asyncio.CancelledError):
                         await task
-                    except asyncio.CancelledError:
-                        pass
 
         self.polling_tasks.clear()
 
@@ -109,7 +107,7 @@ class PollingService:
                 logger.error(f"Error in polling loop: {e}")
                 await asyncio.sleep(60)
 
-    async def _get_devices_to_poll(self) -> List[Device]:
+    async def _get_devices_to_poll(self) -> list[Device]:
         """Get all devices that should be actively polled"""
         async with self.session_factory() as db:
             query = select(Device).where(
@@ -122,7 +120,7 @@ class PollingService:
             result = await db.execute(query)
             return result.scalars().all()
 
-    async def _manage_polling_tasks(self, devices: List[Device]) -> None:
+    async def _manage_polling_tasks(self, devices: list[Device]) -> None:
         """Start/stop polling tasks based on current devices"""
         current_device_ids = {device.id for device in devices}
         running_device_ids = set(self.polling_tasks.keys())
@@ -131,13 +129,11 @@ class PollingService:
         to_stop = running_device_ids - current_device_ids
         for device_id in to_stop:
             tasks = self.polling_tasks.pop(device_id)
-            for task_type, task in tasks.items():
+            for _task_type, task in tasks.items():
                 if not task.done():
                     task.cancel()
-                    try:
+                    with contextlib.suppress(asyncio.CancelledError):
                         await task
-                    except asyncio.CancelledError:
-                        pass
             logger.info(f"Stopped polling for device {device_id}")
 
         # Start polling for new devices
@@ -246,8 +242,8 @@ class PollingService:
                 old_status = device.status
                 device.status = status
                 if status == "online":
-                    device.last_seen = datetime.now(UTC)
-                device.updated_at = datetime.now(UTC)
+                    device.last_seen = datetime.now(timezone.utc)
+                device.updated_at = datetime.now(timezone.utc)
 
                 await db.commit()
 
@@ -292,7 +288,7 @@ class PollingService:
             # Create system metric record
             metric = SystemMetric(
                 device_id=device.id,
-                time=datetime.now(UTC),
+                time=datetime.now(timezone.utc),
                 cpu_usage_percent=cpu_usage,
                 memory_usage_percent=memory_usage,
                 disk_usage_percent=disk_usage,
@@ -361,7 +357,6 @@ class PollingService:
             drives = []
             for drive_data in drive_list:
                 drive_name = drive_data.get("name", "")
-                drive_size = drive_data.get("size", "")
 
                 # Get SMART data if available using SSH Command Manager
                 try:
@@ -400,7 +395,7 @@ class PollingService:
                 # Create or update drive health record
                 drive_health = DriveHealth(
                     device_id=device.id,
-                    time=datetime.now(UTC),
+                    time=datetime.now(timezone.utc),
                     drive_name=f"/dev/{drive_name}",
                     model="Unknown",  # Would need additional parsing
                     serial_number="Unknown",
@@ -472,23 +467,31 @@ class PollingService:
                 container_id = container_data.get("ID", "")
                 container_name = container_data.get("Names", "").lstrip("/")
 
-                if not container_id:
+                if not container_id or not container_id.strip():
+                    logger.debug(f"Skipping container with empty ID: {container_data}")
                     continue
 
                 # Get detailed stats for this container using SSH Command Manager
                 try:
                     stats_result = await self.ssh_command_manager.execute_raw_command(
-                        f"docker stats --no-stream --format '{{json .}}' {container_id}",
+                        f"docker stats --no-stream --format '{{{{json .}}}}' {container_id}",
                         ssh_info,
                         timeout=15
                     )
 
                     stats_data = {}
                     if stats_result.stdout:
+                        # Check if the output contains an error message instead of JSON
+                        if "Error response from daemon" in stats_result.stdout or "No such container" in stats_result.stdout:
+                            logger.debug(f"Container {container_id} no longer exists, skipping stats collection")
+                            continue
+                        
                         try:
                             stats_data = json.loads(stats_result.stdout.strip())
-                        except json.JSONDecodeError:
-                            logger.warning(f"Failed to parse stats for container {container_id}")
+                        except json.JSONDecodeError as e:
+                            logger.warning(f"Failed to parse stats for container {container_id}: {e}")
+                            logger.debug(f"Raw stats output for {container_id}: {repr(stats_result.stdout)}")
+                            # Continue with empty stats_data instead of failing
 
                     # Parse resource usage
                     cpu_usage = 0.0
@@ -511,7 +514,7 @@ class PollingService:
                     # Create container snapshot
                     snapshot = ContainerSnapshot(
                         device_id=device.id,
-                        time=datetime.now(UTC),
+                        time=datetime.now(timezone.utc),
                         container_id=container_id,
                         container_name=container_name,
                         image=container_data.get("Image", ""),
@@ -533,8 +536,8 @@ class PollingService:
 
                     containers.append(snapshot)
 
-                except json.JSONDecodeError:
-                    logger.warning(f"Failed to parse container JSON: {line}")
+                except Exception as e:
+                    logger.warning(f"Failed to process container {container_id}: {e}")
                     continue
 
             # Add all container snapshots
@@ -604,7 +607,7 @@ class PollingService:
                 "device_id": str(device_id),
                 "hostname": device.hostname,
                 "status": "success",
-                "timestamp": datetime.now(UTC).isoformat(),
+                "timestamp": datetime.now(timezone.utc).isoformat(),
                 "message": "Device polled successfully",
             }
 
@@ -614,7 +617,7 @@ class PollingService:
                 "device_id": str(device_id),
                 "hostname": device.hostname,
                 "status": "error",
-                "timestamp": datetime.now(UTC).isoformat(),
+                "timestamp": datetime.now(timezone.utc).isoformat(),
                 "error": str(e),
             }
 

@@ -5,19 +5,26 @@ Provides utilities for detecting different system environments and their capabil
 """
 
 import logging
+import subprocess
 from dataclasses import dataclass
+from typing import Any
 
 logger = logging.getLogger(__name__)
 
 
-# Environment detection commands
-WSL_DETECTION_COMMAND = (
-    "grep -q microsoft /proc/version 2>/dev/null && echo 'WSL' || echo 'NOT_WSL'"
-)
-CONTAINER_DETECTION_COMMAND = "[ -f /.dockerenv ] && echo 'CONTAINER' || echo 'NOT_CONTAINER'"
-SYSTEMD_DETECTION_COMMAND = (
-    "systemctl is-system-running >/dev/null 2>&1 && echo 'SYSTEMD' || echo 'NOT_SYSTEMD'"
-)
+# Environment detection commands as argument lists for safe execution
+WSL_DETECTION_COMMAND = {
+    "check_file": ["cat", "/proc/version"],
+    "condition": "contains_microsoft"
+}
+CONTAINER_DETECTION_COMMAND = {
+    "check_file": ["test", "-f", "/.dockerenv"],
+    "condition": "file_exists"
+}
+SYSTEMD_DETECTION_COMMAND = {
+    "check_command": ["systemctl", "is-system-running"],
+    "condition": "exit_code_zero"
+}
 
 
 @dataclass
@@ -125,30 +132,134 @@ def should_skip_drive_health_monitoring(environment_info: EnvironmentInfo) -> bo
 
 def get_environment_specific_commands(environment_info: EnvironmentInfo) -> dict:
     """
-    Get environment-specific command variations
+    Get environment-specific command variations as argument lists for safe execution
 
     Args:
         environment_info: Detected environment information
 
     Returns:
-        Dictionary of adjusted commands for the environment
+        Dictionary of adjusted commands for the environment as argument lists
     """
     commands = {}
 
     # Adjust commands based on environment
     if environment_info.is_wsl:
         # WSL-specific command adjustments
-        commands["drive_list"] = "lsblk -dno NAME,SIZE 2>/dev/null || echo 'No drives available'"
-        commands["memory_info"] = "free -h"
+        # For complex commands with fallback, we need to handle them specially
+        commands["drive_list"] = {
+            "primary": ["lsblk", "-dno", "NAME,SIZE"],
+            "fallback": ["echo", "No drives available"],
+            "error_handling": "fallback_on_error"
+        }
+        commands["memory_info"] = ["free", "-h"]
 
     elif environment_info.is_container:
         # Container-specific command adjustments
-        commands["drive_list"] = "df -h /"
-        commands["memory_info"] = "cat /proc/meminfo"
+        commands["drive_list"] = ["df", "-h", "/"]
+        commands["memory_info"] = ["cat", "/proc/meminfo"]
 
     else:
         # Standard Linux commands
-        commands["drive_list"] = "lsblk -dno NAME,SIZE | grep -E '^[s|n|h]d[a-z]|^nvme[0-9]'"
-        commands["memory_info"] = "free -h"
+        # For piped commands, we'll need to handle them as separate processes
+        commands["drive_list"] = {
+            "primary": ["lsblk", "-dno", "NAME,SIZE"],
+            "filter": {
+                "command": ["grep", "-E", "^[s|n|h]d[a-z]|^nvme[0-9]"],
+                "stdin_from_primary": True
+            }
+        }
+        commands["memory_info"] = ["free", "-h"]
 
     return commands
+
+
+def execute_safe_command(command_spec: list | dict, timeout: int = 10) -> tuple[bool, str, str]:
+    """
+    Safely execute a command specification without shell injection risks
+    
+    Args:
+        command_spec: Either a list of command arguments or a dict with complex command structure
+        timeout: Command timeout in seconds
+        
+    Returns:
+        Tuple of (success, stdout, stderr)
+    """
+    try:
+        if isinstance(command_spec, list):
+            # Simple command execution
+            result = subprocess.run(
+                command_spec,
+                capture_output=True,
+                text=True,
+                timeout=timeout
+            )
+            return result.returncode == 0, result.stdout, result.stderr
+            
+        elif isinstance(command_spec, dict):
+            if "primary" in command_spec:
+                # Handle complex command with potential piping or fallback
+                try:
+                    # Execute primary command
+                    primary_result = subprocess.run(
+                        command_spec["primary"],
+                        capture_output=True,
+                        text=True,
+                        timeout=timeout
+                    )
+                    
+                    if primary_result.returncode == 0:
+                        stdout = primary_result.stdout
+                        
+                        # Handle filtering if specified
+                        if "filter" in command_spec:
+                            filter_spec = command_spec["filter"]
+                            filter_result = subprocess.run(
+                                filter_spec["command"],
+                                input=stdout,
+                                capture_output=True,
+                                text=True,
+                                timeout=timeout
+                            )
+                            if filter_result.returncode == 0:
+                                return True, filter_result.stdout, filter_result.stderr
+                            else:
+                                return False, stdout, filter_result.stderr
+                        
+                        return True, stdout, primary_result.stderr
+                    
+                    elif "fallback" in command_spec and command_spec.get("error_handling") == "fallback_on_error":
+                        # Execute fallback command
+                        fallback_result = subprocess.run(
+                            command_spec["fallback"],
+                            capture_output=True,
+                            text=True,
+                            timeout=timeout
+                        )
+                        return fallback_result.returncode == 0, fallback_result.stdout, fallback_result.stderr
+                    
+                    else:
+                        return False, "", primary_result.stderr
+                        
+                except subprocess.TimeoutExpired:
+                    logger.warning(f"Command timeout: {command_spec}")
+                    return False, "", "Command timeout"
+                    
+            elif "check_file" in command_spec or "check_command" in command_spec:
+                # Handle detection command
+                cmd = command_spec.get("check_file") or command_spec.get("check_command")
+                result = subprocess.run(
+                    cmd,
+                    capture_output=True,
+                    text=True,
+                    timeout=timeout
+                )
+                return result.returncode == 0, result.stdout, result.stderr
+                
+    except subprocess.SubprocessError as e:
+        logger.error(f"Command execution error: {e}")
+        return False, "", str(e)
+    except Exception as e:
+        logger.error(f"Unexpected error executing command: {e}")
+        return False, "", str(e)
+    
+    return False, "", "Invalid command specification"

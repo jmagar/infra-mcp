@@ -10,12 +10,11 @@ import asyncio
 import hashlib
 import json
 import logging
-import time
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from enum import Enum
-from typing import Any, Dict, List, Optional, Union, Callable
-from datetime import datetime, timedelta, UTC
+from typing import Any, Optional, Union, Callable
+from datetime import datetime, timedelta, timezone
 
 from apps.backend.src.utils.ssh_client import SSHClient, SSHConnectionInfo, SSHExecutionResult
 from apps.backend.src.core.exceptions import SSHCommandError, SSHConnectionError
@@ -44,10 +43,10 @@ class CommandDefinition:
     timeout: int = 30
     retry_count: int = 3
     cache_ttl: int = 0  # Cache TTL in seconds, 0 = no cache
-    parser: Optional[Callable[[str], Any]] = None
-    validator: Optional[Callable[[str], bool]] = None
+    parser: Callable[[str], Any] | None = None
+    validator: Callable[[str], bool] | None = None
     requires_root: bool = False
-    environment_vars: Dict[str, str] = field(default_factory=dict)
+    environment_vars: dict[str, str] = field(default_factory=dict)
 
 
 @dataclass
@@ -64,7 +63,7 @@ class CachedResult:
         """Check if cache entry has expired"""
         if self.ttl <= 0:
             return True
-        return datetime.now(UTC) > self.timestamp + timedelta(seconds=self.ttl)
+        return datetime.now(timezone.utc) > self.timestamp + timedelta(seconds=self.ttl)
 
 
 class CommandParser(ABC):
@@ -84,7 +83,7 @@ class CommandParser(ABC):
 class SystemMetricsParser(CommandParser):
     """Parser for system metrics commands"""
     
-    def parse(self, output: str) -> Dict[str, Any]:
+    def parse(self, output: str) -> dict[str, Any]:
         """Parse system metrics output"""
         try:
             lines = output.strip().split('\n')
@@ -117,17 +116,25 @@ class SystemMetricsParser(CommandParser):
 class ContainerStatsParser(CommandParser):
     """Parser for Docker container statistics"""
     
-    def parse(self, output: str) -> List[Dict[str, Any]]:
+    def parse(self, output: str) -> list[dict[str, Any]]:
         """Parse Docker container stats JSON output"""
         try:
             containers = []
             for line in output.strip().split('\n'):
                 if line.strip():
-                    container_data = json.loads(line)
-                    containers.append(container_data)
+                    try:
+                        container_data = json.loads(line)
+                        containers.append(container_data)
+                    except json.JSONDecodeError as e:
+                        logger.error(f"Failed to parse container stats line: {e}")
+                        logger.error(f"Problematic line: {repr(line)}")
+                        logger.error(f"Line length: {len(line)}, First 50 chars: {repr(line[:50])}")
+                        # Skip this line and continue with others
+                        continue
             return containers
-        except json.JSONDecodeError as e:
-            logger.error(f"Failed to parse container stats: {e}")
+        except Exception as e:
+            logger.error(f"Failed to parse container stats output: {e}")
+            logger.debug(f"Raw output: {repr(output)}")
             return []
     
     def validate(self, output: str) -> bool:
@@ -144,7 +151,7 @@ class ContainerStatsParser(CommandParser):
 class DriveHealthParser(CommandParser):
     """Parser for drive health and SMART data"""
     
-    def parse(self, output: str) -> List[Dict[str, Any]]:
+    def parse(self, output: str) -> list[dict[str, Any]]:
         """Parse drive listing and SMART data"""
         try:
             drives = []
@@ -176,9 +183,9 @@ class SSHCommandManager:
     
     def __init__(self, ssh_client: SSHClient):
         self.ssh_client = ssh_client
-        self.command_registry: Dict[str, CommandDefinition] = {}
-        self.cache: Dict[str, CachedResult] = {}
-        self.parsers: Dict[CommandCategory, CommandParser] = {
+        self.command_registry: dict[str, CommandDefinition] = {}
+        self.cache: dict[str, CachedResult] = {}
+        self.parsers: dict[CommandCategory, CommandParser] = {
             CommandCategory.SYSTEM_METRICS: SystemMetricsParser(),
             CommandCategory.CONTAINER_MANAGEMENT: ContainerStatsParser(),
             CommandCategory.DRIVE_HEALTH: DriveHealthParser(),
@@ -192,11 +199,11 @@ class SSHCommandManager:
         self.register_command(CommandDefinition(
             name="system_metrics",
             command_template=(
-                "echo $(top -bn1 | grep 'Cpu(s)' | awk '{print $2}' | sed 's/%us,//'); "
-                "echo $(free | grep Mem | awk '{printf \"%.2f\", ($3/$2) * 100.0}'); "
-                "echo $(df -h / | awk 'NR==2{print $5}' | sed 's/%//'); "
-                "echo $(cat /proc/loadavg | awk '{print $1, $2, $3}'); "
-                "echo $(cat /proc/uptime | awk '{print $1}')"
+                "echo $(top -bn1 | grep 'Cpu(s)' | awk '{{print $2}}' | sed 's/%us,//'); "
+                "echo $(free | grep Mem | awk '{{printf \"%.2f\", ($3/$2) * 100.0}}'); "
+                "echo $(df -h / | awk 'NR==2{{print $5}}' | sed 's/%//'); "
+                "echo $(cat /proc/loadavg | awk '{{print $1, $2, $3}}'); "
+                "echo $(cat /proc/uptime | awk '{{print $1}}')"
             ),
             category=CommandCategory.SYSTEM_METRICS,
             description="Collect comprehensive system metrics",
@@ -208,7 +215,7 @@ class SSHCommandManager:
         # Container listing command
         self.register_command(CommandDefinition(
             name="list_containers",
-            command_template="docker ps -a --format '{{json .}}'",
+            command_template="docker ps -a --format '{{{{json .}}}}'",
             category=CommandCategory.CONTAINER_MANAGEMENT,
             description="List all Docker containers with JSON output",
             timeout=10,
@@ -250,7 +257,7 @@ class SSHCommandManager:
         # Docker container stats
         self.register_command(CommandDefinition(
             name="container_stats",
-            command_template="docker stats --no-stream --format '{{json .}}' {container_id}",
+            command_template="docker stats --no-stream --format '{{{{json .}}}}' {container_id}",
             category=CommandCategory.CONTAINER_MANAGEMENT,
             description="Get real-time stats for specific container",
             timeout=15,
@@ -266,7 +273,7 @@ class SSHCommandManager:
         """Get command definition by name"""
         return self.command_registry.get(name)
     
-    def list_commands(self, category: Optional[CommandCategory] = None) -> List[CommandDefinition]:
+    def list_commands(self, category: Optional[CommandCategory] = None) -> list[CommandDefinition]:
         """List all registered commands, optionally filtered by category"""
         commands = list(self.command_registry.values())
         if category:
@@ -295,7 +302,7 @@ class SSHCommandManager:
         if ttl > 0:
             self.cache[cache_key] = CachedResult(
                 result=result,
-                timestamp=datetime.now(UTC),
+                timestamp=datetime.now(timezone.utc),
                 ttl=ttl,
                 command_hash=cache_key
             )
@@ -305,7 +312,7 @@ class SSHCommandManager:
         self,
         command_name: str,
         connection_info: SSHConnectionInfo,
-        parameters: Optional[Dict[str, Any]] = None,
+        parameters: Optional[dict[str, Any]] = None,
         force_refresh: bool = False
     ) -> Any:
         """
@@ -322,14 +329,22 @@ class SSHCommandManager:
         """
         command_def = self.get_command(command_name)
         if not command_def:
-            raise SSHCommandError(f"Unknown command: {command_name}")
+            raise SSHCommandError(
+                f"Unknown command: {command_name}",
+                command=command_name,
+                hostname=connection_info.host
+            )
         
         # Format command with parameters
         parameters = parameters or {}
         try:
             formatted_command = command_def.command_template.format(**parameters)
         except KeyError as e:
-            raise SSHCommandError(f"Missing parameter for command {command_name}: {e}")
+            raise SSHCommandError(
+                f"Missing parameter for command {command_name}: {e}",
+                command=command_def.command_template,
+                hostname=connection_info.host
+            )
         
         # Check cache first
         cache_key = self._generate_cache_key(formatted_command, connection_info)
@@ -395,7 +410,7 @@ class SSHCommandManager:
         
         # All retries failed
         raise SSHCommandError(
-            message=f"Command {command_name} failed after {command_def.retry_count} attempts: {last_exception}",
+            f"Command {command_name} failed after {command_def.retry_count} attempts: {last_exception}",
             command=formatted_command,
             hostname=connection_info.host
         ) from last_exception
@@ -412,7 +427,20 @@ class SSHCommandManager:
         
         for attempt in range(retry_count):
             try:
-                result = await self.ssh_client.execute_command(connection_info, command)
+                # Apply timeout parameter
+                connection_info_with_timeout = SSHConnectionInfo(
+                    host=connection_info.host,
+                    port=connection_info.port,
+                    username=connection_info.username,
+                    password=connection_info.password,
+                    private_key_path=connection_info.private_key_path,
+                    private_key_passphrase=connection_info.private_key_passphrase,
+                    connect_timeout=connection_info.connect_timeout,
+                    command_timeout=timeout,
+                    max_retries=1  # We handle retries here
+                )
+                
+                result = await self.ssh_client.execute_command(connection_info_with_timeout, command)
                 logger.debug(f"Successfully executed raw command on {connection_info.host}")
                 return result
                 
@@ -427,7 +455,7 @@ class SSHCommandManager:
                     await asyncio.sleep(2 ** attempt)
         
         raise SSHCommandError(
-            message=f"Raw command failed after {retry_count} attempts: {last_exception}",
+            f"Raw command failed after {retry_count} attempts: {last_exception}",
             command=command,
             hostname=connection_info.host
         ) from last_exception
@@ -448,17 +476,17 @@ class SSHCommandManager:
             logger.info(f"Cleared all {count} cache entries")
             return count
         
-        keys_to_remove = [key for key in self.cache.keys() if pattern in key]
+        keys_to_remove = [key for key in self.cache if pattern in key]
         for key in keys_to_remove:
             del self.cache[key]
         
         logger.info(f"Cleared {len(keys_to_remove)} cache entries matching pattern: {pattern}")
         return len(keys_to_remove)
     
-    def get_cache_stats(self) -> Dict[str, Any]:
+    def get_cache_stats(self) -> dict[str, Any]:
         """Get cache statistics"""
         total_entries = len(self.cache)
-        expired_entries = sum(1 for cached in self.cache.values() if cached.is_expired)
+        expired_entries: int = sum(1 for cached in self.cache.values() if cached.is_expired)
         
         return {
             "total_entries": total_entries,

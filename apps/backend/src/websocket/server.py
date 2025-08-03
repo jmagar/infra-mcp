@@ -103,7 +103,7 @@ async def websocket_endpoint(
                     {
                         "type": MessageType.ERROR,
                         "error_code": "AUTH_TIMEOUT",
-                        "message": f"Authentication timeout - no auth message received within {auth_timeout} seconds",
+                        "message": f"Authentication timeout: No authentication message received within {auth_timeout} seconds. Please send an auth message immediately after connecting.",
                     }
                 )
             )

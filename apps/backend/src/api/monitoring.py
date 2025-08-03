@@ -7,25 +7,46 @@ for comprehensive infrastructure monitoring capabilities.
 
 import logging
 import time
-from datetime import datetime, UTC
-from typing import Dict, Any, List, Optional
+import traceback
+from datetime import datetime, timezone, timedelta
+from typing import Any
+from typing_extensions import TypedDict
 
-from fastapi import APIRouter, Depends, HTTPException, Request, FastAPI
+from fastapi import APIRouter, Depends, HTTPException, Request
 from slowapi import Limiter
 from slowapi.util import get_remote_address
-from sqlalchemy import text, select, func
-from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy import select, func
 
 from apps.backend.src.core.database import get_async_session_factory, check_database_health
 from apps.backend.src.core.config import get_settings
-from apps.backend.src.services.polling_service import PollingService
 from apps.backend.src.models.device import Device
 from apps.backend.src.models.metrics import SystemMetric
 from apps.backend.src.models.container import ContainerSnapshot
-from apps.backend.src.schemas.common import HealthCheckResponse
 from apps.backend.src.utils.ssh_command_manager import get_ssh_command_manager
+# Remove circular import - polling_service will be accessed via dependency
 
 logger = logging.getLogger(__name__)
+
+# Global reference to polling service - set by main.py during startup
+_polling_service = None
+
+def get_polling_service():
+    """Get the current polling service instance."""
+    return _polling_service
+
+def set_polling_service(service):
+    """Set the polling service instance (called by main.py)."""
+    global _polling_service
+    _polling_service = service
+
+
+class PerformanceMetricsResponse(TypedDict):
+    performance_metrics: dict[str, float | str]
+    database_performance: dict[str, dict[str, int | float | str]]
+    ssh_performance: dict[str, dict[str, Any] | int | float]
+    system_configuration: dict[str, dict[str, int] | int]
+    recommendations: list[str]
+
 
 # Rate limiter setup
 limiter = Limiter(key_func=get_remote_address)
@@ -36,7 +57,7 @@ router = APIRouter(prefix="/health", tags=["monitoring"])
 @limiter.limit("5/minute")
 async def detailed_health_check(
     request: Request
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """
     Comprehensive system health check with component-level details
     
@@ -55,9 +76,8 @@ async def detailed_health_check(
         
         # Polling service status
         settings = get_settings()
-        # Get the global polling service instance from FastAPI app state
-        from apps.backend.src.main import app
-        polling_service = getattr(app.state, 'polling_service', None)
+        # Get the global polling service instance
+        polling_service = get_polling_service()
         if polling_service:
             polling_status = await polling_service.get_polling_status()
         else:
@@ -81,7 +101,7 @@ async def detailed_health_check(
             # Device statistics
             device_stats_query = select(
                 func.count(Device.id).label("total_devices"),
-                func.count(Device.id).filter(Device.monitoring_enabled == True).label("monitored_devices"),
+                func.count(Device.id).filter(Device.monitoring_enabled).label("monitored_devices"),
                 func.count(Device.id).filter(Device.status == "online").label("online_devices"),
                 func.count(Device.id).filter(Device.status == "offline").label("offline_devices"),
             )
@@ -90,13 +110,13 @@ async def detailed_health_check(
             
             # Recent data collection statistics (last 24 hours)
             recent_metrics_query = select(func.count(SystemMetric.time)).where(
-                SystemMetric.time >= datetime.now(UTC).replace(hour=0, minute=0, second=0, microsecond=0)
+                SystemMetric.time >= datetime.now(timezone.utc).replace(hour=0, minute=0, second=0, microsecond=0)
             )
             recent_metrics_result = await db.execute(recent_metrics_query)
             recent_metrics_count = recent_metrics_result.scalar() or 0
             
             recent_containers_query = select(func.count(ContainerSnapshot.time)).where(
-                ContainerSnapshot.time >= datetime.now(UTC).replace(hour=0, minute=0, second=0, microsecond=0)
+                ContainerSnapshot.time >= datetime.now(timezone.utc).replace(hour=0, minute=0, second=0, microsecond=0)
             )
             recent_containers_result = await db.execute(recent_containers_query)
             recent_containers_count = recent_containers_result.scalar() or 0
@@ -107,7 +127,7 @@ async def detailed_health_check(
                 "status": "healthy" if database_health["status"] == "healthy" else "unhealthy",
                 "score": 10 if database_health["status"] == "healthy" else 2,
                 "details": database_health,
-                "last_check": datetime.now(UTC).isoformat()
+                "last_check": datetime.now(timezone.utc).isoformat()
             },
             "polling_service": {
                 "status": "healthy" if polling_status["is_running"] else "stopped",
@@ -120,7 +140,7 @@ async def detailed_health_check(
                         "drive_health": polling_status["drive_health_interval_seconds"]
                     }
                 },
-                "last_check": datetime.now(UTC).isoformat()
+                "last_check": datetime.now(timezone.utc).isoformat()
             },
             "ssh_commands": {
                 "status": "healthy",
@@ -129,7 +149,7 @@ async def detailed_health_check(
                     "cache_stats": cache_stats,
                     "registry_commands": len(ssh_cmd_manager.command_registry)
                 },
-                "last_check": datetime.now(UTC).isoformat()
+                "last_check": datetime.now(timezone.utc).isoformat()
             },
             "device_connectivity": {
                 "status": "healthy" if device_stats.online_devices > 0 else "warning",
@@ -141,7 +161,7 @@ async def detailed_health_check(
                     "offline_devices": device_stats.offline_devices,
                     "connectivity_ratio": device_stats.online_devices / max(device_stats.total_devices, 1)
                 },
-                "last_check": datetime.now(UTC).isoformat()
+                "last_check": datetime.now(timezone.utc).isoformat()
             },
             "data_collection": {
                 "status": "healthy" if recent_metrics_count > 0 else "warning",
@@ -154,7 +174,7 @@ async def detailed_health_check(
                         "containers_per_hour": recent_containers_count / 24
                     }
                 },
-                "last_check": datetime.now(UTC).isoformat()
+                "last_check": datetime.now(timezone.utc).isoformat()
             }
         }
         
@@ -179,7 +199,7 @@ async def detailed_health_check(
             "components": components,
             "performance": {
                 "response_time_ms": round(response_time * 1000, 2),
-                "check_timestamp": datetime.now(UTC).isoformat()
+                "check_timestamp": datetime.now(timezone.utc).isoformat()
             },
             "summary": {
                 "total_devices": device_stats.total_devices,
@@ -198,7 +218,7 @@ async def detailed_health_check(
 @limiter.limit("10/minute")
 async def polling_health_check(
     request: Request
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """
     Dedicated polling service health check with detailed statistics
     
@@ -210,9 +230,8 @@ async def polling_health_check(
     """
     try:
         settings = get_settings()
-        # Get the global polling service instance from FastAPI app state
-        from apps.backend.src.main import app
-        polling_service = getattr(app.state, 'polling_service', None)
+        # Get the global polling service instance
+        polling_service = get_polling_service()
         if polling_service:
             polling_status = await polling_service.get_polling_status()
         else:
@@ -229,15 +248,14 @@ async def polling_health_check(
         session_factory = get_async_session_factory()
         
         async with session_factory() as db:
-            device_query = select(Device).where(Device.monitoring_enabled == True)
+            device_query = select(Device).where(Device.monitoring_enabled)
             devices_result = await db.execute(device_query)
             monitored_devices = devices_result.scalars().all()
             
             device_health = []
             for device in monitored_devices:
                 # Check recent metrics for this device (last hour)
-                from datetime import timedelta
-                one_hour_ago = datetime.now(UTC) - timedelta(hours=1)
+                one_hour_ago = datetime.now(timezone.utc) - timedelta(hours=1)
                 recent_metrics_query = select(func.count(SystemMetric.time)).where(
                     SystemMetric.device_id == device.id,
                     SystemMetric.time >= one_hour_ago
@@ -286,19 +304,23 @@ async def polling_health_check(
                 "warning_devices": len([d for d in device_health if 3 <= d["health_score"] < 8]),
                 "unhealthy_devices": len([d for d in device_health if d["health_score"] < 3])
             },
-            "timestamp": datetime.now(UTC).isoformat()
+            "timestamp": datetime.now(timezone.utc).isoformat()
         }
         
     except Exception as e:
-        logger.error(f"Polling health check failed: {e}")
-        raise HTTPException(status_code=500, detail=f"Polling health check failed: {str(e)}")
+        logger.error(f"Polling health check failed: {e}", exc_info=True)
+        logger.debug(f"Full traceback: {traceback.format_exc()}")
+        raise HTTPException(
+            status_code=500, 
+            detail="Polling health check service temporarily unavailable. Please try again later."
+        ) from e
 
 
 @router.get("/performance")
-@limiter.limit("10/minute")  
+@limiter.limit("10/minute")
 async def performance_metrics(
     request: Request
-) -> Dict[str, Any]:
+) -> PerformanceMetricsResponse:
     """
     API and system performance metrics endpoint
     
@@ -340,7 +362,7 @@ async def performance_metrics(
                 "api_response_time_ms": round(total_response_time, 2),
                 "database_query_time_ms": round(db_query_time, 2),
                 "ssh_cache_efficiency_percent": round(cache_efficiency, 2),
-                "measurement_timestamp": datetime.now(UTC).isoformat()
+                "measurement_timestamp": datetime.now(timezone.utc).isoformat()
             },
             "database_performance": {
                 "connection_pool": {
@@ -373,8 +395,12 @@ async def performance_metrics(
         }
         
     except Exception as e:
-        logger.error(f"Performance metrics collection failed: {e}")
-        raise HTTPException(status_code=500, detail=f"Performance metrics failed: {str(e)}")
+        logger.error(f"Performance metrics collection failed: {e}", exc_info=True)
+        logger.debug(f"Full traceback: {traceback.format_exc()}")
+        raise HTTPException(
+            status_code=500,
+            detail="Performance metrics service temporarily unavailable. Please try again later."
+        ) from e
 
 
 @router.get("/dashboard")
@@ -382,7 +408,7 @@ async def performance_metrics(
 async def monitoring_dashboard_data(
     request: Request,
     hours: int = 24
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """
     Comprehensive monitoring dashboard data endpoint
     
@@ -397,8 +423,7 @@ async def monitoring_dashboard_data(
         hours = min(max(hours, 1), 168)  # 1 hour to 1 week
         
         # Time range for queries
-        from datetime import timedelta
-        time_threshold = datetime.now(UTC) - timedelta(hours=hours)
+        time_threshold = datetime.now(timezone.utc) - timedelta(hours=hours)
         
         # Database queries using session factory
         session_factory = get_async_session_factory()
@@ -408,7 +433,7 @@ async def monitoring_dashboard_data(
             device_summary_query = select(
                 func.count(Device.id).label("total"),
                 func.count(Device.id).filter(Device.status == "online").label("online"),
-                func.count(Device.id).filter(Device.monitoring_enabled == True).label("monitored")
+                func.count(Device.id).filter(Device.monitoring_enabled).label("monitored")
             )
             device_summary = (await db.execute(device_summary_query)).first()
             
@@ -424,8 +449,7 @@ async def monitoring_dashboard_data(
             containers_count = (await db.execute(containers_count_query)).scalar() or 0
         
         # Polling service status
-        from apps.backend.src.main import app
-        polling_service = getattr(app.state, 'polling_service', None)
+        polling_service = get_polling_service()
         if polling_service:
             polling_status = await polling_service.get_polling_status()
         else:
@@ -477,7 +501,7 @@ async def monitoring_dashboard_data(
                 if polling_status["is_running"] else 
                 {"level": "error", "message": "Polling service not running"}
             ],
-            "timestamp": datetime.now(UTC).isoformat(),
+            "timestamp": datetime.now(timezone.utc).isoformat(),
             "data_range_hours": hours
         }
         
@@ -487,5 +511,9 @@ async def monitoring_dashboard_data(
         return dashboard_data
         
     except Exception as e:
-        logger.error(f"Dashboard data collection failed: {e}")
-        raise HTTPException(status_code=500, detail=f"Dashboard data failed: {str(e)}")
+        logger.error(f"Dashboard data collection failed: {e}", exc_info=True)
+        logger.debug(f"Full traceback: {traceback.format_exc()}")
+        raise HTTPException(
+            status_code=500,
+            detail="Dashboard data service temporarily unavailable. Please try again later."
+        ) from e
