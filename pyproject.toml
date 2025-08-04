@@ -26,7 +26,7 @@ dependencies = [
     "fastapi>=0.116.1,<1.0.0",
     "uvicorn[standard]>=0.35.0,<1.0.0",
     # FastMCP for MCP server integration
-    "fastmcp>=2.10.6",
+    "fastmcp>=2.11.0",
     # Database and ORM
     "sqlalchemy>=2.0.42,<3.0.0",
     "asyncpg>=0.30.0", # PostgreSQL async driver
