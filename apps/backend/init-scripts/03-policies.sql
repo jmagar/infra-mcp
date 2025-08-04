@@ -34,6 +34,22 @@ SELECT add_compression_policy('vm_status', INTERVAL '7 days');
 SELECT add_compression_policy('system_logs', INTERVAL '3 days');
 
 -- =============================================================================
+-- PHASE 1: NEW HYPERTABLES COMPRESSION POLICIES
+-- =============================================================================
+
+-- Enable compression for data_collection_audit after 1 day (high volume audit data)
+SELECT add_compression_policy('data_collection_audit', INTERVAL '1 day');
+
+-- Enable compression for configuration_snapshots after 7 days
+SELECT add_compression_policy('configuration_snapshots', INTERVAL '7 days');
+
+-- Enable compression for configuration_change_events after 7 days
+SELECT add_compression_policy('configuration_change_events', INTERVAL '7 days');
+
+-- Enable compression for service_performance_metrics after 1 day (high volume metrics)
+SELECT add_compression_policy('service_performance_metrics', INTERVAL '1 day');
+
+-- =============================================================================
 -- RETENTION POLICIES CONFIGURATION
 -- =============================================================================
 
@@ -64,6 +80,22 @@ SELECT add_retention_policy('vm_status', INTERVAL '30 days');
 
 -- Set retention policy for system_logs (keep 14 days - logs can grow large quickly)
 SELECT add_retention_policy('system_logs', INTERVAL '14 days');
+
+-- =============================================================================
+-- PHASE 1: NEW HYPERTABLES RETENTION POLICIES
+-- =============================================================================
+
+-- Set retention policy for data_collection_audit (keep 90 days - detailed audit trail)
+SELECT add_retention_policy('data_collection_audit', INTERVAL '90 days');
+
+-- Set retention policy for configuration_snapshots (keep 1 year - important for compliance)
+SELECT add_retention_policy('configuration_snapshots', INTERVAL '365 days');
+
+-- Set retention policy for configuration_change_events (keep 1 year - important for compliance)
+SELECT add_retention_policy('configuration_change_events', INTERVAL '365 days');
+
+-- Set retention policy for service_performance_metrics (keep 180 days - performance analysis)
+SELECT add_retention_policy('service_performance_metrics', INTERVAL '180 days');
 
 -- =============================================================================
 -- ADVANCED COMPRESSION CONFIGURATION
@@ -100,6 +132,34 @@ ALTER TABLE system_logs SET (
 ALTER TABLE network_interfaces SET (
     timescaledb.compress_orderby = 'time DESC, device_id, interface_name',
     timescaledb.compress_segmentby = 'device_id, interface_name'
+);
+
+-- =============================================================================
+-- PHASE 1: NEW HYPERTABLES ADVANCED COMPRESSION CONFIGURATION
+-- =============================================================================
+
+-- Configure advanced compression for data_collection_audit with operation-specific ordering
+ALTER TABLE data_collection_audit SET (
+    timescaledb.compress_orderby = 'time DESC, device_id, data_type',
+    timescaledb.compress_segmentby = 'device_id, data_type, collection_method'
+);
+
+-- Configure advanced compression for configuration_snapshots with config-specific ordering
+ALTER TABLE configuration_snapshots SET (
+    timescaledb.compress_orderby = 'time DESC, device_id, config_type',
+    timescaledb.compress_segmentby = 'device_id, config_type'
+);
+
+-- Configure advanced compression for configuration_change_events with change-specific ordering
+ALTER TABLE configuration_change_events SET (
+    timescaledb.compress_orderby = 'time DESC, device_id, config_type',
+    timescaledb.compress_segmentby = 'device_id, config_type, change_type'
+);
+
+-- Configure advanced compression for service_performance_metrics with service-specific ordering
+ALTER TABLE service_performance_metrics SET (
+    timescaledb.compress_orderby = 'time DESC, service_name',
+    timescaledb.compress_segmentby = 'service_name'
 );
 
 -- =============================================================================

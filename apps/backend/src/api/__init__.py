@@ -13,6 +13,11 @@ from .proxy import router as proxy_router
 from .zfs import router as zfs_router
 from .compose_deployment import router as compose_deployment_router
 from .vms import router as vms_router
+# Phase 1 - Database-first architecture endpoints
+from .audit import router as audit_router
+from .configuration import router as configuration_router
+from .performance import router as performance_router
+from .cache import router as cache_router
 
 # Create main API router (no prefix since it's mounted at /api in main.py)
 api_router = APIRouter(tags=["API"])
@@ -29,6 +34,12 @@ api_router.include_router(zfs_router, prefix="/zfs", tags=["ZFS"])
 api_router.include_router(compose_deployment_router, prefix="/compose", tags=["Compose Deployment"])
 api_router.include_router(vms_router, prefix="/vms", tags=["VMs"])
 
+# Phase 1 - Database-first architecture endpoints
+api_router.include_router(audit_router, prefix="/audit", tags=["Data Collection Audit"])
+api_router.include_router(configuration_router, prefix="/configuration", tags=["Configuration Management"])
+api_router.include_router(performance_router, prefix="/performance", tags=["Service Performance"])
+api_router.include_router(cache_router, prefix="/cache", tags=["Cache Management"])
+
 __all__ = [
     "api_router",
     "common_router",
@@ -38,4 +49,9 @@ __all__ = [
     "zfs_router",
     "compose_deployment_router",
     "vms_router",
+    # Phase 1 routers
+    "audit_router",
+    "configuration_router",
+    "performance_router",
+    "cache_router",
 ]

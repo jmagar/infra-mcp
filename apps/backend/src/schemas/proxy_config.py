@@ -8,6 +8,7 @@ including file-based nginx configurations and database tracking.
 from datetime import datetime
 from typing import Dict, List, Optional, Any, Union
 from enum import Enum
+from uuid import UUID
 from pydantic import BaseModel, Field, ConfigDict, validator
 
 
@@ -102,10 +103,11 @@ class ProxyConfigUpdate(BaseModel):
 
 
 class ProxyConfigResponse(ProxyConfigBase):
-    """Complete proxy configuration response"""
+    """Complete proxy configuration response - integrated with ConfigurationSnapshot system"""
 
     id: int = Field(..., description="Configuration ID")
-    device_id: str = Field(..., description="Device hostname where config is located")
+    device_id: UUID = Field(..., description="Device UUID where config is located")
+    snapshot_id: Optional[UUID] = Field(None, description="Configuration snapshot ID (unified system)")
     file_size: Optional[int] = Field(None, description="File size in bytes")
     file_hash: Optional[str] = Field(None, description="SHA256 hash of file content")
     last_modified: Optional[datetime] = Field(None, description="File last modified timestamp")
@@ -117,6 +119,12 @@ class ProxyConfigResponse(ProxyConfigBase):
     updated_at: datetime = Field(..., description="Record last update timestamp")
     sync_status: str = Field(..., description="Sync status with file system")
     sync_last_checked: Optional[datetime] = Field(None, description="Last sync check timestamp")
+    
+    # Configuration snapshot metadata (when available)
+    snapshot_config_type: Optional[str] = Field(None, description="Configuration type from snapshot")
+    change_type: Optional[str] = Field(None, description="Change type from snapshot")
+    risk_level: Optional[str] = Field(None, description="Risk level from snapshot")
+    requires_restart: Optional[bool] = Field(None, description="Whether services need restart")
 
 
 class ProxyConfigList(BaseModel):
@@ -176,11 +184,13 @@ class ProxyConfigValidation(BaseModel):
 
 
 class ProxyConfigChange(BaseModel):
-    """Tracked change in proxy configuration"""
+    """Tracked change in proxy configuration - integrated with ConfigurationSnapshot"""
 
     model_config = ConfigDict(from_attributes=True)
 
     config_id: int = Field(..., description="Configuration ID")
+    snapshot_id: UUID = Field(..., description="Configuration snapshot ID")
+    change_event_id: Optional[UUID] = Field(None, description="Configuration change event ID")
     change_type: str = Field(..., description="Type of change (created, modified, deleted)")
     old_hash: Optional[str] = Field(None, description="Previous file hash")
     new_hash: Optional[str] = Field(None, description="New file hash")
@@ -188,6 +198,8 @@ class ProxyConfigChange(BaseModel):
         default_factory=list, description="List of detected changes"
     )
     detected_at: datetime = Field(..., description="Change detection timestamp")
+    risk_level: Optional[str] = Field(None, description="Risk level assessment")
+    requires_restart: Optional[bool] = Field(None, description="Whether services need restart")
 
 
 class ProxyConfigSync(BaseModel):
@@ -205,7 +217,7 @@ class ProxyConfigSync(BaseModel):
 
 
 class ProxyConfigResource(BaseModel):
-    """MCP Resource representation of proxy config"""
+    """MCP Resource representation of proxy config - integrated with ConfigurationSnapshot"""
 
     model_config = ConfigDict(from_attributes=True)
 
@@ -215,25 +227,37 @@ class ProxyConfigResource(BaseModel):
     mime_type: str = Field(default="text/plain", description="MIME type")
     service_name: str = Field(..., description="Service name")
     subdomain: str = Field(..., description="Subdomain")
-    device_id: str = Field(..., description="Device hostname")
+    device_id: UUID = Field(..., description="Device UUID")
     file_path: str = Field(..., description="File path")
     last_modified: Optional[datetime] = Field(None, description="Last modified timestamp")
+    snapshot_id: Optional[UUID] = Field(None, description="Configuration snapshot ID")
+    content_hash: Optional[str] = Field(None, description="Content hash from snapshot")
+    sync_status: Optional[str] = Field(None, description="Sync status with snapshot system")
 
 
 # Request/Response models for API endpoints
 class ProxyConfigSearchRequest(BaseModel):
-    """Search request for proxy configurations"""
+    """Search request for proxy configurations - integrated with ConfigurationSnapshot"""
 
     model_config = ConfigDict(from_attributes=True)
 
     service_name: Optional[str] = Field(None, description="Filter by service name")
     subdomain: Optional[str] = Field(None, description="Filter by subdomain")
-    device_id: Optional[str] = Field(None, description="Filter by device")
+    device_id: Optional[UUID] = Field(None, description="Filter by device UUID")
+    device_ids: Optional[List[UUID]] = Field(None, description="Filter by multiple device UUIDs")
     status: Optional[ProxyConfigStatus] = Field(None, description="Filter by status")
     config_type: Optional[ProxyConfigType] = Field(None, description="Filter by type")
     ssl_enabled: Optional[bool] = Field(None, description="Filter by SSL status")
     search_content: Optional[str] = Field(None, description="Search within config content")
     tags: Optional[Dict[str, str]] = Field(None, description="Filter by tags")
+    
+    # ConfigurationSnapshot integration filters
+    snapshot_ids: Optional[List[UUID]] = Field(None, description="Filter by snapshot IDs")
+    change_types: Optional[List[str]] = Field(None, description="Filter by change types")
+    risk_levels: Optional[List[str]] = Field(None, description="Filter by risk levels")
+    requires_restart: Optional[bool] = Field(None, description="Filter by restart requirement")
+    modified_since: Optional[datetime] = Field(None, description="Filter by modification date")
+    modified_before: Optional[datetime] = Field(None, description="Filter by modification date")
 
 
 class ProxyConfigBulkOperation(BaseModel):
@@ -259,3 +283,31 @@ class ProxyConfigTemplate(BaseModel):
     example_values: Dict[str, str] = Field(
         default_factory=dict, description="Example variable values"
     )
+
+
+class ProxyConfigSnapshotIntegration(BaseModel):
+    """Integration schema linking proxy configs with ConfigurationSnapshot system"""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    config_id: int = Field(..., description="Proxy configuration ID")
+    device_id: UUID = Field(..., description="Device UUID")
+    file_path: str = Field(..., description="Configuration file path")
+    
+    # ConfigurationSnapshot fields
+    snapshot_id: Optional[UUID] = Field(None, description="Configuration snapshot ID")
+    snapshot_time: Optional[datetime] = Field(None, description="Snapshot timestamp")
+    config_type: str = Field(default="proxy", description="Configuration type")
+    content_hash: Optional[str] = Field(None, description="File content hash")
+    file_size_bytes: Optional[int] = Field(None, description="File size")
+    change_type: str = Field(default="modified", description="Type of change")
+    previous_hash: Optional[str] = Field(None, description="Previous content hash")
+    detection_latency_ms: Optional[int] = Field(None, description="Change detection latency")
+    affected_services: List[str] = Field(default_factory=list, description="Affected services")
+    requires_restart: bool = Field(default=False, description="Requires service restart")
+    risk_level: str = Field(default="MEDIUM", description="Risk level of change")
+    
+    # Sync status
+    sync_status: str = Field(default="pending", description="Sync status")
+    last_sync_attempt: Optional[datetime] = Field(None, description="Last sync attempt")
+    sync_errors: List[str] = Field(default_factory=list, description="Sync errors")

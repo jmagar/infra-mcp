@@ -21,16 +21,14 @@ class Device(Base):
 
     # Basic device information
     hostname = Column(String(255), unique=True, nullable=False, index=True)
-    ip_address = Column(INET, nullable=True, index=True)  # Optional - SSH config handles this
-    ssh_port = Column(Integer, nullable=True)  # Optional - SSH config handles this
-    ssh_username = Column(String(100), nullable=True)  # Optional - SSH config handles this
-
+    
     # Device classification
     device_type = Column(
         String(50), default="server", index=True
     )  # server, container_host, storage, network
     description = Column(Text)
     location = Column(String(255))
+    device_metadata = Column(JSONB, default={})  # Device-specific metadata
     tags = Column(JSONB, default={})
 
     # Docker configuration paths
@@ -43,6 +41,11 @@ class Device(Base):
     status = Column(
         String(20), default="unknown", index=True
     )  # online, offline, unknown, maintenance
+    
+    # Phase 1: Data collection status tracking
+    last_successful_collection = Column(DateTime(timezone=True), index=True)
+    last_collection_status = Column(String(20), default="never", index=True)  # never, success, failed, timeout
+    collection_error_count = Column(Integer, default=0)
 
     # Timestamps
     created_at = Column(DateTime(timezone=True), default=func.now())
@@ -58,4 +61,17 @@ class Device(Base):
     container_snapshots = relationship(
         "ContainerSnapshot", back_populates="device", cascade="all, delete-orphan"
     )
-    # Additional relationships defined in original models.py will be added here
+    
+    # Phase 1: New audit and configuration relationships
+    data_collection_audits = relationship(
+        "DataCollectionAudit", back_populates="device", cascade="all, delete-orphan"
+    )
+    configuration_snapshots = relationship(
+        "ConfigurationSnapshot", back_populates="device", cascade="all, delete-orphan"
+    )
+    configuration_change_events = relationship(
+        "ConfigurationChangeEvent", back_populates="device", cascade="all, delete-orphan"
+    )
+    cache_metadata = relationship(
+        "CacheMetadata", back_populates="device", cascade="all, delete-orphan"
+    )

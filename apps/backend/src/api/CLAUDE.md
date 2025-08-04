@@ -1,351 +1,76 @@
-# API Layer Guidelines - Infrastructor Project
+# Claude Memory for the API Layer
 
-This file contains specific guidelines for working with the REST API layer of the infrastructor project.
+This document provides a high-level overview of the API layer in the Infrastructor project, designed to give Claude context for code generation, analysis, and modifications.
 
-## 🏗️ API Architecture Overview
+## 1. Architectural Role and Vision
 
-The API layer provides REST endpoints for infrastructure management with the following structure:
+The API layer serves as the primary synchronous interface for interacting with the infrastructure. It is responsible for handling on-demand requests from the UI, MCP tools, and external systems.
 
-### Core API Modules
-- **`common.py`**: Shared authentication, rate limiting, and common endpoints
-- **`devices.py`**: Device registry management and system monitoring endpoints  
-- **`containers.py`**: Docker container lifecycle management
-- **`compose_deployment.py`**: Docker Compose deployment and modification
-- **`proxy.py`**: SWAG reverse proxy configuration management
-- **`zfs.py`**: ZFS filesystem operations (16 endpoints)
-- **`vms.py`**: Virtual machine log access
+**Core Principles:**
 
-## 🔧 API Patterns & Standards
+-   **Thin & Stateless**: The API layer is designed to be a thin wrapper around the `UnifiedDataCollectionService`. It contains minimal business logic and is primarily responsible for request handling, authentication, and data formatting.
+-   **Consistent Interface**: All API endpoints follow a consistent design pattern, providing a predictable and easy-to-use interface for all infrastructure operations.
+-   **Real-time & On-Demand**: The API is optimized for real-time, on-demand data collection, with a `force_refresh` parameter to bypass the cache when necessary.
 
-### Router Organization
+## 2. Key API Endpoints
+
+The API is organized into several resource-based modules:
+
+-   `devices.py`: Manages device registration, discovery, and status.
+-   `containers.py`: Handles Docker container management (start, stop, status).
+-   `monitoring.py`: Provides access to real-time system metrics.
+-   `proxy.py`: Manages Nginx proxy configurations.
+-   `system.py`: Provides system-level information, such as performance metrics and cache status.
+
+**Example Endpoint Pattern:**
+
 ```python
-# Standard router pattern
-from fastapi import APIRouter, Depends, HTTPException, Query, Path
-from apps.backend.src.api.common import get_current_user
+# api/containers.py
 
-logger = logging.getLogger(__name__)
-router = APIRouter()
-
-# All endpoints require authentication
-@router.get("/endpoint")
-async def endpoint_function(
-    param: str = Path(..., description="Parameter description"),
-    query_param: int = Query(60, description="Query parameter"),
-    current_user=Depends(get_current_user),
+@router.get("/devices/{device_id}/containers")
+async def get_device_containers(
+    device_id: UUID,
+    force_refresh: bool = Query(False, description="Force fresh data collection"),
+    service: UnifiedDataCollectionService = Depends(get_unified_service)
 ):
+    return await service.get_container_data(device_id, force_refresh)
 ```
 
-### Authentication Pattern
-```python
-# All endpoints MUST include authentication dependency
-current_user=Depends(get_current_user)
+## 3. Data Flow and Service Interaction
 
-# Authentication is implemented in common.py with Bearer token
-# Simple validation: tokens must be >= 10 characters
-# Production: Should implement proper JWT validation
+The API layer **does not** contain any direct SSH or data collection logic. All data is retrieved through the `UnifiedDataCollectionService`.
+
+**Standard Data Flow:**
+
+1.  An HTTP request is received by a FastAPI endpoint.
+2.  The endpoint uses dependency injection to get an instance of the `UnifiedDataCollectionService`.
+3.  The endpoint calls the appropriate method on the unified service (e.g., `get_container_data`).
+4.  The unified service handles all the complexity of caching, command execution, and database interaction.
+5.  The API endpoint formats the result from the service and returns it as a JSON response.
+
+## 4. Authentication and Authorization
+
+-   API endpoints are secured using JWT-based authentication.
+-   A `get_current_user` dependency is used to protect routes and provide user context.
+-   The user context is passed to the `UnifiedDataCollectionService` to ensure that all operations are properly audited.
+
+## 5. Error Handling
+
+-   The API layer uses a centralized exception handling middleware.
+-   Custom exceptions defined in `core/exceptions.py` are used to represent specific error conditions.
+-   The middleware catches these exceptions and converts them into appropriate HTTP responses.
+
+## 6. Key Files & Structure
+
+```
+apps/backend/src/api/
+├── __init__.py
+├── common.py          # Shared utilities and dependencies
+├── containers.py      # Docker container endpoints
+├── devices.py         # Device management endpoints
+├── monitoring.py      # System metrics endpoints
+├── proxy.py           # Nginx proxy endpoints
+└── system.py          # System-level endpoints
 ```
 
-### Error Handling Pattern
-```python
-# Always use try/except with proper exception chaining
-try:
-    result = await service_function()
-    return result
-except SpecificCustomError as e:
-    # Map to appropriate HTTP status
-    raise HTTPException(status_code=404, detail=str(e)) from e
-except Exception as e:
-    # Log unexpected errors
-    logger.error(f"Error in operation: {e}")
-    raise HTTPException(status_code=500, detail="Internal server error") from e
-```
-
-### Rate Limiting Pattern
-```python
-from slowapi import Limiter
-from slowapi.util import get_remote_address
-
-# Rate limiter configured in common.py
-@router.get("/endpoint")
-@limiter.limit("60/minute")  # Specific rate limit
-async def endpoint(request: Request):
-```
-
-## 📊 API Endpoint Categories
-
-### Device Management (`devices.py`)
-- **CRUD Operations**: Create, read, update, delete device registry entries
-- **Status Monitoring**: SSH connectivity testing and device status
-- **System Metrics**: Drive health, system logs, network ports
-- **Import Function**: Bulk import from SSH config files
-
-**Key Pattern**: Device registry is OPTIONAL - SSH-based tools work directly with hostnames
-
-### Container Management (`containers.py`)
-- **Lifecycle Operations**: Start, stop, restart, remove containers
-- **Information Gathering**: List, inspect, logs, stats
-- **Command Execution**: Execute commands inside containers
-- **Resource Monitoring**: Real-time container resource usage
-
-**Key Pattern**: Direct SSH command execution with structured response formatting
-
-### Docker Compose Deployment (`compose_deployment.py`)
-- **Modification**: Adapt compose files for target devices (ports, paths, networks)
-- **Deployment**: Deploy modified compose with backup and health checks
-- **Combined Operations**: Modify-and-deploy in single atomic operation
-- **Port/Network Scanning**: Pre-deployment infrastructure analysis
-
-**Key Pattern**: Complex multi-step operations with comprehensive error handling
-
-### Proxy Configuration (`proxy.py`)
-- **SWAG Integration**: Real-time access to reverse proxy configurations
-- **File Synchronization**: Database sync with actual configuration files
-- **Template Management**: Access to configuration templates and samples
-- **Content Delivery**: Raw configuration file content as plain text
-
-**Key Pattern**: MCP resource integration with database synchronization
-
-### ZFS Management (`zfs.py`)
-- **16 Comprehensive Endpoints**: Pools, datasets, snapshots, health, analysis
-- **Service Layer Architecture**: Dedicated service classes for each ZFS area
-- **Complex Operations**: Snapshot send/receive, cloning, diffing
-- **Health Monitoring**: ARC stats, events, comprehensive health checks
-
-**Key Pattern**: Service dependency injection with comprehensive timeout handling
-
-## 🛡️ Critical API Coding Standards
-
-### Import Organization
-```python
-# Standard library imports first
-import logging
-from datetime import datetime, timezone
-from typing import Optional
-
-# Third-party imports
-from fastapi import APIRouter, Depends, HTTPException, Query, Path
-from pydantic import BaseModel, Field
-
-# Local imports
-from apps.backend.src.api.common import get_current_user
-from apps.backend.src.services.example_service import ExampleService
-from apps.backend.src.schemas.example import ExampleResponse
-from apps.backend.src.core.exceptions import CustomError
-```
-
-### Modern Type Annotations
-```python
-# ✅ Correct - Python 3.11+ built-in generics
-def process_items(items: list[str]) -> dict[str, int]:
-    return {"count": len(items)}
-
-# Query parameters with union types
-optional_param: str | None = Query(None, description="Optional parameter")
-
-# ❌ Avoid - Deprecated typing imports
-from typing import Union, List, Dict  # Don't use these
-```
-
-### Timezone Handling
-```python
-# ✅ Always use UTC timezone
-from datetime import datetime, timezone
-
-timestamp = datetime.now(timezone.utc)
-
-# ❌ Never use naive datetime
-timestamp = datetime.now()  # Missing timezone
-```
-
-### Exception Chaining
-```python
-# ✅ Proper exception chaining with 'from e'
-try:
-    result = await external_service()
-except ExternalError as e:
-    logger.error(f"External service failed: {e}")
-    raise HTTPException(status_code=503, detail="Service unavailable") from e
-
-# ❌ Missing exception chaining
-except ExternalError as e:
-    raise HTTPException(status_code=503, detail="Error")  # Missing 'from e'
-```
-
-### String Formatting
-```python
-# ✅ Use f-strings only when interpolating
-error_msg = f"Device {device_id} not found"  # Interpolating variable
-static_msg = "Operation completed successfully"  # No f-string needed
-
-# ❌ Unnecessary f-strings
-static_msg = f"Operation completed successfully"  # Don't use f-string for static text
-```
-
-## 📋 Response Format Standards
-
-### Success Response Pattern
-```python
-# Simple data return
-return {"result": data, "timestamp": datetime.now(timezone.utc)}
-
-# Complex operation result  
-return OperationResult[dict](
-    success=True,
-    operation_type="device_create",
-    result=device_data,
-    execution_time_ms=execution_time,
-    message="Device created successfully"
-)
-```
-
-### Error Response Pattern
-```python
-# HTTP exceptions with proper status codes
-# 400: Bad Request (validation errors)
-# 404: Not Found (resource doesn't exist)
-# 503: Service Unavailable (SSH connection failed)
-# 500: Internal Server Error (unexpected errors)
-
-raise HTTPException(
-    status_code=404,
-    detail=f"Device '{hostname}' not found"
-)
-```
-
-### Pagination Pattern
-```python
-# Use PaginationParams dependency
-async def list_items(
-    pagination: PaginationParams = Depends(),
-    current_user=Depends(get_current_user),
-):
-    return await service.list_items(pagination=pagination)
-```
-
-## 🔍 API Testing Patterns
-
-### Parameter Validation
-```python
-# Path parameters with descriptions
-hostname: str = Path(..., description="Device hostname")
-
-# Query parameters with validation
-timeout: int = Query(60, description="SSH timeout in seconds", ge=1, le=300)
-limit: int = Query(100, description="Max results", ge=1, le=1000)
-```
-
-### Request/Response Models
-```python
-# Use Pydantic models for complex requests
-class DeviceCreateRequest(BaseModel):
-    hostname: str = Field(..., description="Device hostname")
-    device_type: str = Field("server", description="Device type")
-    
-# Use response_model in decorators
-@router.post("/devices", response_model=DeviceResponse)
-async def create_device(request: DeviceCreateRequest):
-```
-
-## 🚀 Performance Considerations
-
-### SSH Command Optimization
-```python
-# Use appropriate timeouts based on operation complexity
-quick_ops = 30   # Status checks, simple queries
-medium_ops = 60  # Container operations, file operations  
-long_ops = 300   # ZFS operations, large transfers
-
-# Command construction with proper escaping
-cmd = f"docker logs {container_name}"
-if since:
-    cmd += f" --since {since}"  # Parameters validated by Pydantic
-```
-
-### Service Layer Integration
-```python
-# Dependency injection for services
-def get_device_service(db: AsyncSession = Depends(get_db_session)) -> DeviceService:
-    return DeviceService(db)
-
-# Use in endpoints
-async def create_device(
-    device_data: DeviceCreate,
-    service: DeviceService = Depends(get_device_service),
-):
-```
-
-## 🔗 Cross-Module Integration
-
-### MCP Tool Integration
-```python
-# Import MCP tools for reuse
-from apps.backend.src.mcp.tools.container_management import list_containers
-
-# Use in API endpoints
-async def list_device_containers(hostname: str):
-    return await list_containers(hostname, status, all_containers, timeout)
-```
-
-### Resource Access Pattern
-```python
-# Access MCP resources for real-time data
-from apps.backend.src.mcp.resources.proxy_configs import get_proxy_config_resource
-
-uri = f"swag://{service_name}"
-resource_data = await get_proxy_config_resource(uri)
-```
-
-## 📝 Documentation Standards
-
-### Endpoint Documentation
-```python
-@router.get("/endpoint")
-async def endpoint_function():
-    """
-    Brief description of what this endpoint does.
-    
-    Detailed explanation of the operation including:
-    - What data is retrieved/modified
-    - Special behaviors or requirements
-    - Performance considerations
-    
-    Args:
-        param: Parameter description with expected format
-        
-    Returns:
-        Description of response format and contents
-    """
-```
-
-### OpenAPI Integration
-- All endpoints automatically generate OpenAPI documentation
-- Use Pydantic models for request/response schemas
-- Include parameter descriptions in Query/Path declarations
-- Response models ensure consistent API documentation
-
-## ⚠️ Security Considerations
-
-### Input Validation
-```python
-# Always validate hostnames and device names
-# Use Pydantic Field validation for complex patterns
-# Sanitize SSH command parameters to prevent injection
-```
-
-### Authentication
-```python
-# Current: Simple Bearer token validation (>= 10 chars)
-# Production TODO: Implement proper JWT validation
-# All endpoints require authentication via get_current_user dependency
-```
-
-### SSH Security
-```python
-# Use execute_ssh_command_simple for safety
-# Commands are executed with configured timeouts
-# Error messages don't expose sensitive system information
-```
-
----
-
-*This API layer follows infrastructor project standards with modern Python patterns, comprehensive error handling, and secure SSH-based infrastructure management.*
+By adhering to these patterns, the API layer remains clean, maintainable, and decoupled from the underlying data collection logic, ensuring that all interactions with the infrastructure are consistent and audited.

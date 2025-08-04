@@ -317,13 +317,61 @@ async def check_database_health() -> dict:
             )
             cagg_count = result.scalar()
 
+            # Check specific hypertables including Phase 1 tables
+            hypertable_status = {}
+            expected_hypertables = [
+                "system_metrics", "drive_health", "container_snapshots",
+                # Phase 1 hypertables (time-series tables)
+                "data_collection_audit", "service_performance_metrics"
+            ]
+            
+            for table_name in expected_hypertables:
+                try:
+                    result = await session.execute(
+                        text("""
+                            SELECT 
+                                hypertable_name,
+                                num_dimensions,
+                                num_chunks,
+                                compression_enabled
+                            FROM timescaledb_information.hypertables 
+                            WHERE hypertable_name = :table_name
+                        """),
+                        {"table_name": table_name},
+                    )
+                    hypertable_info = result.fetchone()
+                    
+                    if hypertable_info:
+                        hypertable_status[table_name] = {
+                            "is_hypertable": True,
+                            "num_dimensions": hypertable_info[1],
+                            "num_chunks": hypertable_info[2],
+                            "compression_enabled": hypertable_info[3]
+                        }
+                    else:
+                        hypertable_status[table_name] = {
+                            "is_hypertable": False,
+                            "status": "Table exists but not converted to hypertable"
+                        }
+                except Exception as e:
+                    hypertable_status[table_name] = {
+                        "is_hypertable": False,
+                        "error": str(e)
+                    }
+
             health_data["timescaledb_info"] = {
                 "hypertables": hypertable_count,
                 "continuous_aggregates": cagg_count,
+                "hypertable_status": hypertable_status,
             }
 
-            # Table counts for key tables
-            tables_to_check = ["devices", "system_metrics", "drive_health", "container_snapshots"]
+            # Table counts for key tables (including Phase 1 tables)
+            tables_to_check = [
+                "devices", "system_metrics", "drive_health", "container_snapshots",
+                # Phase 1 tables
+                "data_collection_audit", "configuration_snapshots", 
+                "configuration_change_events", "service_performance_metrics", "cache_metadata"
+            ]
             for table in tables_to_check:
                 try:
                     result = await session.execute(text(f"SELECT COUNT(*) FROM {table}"))

@@ -57,6 +57,35 @@ from apps.backend.src.mcp.prompts.device_analysis import (
     infrastructure_health_check,
     troubleshoot_system_issue,
 )
+from apps.backend.src.mcp.prompts.container_workflows import (
+    deploy_application_stack,
+    troubleshoot_container_issues,
+    container_stack_maintenance,
+    scale_container_services,
+)
+from apps.backend.src.mcp.prompts.zfs_workflows import (
+    zfs_health_assessment,
+    zfs_snapshot_strategy,
+    zfs_disaster_recovery,
+    zfs_pool_optimization,
+)
+from apps.backend.src.mcp.prompts.proxy_workflows import (
+    deploy_reverse_proxy_service,
+    ssl_certificate_management,
+    proxy_performance_optimization,
+    proxy_security_hardening,
+)
+from apps.backend.src.mcp.prompts.deployment_workflows import (
+    full_stack_deployment,
+    cicd_pipeline_integration,
+    infrastructure_as_code_deployment,
+    zero_downtime_deployment,
+)
+from apps.backend.src.mcp.prompts.monitoring_workflows import (
+    infrastructure_health_monitoring,
+    performance_monitoring_optimization,
+    alerting_and_incident_management,
+)
 
 # Configure logging
 logging.basicConfig(
@@ -677,6 +706,35 @@ def create_mcp_server():
     server.prompt(infrastructure_health_check)
     server.prompt(troubleshoot_system_issue)
 
+    # Register container workflow prompts
+    server.prompt(deploy_application_stack)
+    server.prompt(troubleshoot_container_issues)
+    server.prompt(container_stack_maintenance)
+    server.prompt(scale_container_services)
+
+    # Register ZFS workflow prompts
+    server.prompt(zfs_health_assessment)
+    server.prompt(zfs_snapshot_strategy)
+    server.prompt(zfs_disaster_recovery)
+    server.prompt(zfs_pool_optimization)
+
+    # Register proxy workflow prompts
+    server.prompt(deploy_reverse_proxy_service)
+    server.prompt(ssl_certificate_management)
+    server.prompt(proxy_performance_optimization)
+    server.prompt(proxy_security_hardening)
+
+    # Register deployment workflow prompts
+    server.prompt(full_stack_deployment)
+    server.prompt(cicd_pipeline_integration)
+    server.prompt(infrastructure_as_code_deployment)
+    server.prompt(zero_downtime_deployment)
+
+    # Register monitoring workflow prompts
+    server.prompt(infrastructure_health_monitoring)
+    server.prompt(performance_monitoring_optimization)
+    server.prompt(alerting_and_incident_management)
+
     # Register SWAG proxy configuration resources
     @server.resource(
         uri="swag://configs",
@@ -1167,7 +1225,7 @@ def create_mcp_server():
             }, indent=2, ensure_ascii=False)
 
     logger.info(
-        "MCP server created with 24 tools, 4 prompts, and infrastructure + compose + ZFS + logs + ports resources"
+        "MCP server created with 45 tools, 19 prompts, and infrastructure + compose + ZFS + logs + ports resources"
     )
     return server
 

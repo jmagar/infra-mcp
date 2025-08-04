@@ -7,7 +7,15 @@ from typing import Optional, Dict, Any, List
 from uuid import UUID
 from pydantic import BaseModel, Field, field_validator
 from ipaddress import IPv4Address, IPv6Address
-from apps.backend.src.schemas.common import DeviceStatus, PaginatedResponse
+from apps.backend.src.schemas.common import (
+    DeviceStatus, 
+    PaginatedResponse, 
+    APIResponse, 
+    CreatedResponse, 
+    UpdatedResponse, 
+    DeletedResponse,
+    OperationResult
+)
 
 
 class DeviceBase(BaseModel):
@@ -16,12 +24,6 @@ class DeviceBase(BaseModel):
     hostname: str = Field(..., min_length=1, max_length=255, description="Device hostname")
     ip_address: Optional[str] = Field(
         None, description="Device IP address (optional - SSH config can handle this)"
-    )
-    ssh_port: Optional[int] = Field(
-        None, ge=1, le=65535, description="SSH port number (optional - SSH config can handle this)"
-    )
-    ssh_username: Optional[str] = Field(
-        None, max_length=100, description="SSH username (optional - SSH config can handle this)"
     )
     device_type: str = Field(default="server", max_length=50, description="Device type")
     description: Optional[str] = Field(None, description="Device description")
@@ -84,8 +86,6 @@ class DeviceUpdate(BaseModel):
 
     hostname: Optional[str] = Field(None, min_length=1, max_length=255)
     ip_address: Optional[str] = Field(None)
-    ssh_port: Optional[int] = Field(None, ge=1, le=65535)
-    ssh_username: Optional[str] = Field(None, max_length=100)
     device_type: Optional[str] = Field(None, max_length=50)
     description: Optional[str] = Field(None)
     location: Optional[str] = Field(None, max_length=255)
@@ -122,8 +122,25 @@ class DeviceResponse(DeviceBase):
     id: UUID = Field(description="Device unique identifier")
     status: DeviceStatus = Field(description="Device status")
     last_seen: Optional[datetime] = Field(description="Last time device was seen")
+    last_successful_collection: Optional[datetime] = Field(
+        description="Last time data was successfully collected from this device"
+    )
+    last_collection_status: str = Field(
+        default="never", description="Status of the last collection attempt"
+    )
+    collection_error_count: int = Field(
+        default=0, description="Number of consecutive collection errors"
+    )
     created_at: datetime = Field(description="Device creation timestamp")
     updated_at: datetime = Field(description="Device last update timestamp")
+
+    @field_validator("last_collection_status")
+    @classmethod
+    def validate_collection_status(cls, v):
+        valid_statuses = ["never", "success", "failed", "partial", "timeout"]
+        if v.lower() not in valid_statuses:
+            raise ValueError(f"Collection status must be one of: {', '.join(valid_statuses)}")
+        return v.lower()
 
     @field_validator("ip_address", mode="before")
     @classmethod
@@ -158,6 +175,9 @@ class DeviceSummary(BaseModel):
     status: DeviceStatus
     monitoring_enabled: bool
     last_seen: Optional[datetime]
+    last_successful_collection: Optional[datetime]
+    last_collection_status: str
+    collection_error_count: int
 
     class Config:
         from_attributes = True
@@ -197,7 +217,6 @@ class DeviceConnectionTest(BaseModel):
     device_id: UUID
     hostname: str
     ip_address: Optional[str]
-    ssh_port: Optional[int]
     connection_status: str = Field(description="Connection test result")
     response_time_ms: Optional[float] = Field(description="Connection response time")
     error_message: Optional[str] = Field(description="Error message if connection failed")
@@ -216,13 +235,6 @@ class DeviceConnectionTest(BaseModel):
     class Config:
         from_attributes = True
 
-
-class DeviceCredentials(BaseModel):
-    """Device SSH credentials (for updates only)"""
-
-    ssh_username: Optional[str] = Field(None, max_length=100)
-    ssh_port: Optional[int] = Field(None, ge=1, le=65535)
-    ssh_key_path: Optional[str] = Field(None, description="Path to SSH private key")
 
 
 class DeviceMetricsOverview(BaseModel):
@@ -317,3 +329,102 @@ class DeviceImportResponse(BaseModel):
             elif result.action == "error":
                 summary["errors"] += 1
         return summary
+
+
+# Specific Response Models following established patterns
+
+class DeviceListResponse(APIResponse[PaginatedResponse[DeviceSummary]]):
+    """Standardized paginated list response for devices"""
+    pass
+
+
+class DeviceDetailResponse(APIResponse[DeviceResponse]):
+    """Standardized detail response for a single device"""
+    pass
+
+
+class DeviceCreatedResponse(CreatedResponse[DeviceResponse]):
+    """Response for device creation operations"""
+    
+    def __init__(self, device: DeviceResponse, **kwargs):
+        super().__init__(
+            id=str(device.id),
+            resource_type="device", 
+            data=device,
+            **kwargs
+        )
+
+
+class DeviceUpdatedResponse(UpdatedResponse[DeviceResponse]):
+    """Response for device update operations"""
+    
+    def __init__(self, device: DeviceResponse, changes: Dict[str, Any], **kwargs):
+        super().__init__(
+            id=str(device.id),
+            resource_type="device",
+            data=device,
+            changes=changes,
+            **kwargs
+        )
+
+
+class DeviceDeletedResponse(DeletedResponse):
+    """Response for device deletion operations"""
+    
+    def __init__(self, device_id: UUID, **kwargs):
+        super().__init__(
+            id=str(device_id),
+            resource_type="device",
+            **kwargs
+        )
+
+
+class DeviceHealthResponse(APIResponse[List[DeviceHealth]]):
+    """Response for device health status queries"""
+    pass
+
+
+class DeviceMetricsResponse(APIResponse[DeviceMetricsOverview]):
+    """Response for device metrics overview"""
+    pass
+
+
+class DeviceConnectionTestResponse(OperationResult[DeviceConnectionTest]):
+    """Response for device connectivity test operations"""
+    
+    def __init__(self, test_result: DeviceConnectionTest, **kwargs):
+        super().__init__(
+            success=test_result.connection_status == "connected",
+            operation_type="connectivity_test",
+            result=test_result,
+            **kwargs
+        )
+
+
+class DeviceImportOperationResponse(OperationResult[DeviceImportResponse]):
+    """Enhanced response for device import operations with operation result wrapper"""
+    
+    def __init__(self, import_result: DeviceImportResponse, **kwargs):
+        errors = [r.error_message for r in import_result.results if r.error_message]
+        super().__init__(
+            success=len(errors) == 0,
+            operation_type="device_import",
+            result=import_result,
+            error_message=f"{len(errors)} devices failed to import" if errors else None,
+            **kwargs
+        )
+
+
+class DeviceBulkOperationResponse(APIResponse[Dict[str, Any]]):
+    """Response for bulk device operations (enable monitoring, update tags, etc.)"""
+    pass
+
+
+class DeviceAnalysisResponse(APIResponse[Dict[str, Any]]):
+    """Response for device analysis operations (capacity planning, health trends, etc.)"""
+    pass
+
+
+class DeviceConfigurationResponse(APIResponse[Dict[str, Any]]):
+    """Response for device configuration operations (SSH config, monitoring settings)"""
+    pass
