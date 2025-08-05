@@ -14,9 +14,9 @@ from sqlalchemy import select, delete
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
-from apps.backend.src.core.database import get_async_session
-from apps.backend.src.models.service_dependency import ServiceDependency
-from apps.backend.src.models.device import Device
+from ..core.database import get_async_session
+from ..models.service_dependency import ServiceDependency
+from ..models.device import Device
 
 logger = logging.getLogger(__name__)
 

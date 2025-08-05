@@ -15,7 +15,7 @@ import pickle
 import asyncio
 from threading import RLock
 
-from apps.backend.src.core.exceptions import (
+from ..core.exceptions import (
     CacheOperationError,
     ValidationError,
 )

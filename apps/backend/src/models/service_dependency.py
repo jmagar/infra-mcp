@@ -12,7 +12,7 @@ from sqlalchemy import Column, String, DateTime, ForeignKey, Index
 from sqlalchemy.dialects.postgresql import UUID as PgUUID
 from sqlalchemy.orm import relationship
 
-from apps.backend.src.core.database import Base
+from ..core.database import Base
 
 
 class ServiceDependency(Base):

@@ -8,7 +8,7 @@ from sqlalchemy.dialects.postgresql import UUID, INET, JSONB
 from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
 
-from apps.backend.src.core.database import Base
+from ..core.database import Base
 
 
 class Device(Base):
