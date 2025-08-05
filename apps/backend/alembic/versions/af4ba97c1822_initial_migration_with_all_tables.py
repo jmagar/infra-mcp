@@ -40,11 +40,15 @@ def upgrade() -> None:
         sa.Column("status", sa.String(length=20), nullable=False, default="unknown"),
         sa.Column("last_seen", sa.DateTime(timezone=True), nullable=True),
         sa.Column("ssh_port", sa.Integer(), nullable=False, default=22),
-        sa.Column("ssh_user", sa.String(length=100), nullable=True),
+        sa.Column("ssh_username", sa.String(length=100), nullable=True),
         sa.Column("ssh_key_path", sa.Text(), nullable=True),
         sa.Column("location", sa.String(length=255), nullable=True),
         sa.Column("environment", sa.String(length=50), nullable=True),
-        sa.Column("tags", postgresql.ARRAY(sa.String()), nullable=True, default=sa.func.array([])),
+        sa.Column("description", sa.Text(), nullable=True),
+        sa.Column("docker_compose_path", sa.String(length=512), nullable=True),
+        sa.Column("docker_appdata_path", sa.String(length=512), nullable=True),
+        sa.Column("monitoring_enabled", sa.Boolean(), nullable=False, default=True),
+        sa.Column("tags", postgresql.JSONB(astext_type=sa.Text()), nullable=True, default=sa.func.jsonb('{}')),
         sa.Column("metadata_info", postgresql.JSONB(astext_type=sa.Text()), nullable=True),
         sa.Column("notes", sa.Text(), nullable=True),
         sa.Column(
@@ -574,21 +578,18 @@ def upgrade() -> None:
         sa.PrimaryKeyConstraint("time", "device_id", "update_id"),
     )
 
-    # Create hypertables (TimescaleDB-specific)
-    op.execute("""
-        -- Create hypertables for time-series data
-        SELECT create_hypertable('system_metrics', 'time', chunk_time_interval => INTERVAL '1 day');
-        SELECT create_hypertable('drive_health', 'time', chunk_time_interval => INTERVAL '1 day');
-        SELECT create_hypertable('container_snapshots', 'time', chunk_time_interval => INTERVAL '1 day');
-        SELECT create_hypertable('zfs_status', 'time', chunk_time_interval => INTERVAL '1 day');
-        SELECT create_hypertable('zfs_snapshots', 'time', chunk_time_interval => INTERVAL '1 day');
-        SELECT create_hypertable('network_interfaces', 'time', chunk_time_interval => INTERVAL '1 day');
-        SELECT create_hypertable('docker_networks', 'time', chunk_time_interval => INTERVAL '1 day');
-        SELECT create_hypertable('vm_status', 'time', chunk_time_interval => INTERVAL '1 day');
-        SELECT create_hypertable('system_logs', 'time', chunk_time_interval => INTERVAL '1 day');
-        SELECT create_hypertable('backup_status', 'time', chunk_time_interval => INTERVAL '1 day');
-        SELECT create_hypertable('system_updates', 'time', chunk_time_interval => INTERVAL '1 day');
-    """)
+    # Create hypertables (TimescaleDB-specific) - each statement must be executed separately
+    op.execute("SELECT create_hypertable('system_metrics', 'time', chunk_time_interval => INTERVAL '1 day');")
+    op.execute("SELECT create_hypertable('drive_health', 'time', chunk_time_interval => INTERVAL '1 day');")
+    op.execute("SELECT create_hypertable('container_snapshots', 'time', chunk_time_interval => INTERVAL '1 day');")
+    op.execute("SELECT create_hypertable('zfs_status', 'time', chunk_time_interval => INTERVAL '1 day');")
+    op.execute("SELECT create_hypertable('zfs_snapshots', 'time', chunk_time_interval => INTERVAL '1 day');")
+    op.execute("SELECT create_hypertable('network_interfaces', 'time', chunk_time_interval => INTERVAL '1 day');")
+    op.execute("SELECT create_hypertable('docker_networks', 'time', chunk_time_interval => INTERVAL '1 day');")
+    op.execute("SELECT create_hypertable('vm_status', 'time', chunk_time_interval => INTERVAL '1 day');")
+    op.execute("SELECT create_hypertable('system_logs', 'time', chunk_time_interval => INTERVAL '1 day');")
+    op.execute("SELECT create_hypertable('backup_status', 'time', chunk_time_interval => INTERVAL '1 day');")
+    op.execute("SELECT create_hypertable('system_updates', 'time', chunk_time_interval => INTERVAL '1 day');")
 
 
 def downgrade() -> None:

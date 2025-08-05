@@ -87,29 +87,49 @@ show_logs() {
 stop_servers() {
     echo "🛑 Stopping servers..."
     
-    # Find and kill API server processes
-    API_PIDS=$(lsof -ti:$API_PORT 2>/dev/null)
+    # Find and kill API server processes (specifically uvicorn with our app)
+    API_PIDS=$(pgrep -f "uvicorn.*apps\.backend\.src\.main:app.*--port $API_PORT" 2>/dev/null)
     if [ -n "$API_PIDS" ]; then
-        echo "🛑 Killing API server processes on port $API_PORT: $API_PIDS"
-        echo "$API_PIDS" | xargs -r kill -9
+        echo "🛑 Killing API server processes: $API_PIDS"
+        echo "$API_PIDS" | xargs -r kill -TERM
+        sleep 2
+        # Force kill if still running
+        REMAINING_API_PIDS=$(pgrep -f "uvicorn.*apps\.backend\.src\.main:app.*--port $API_PORT" 2>/dev/null)
+        if [ -n "$REMAINING_API_PIDS" ]; then
+            echo "💀 Force killing remaining API server processes: $REMAINING_API_PIDS"
+            echo "$REMAINING_API_PIDS" | xargs -r kill -9
+        fi
     else
-        echo "✅ No API server processes found on port $API_PORT"
+        echo "✅ No API server processes found"
     fi
 
-    # Find and kill MCP server processes
-    MCP_PIDS=$(lsof -ti:$MCP_PORT 2>/dev/null)
+    # Find and kill MCP server processes (specifically our Python MCP server)
+    MCP_PIDS=$(pgrep -f "python.*apps/backend/src/mcp/server\.py" 2>/dev/null)
     if [ -n "$MCP_PIDS" ]; then
-        echo "🛑 Killing MCP server processes on port $MCP_PORT: $MCP_PIDS"
-        echo "$MCP_PIDS" | xargs -r kill -9
+        echo "🛑 Killing MCP server processes: $MCP_PIDS"
+        echo "$MCP_PIDS" | xargs -r kill -TERM
+        sleep 2
+        # Force kill if still running
+        REMAINING_MCP_PIDS=$(pgrep -f "python.*apps/backend/src/mcp/server\.py" 2>/dev/null)
+        if [ -n "$REMAINING_MCP_PIDS" ]; then
+            echo "💀 Force killing remaining MCP server processes: $REMAINING_MCP_PIDS"
+            echo "$REMAINING_MCP_PIDS" | xargs -r kill -9
+        fi
     else
-        echo "✅ No MCP server processes found on port $MCP_PORT"
+        echo "✅ No MCP server processes found"
     fi
     
     # Kill any log rotation monitor processes
     LOG_MONITOR_PIDS=$(pgrep -f "bash.*dev\.sh.*sleep 300" 2>/dev/null)
     if [ -n "$LOG_MONITOR_PIDS" ]; then
         echo "🔄 Stopping log rotation monitor: $LOG_MONITOR_PIDS"
-        kill -9 "$LOG_MONITOR_PIDS" 2>/dev/null
+        kill -TERM "$LOG_MONITOR_PIDS" 2>/dev/null
+        sleep 1
+        # Force kill if still running
+        REMAINING_LOG_PIDS=$(pgrep -f "bash.*dev\.sh.*sleep 300" 2>/dev/null)
+        if [ -n "$REMAINING_LOG_PIDS" ]; then
+            kill -9 "$REMAINING_LOG_PIDS" 2>/dev/null
+        fi
     fi
 }
 

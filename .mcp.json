@@ -7,14 +7,12 @@
 				"run",
 				"-i",
 				"--rm",
+				"--network=host",
 				"-e",
-				"DATABASE_URI",
+				"DATABASE_URI=postgresql://postgres:change_me_in_production@localhost:9100/infrastructor",
 				"crystaldba/postgres-mcp",
 				"--access-mode=unrestricted"
-			],
-			"env": {
-				"DATABASE_URI": "${DATABASE_URI}"
-			}
+			]
 		},
 		"task-master-ai": {
 			"type": "stdio",
