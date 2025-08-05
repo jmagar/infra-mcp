@@ -54,40 +54,44 @@ class DatabaseSettings(BaseSettings):
     model_config = SettingsConfigDict(env_file=".env", case_sensitive=False, extra="ignore")
 
 
+class RedisSettings(BaseSettings):
+    """Redis configuration settings for caching and session storage"""
+
+    redis_host: str = Field(default="localhost", env="REDIS_HOST")
+    redis_port: int = Field(default=9104, env="REDIS_PORT")
+    redis_password: str | None = Field(default=None, env="REDIS_PASSWORD")
+    redis_db: int = Field(default=0, env="REDIS_DB")
+    
+    # Connection Pool Settings
+    redis_pool_size: int = Field(default=10, env="REDIS_POOL_SIZE")
+    redis_max_connections: int = Field(default=20, env="REDIS_MAX_CONNECTIONS")
+    redis_socket_timeout: int = Field(default=5, env="REDIS_SOCKET_TIMEOUT")
+    redis_socket_connect_timeout: int = Field(default=5, env="REDIS_SOCKET_CONNECT_TIMEOUT")
+
+    @property
+    def redis_url(self) -> str:
+        """Generate Redis connection URL"""
+        if self.redis_password:
+            return f"redis://:{self.redis_password}@{self.redis_host}:{self.redis_port}/{self.redis_db}"
+        return f"redis://{self.redis_host}:{self.redis_port}/{self.redis_db}"
+
+    model_config = SettingsConfigDict(env_file=".env", case_sensitive=False, extra="ignore")
+
+
 class MCPServerSettings(BaseSettings):
     """FastMCP server configuration settings"""
 
     mcp_host: str = Field(default="0.0.0.0", env="MCP_HOST")
-    mcp_port: int = Field(default=9101, env="MCP_PORT")
+    mcp_port: int = Field(default=9102, env="MCP_PORT")
     mcp_path: str = Field(default="/mcp", env="MCP_PATH")
     mcp_log_level: str = Field(default="info", env="MCP_LOG_LEVEL")
 
-    # CORS Configuration - avoid JSON parsing entirely
-    cors_origins: list[str] = Field(
-        default_factory=lambda: [
-            "http://localhost:3000",
-            "http://localhost:5173",
-            "http://127.0.0.1:3000",
-        ]
-    )
-
-    def __init__(self, **kwargs):
-        super().__init__(**kwargs)
-        # Handle CORS_ORIGINS environment variable manually after initialization
-        cors_env = os.getenv("CORS_ORIGINS")
-        if cors_env:
-            self.cors_origins = [origin.strip() for origin in cors_env.split(",") if origin.strip()]
-
-    model_config = SettingsConfigDict(
-        env_file=".env", case_sensitive=False, extra="ignore", env_ignore_empty=True
-    )
+    model_config = SettingsConfigDict(env_file=".env", case_sensitive=False, extra="ignore")
 
 
 class WebSocketSettings(BaseSettings):
     """WebSocket server configuration for real-time streaming"""
 
-    websocket_host: str = Field(default="0.0.0.0", env="WEBSOCKET_HOST")
-    websocket_port: int = Field(default=9102, env="WEBSOCKET_PORT")
     websocket_max_connections: int = Field(default=50, env="WEBSOCKET_MAX_CONNECTIONS")
 
     model_config = SettingsConfigDict(env_file=".env", case_sensitive=False, extra="ignore")
@@ -196,8 +200,23 @@ class LoggingSettings(BaseSettings):
 
 
 class APISettings(BaseSettings):
-    """API configuration and rate limiting settings"""
+    """FastAPI REST API server configuration settings"""
 
+    # API Server Configuration
+    api_host: str = Field(default="0.0.0.0", env="API_HOST")
+    api_port: int = Field(default=9101, env="API_PORT")
+    api_log_level: str = Field(default="info", env="API_LOG_LEVEL")
+    
+    # CORS Configuration - avoid JSON parsing entirely
+    cors_origins: list[str] = Field(
+        default_factory=lambda: [
+            "http://localhost:3000",
+            "http://localhost:5173",
+            "http://127.0.0.1:3000",
+        ]
+    )
+    
+    # Cache settings
     cache_enabled: bool = Field(default=True, env="CACHE_ENABLED")
     cache_ttl: int = Field(default=300, env="CACHE_TTL")
     cache_max_size: int = Field(default=1000, env="CACHE_MAX_SIZE")
@@ -207,6 +226,13 @@ class APISettings(BaseSettings):
 
     # SSH concurrency limits
     max_concurrent_ssh_connections: int = Field(default=50, env="MAX_CONCURRENT_SSH_CONNECTIONS")
+
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
+        # Handle CORS_ORIGINS environment variable manually after initialization
+        cors_env = os.getenv("CORS_ORIGINS")
+        if cors_env:
+            self.cors_origins = [origin.strip() for origin in cors_env.split(",") if origin.strip()]
 
     model_config = SettingsConfigDict(env_file=".env", case_sensitive=False, extra="ignore")
 
@@ -242,6 +268,7 @@ class ApplicationSettings(BaseSettings):
 
     # Component settings
     database: DatabaseSettings = Field(default_factory=DatabaseSettings)
+    redis: RedisSettings = Field(default_factory=RedisSettings)
     mcp_server: MCPServerSettings = Field(default_factory=MCPServerSettings)
     websocket: WebSocketSettings = Field(default_factory=WebSocketSettings)
     ssh: SSHSettings = Field(default_factory=SSHSettings)

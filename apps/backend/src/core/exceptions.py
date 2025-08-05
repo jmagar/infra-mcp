@@ -554,3 +554,27 @@ class SystemMonitoringError(InfrastructureException):
             hostname=hostname,
             operation=operation,
         )
+
+
+class DataCollectionError(InfrastructureException):
+    """Raised when data collection operations fail"""
+
+    def __init__(
+        self,
+        message: str,
+        data_type: Optional[str] = None,
+        hostname: Optional[str] = None,
+        operation: str = "data_collection",
+        details: Optional[Dict[str, Any]] = None,
+    ):
+        details = details or {}
+        if data_type:
+            details["data_type"] = data_type
+
+        super().__init__(
+            message=message,
+            error_code="DATA_COLLECTION_ERROR",
+            details=details,
+            hostname=hostname,
+            operation=operation,
+        )

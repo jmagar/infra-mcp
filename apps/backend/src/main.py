@@ -126,7 +126,7 @@ async def lifespan(app: FastAPI):
         logger.info(
             f"Database: {settings.database.postgres_host}:{settings.database.postgres_port}"
         )
-        logger.info(f"API Server: {settings.mcp_server.mcp_host}:{settings.mcp_server.mcp_port}")
+        logger.info(f"API Server: {settings.api.api_host}:{settings.api.api_port}")
 
         yield
 
@@ -184,7 +184,7 @@ app.add_middleware(
 # Add CORS middleware
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=settings.mcp_server.cors_origins,
+    allow_origins=settings.api.cors_origins,
     allow_credentials=True,
     allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
     allow_headers=["*"],
@@ -655,9 +655,9 @@ if __name__ == "__main__":
     # Run development server
     uvicorn.run(
         "apps.backend.src.main:app",
-        host=settings.mcp_server.mcp_host,
-        port=settings.mcp_server.mcp_port,
+        host=settings.api.api_host,
+        port=settings.api.api_port,
         reload=settings.debug,
-        log_level=settings.mcp_server.mcp_log_level.lower(),
+        log_level=settings.api.api_log_level.lower(),
         access_log=True,
     )

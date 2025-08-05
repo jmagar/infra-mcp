@@ -65,7 +65,9 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 # FastAPI server configuration
-API_BASE_URL = "http://localhost:9101/api"
+API_HOST = os.getenv("API_HOST", "localhost")
+API_PORT = os.getenv("API_PORT", "9101")
+API_BASE_URL = f"http://{API_HOST}:{API_PORT}/api"
 API_TIMEOUT = 120.0
 API_KEY = os.getenv("API_KEY")
 if not API_KEY:
@@ -1198,9 +1200,13 @@ def main():
     server = create_mcp_server()
 
     try:
+        # Get MCP server configuration from environment
+        mcp_host = os.getenv("MCP_HOST", "localhost")
+        mcp_port = int(os.getenv("MCP_PORT", "9102"))
+        
         # Run the server on HTTP transport
-        logger.info("Starting MCP server on HTTP transport at port 9102...")
-        server.run(transport="http", host="localhost", port=9102)
+        logger.info(f"Starting MCP server on HTTP transport at {mcp_host}:{mcp_port}...")
+        server.run(transport="http", host=mcp_host, port=mcp_port)
     except KeyboardInterrupt:
         logger.info("MCP server stopped by user")
     except Exception as e:

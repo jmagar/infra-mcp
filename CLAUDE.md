@@ -5,8 +5,9 @@ This file contains comprehensive instructions for Claude to follow when working 
 ## 🏛️ Project Architecture
 
 ### Core Architecture
-- **Dual-Server Design**: FastAPI REST API (port 9101) + Independent FastMCP Server (port 9102)
-- **Database**: PostgreSQL + TimescaleDB for time-series data storage
+- **Dual-Server Design**: FastAPI REST API + WebSocket Server (port 9101) + Independent FastMCP Server (port 9102)
+- **Database**: PostgreSQL + TimescaleDB for time-series data storage (port 9100)
+- **Caching**: Redis for session storage and caching (port 9104)
 - **Communication**: All MCP operations are HTTP client calls to the REST API
 - **Package Management**: UV package manager for modern Python dependency management
 - **Python Version**: 3.11+ with async/await throughout
@@ -69,11 +70,13 @@ cd apps/backend && uv run alembic revision --autogenerate -m "description"  # Cr
 ```
 
 ### Development URLs
-- **API Server**: http://localhost:9101
+- **API Server + WebSocket**: http://localhost:9101
 - **API Documentation**: http://localhost:9101/docs
 - **API Health Check**: http://localhost:9101/health
+- **WebSocket Endpoint**: ws://localhost:9101/ws/stream
 - **MCP Server**: http://localhost:9102/mcp (independent server)
 - **Database**: postgresql://postgres:change_me_in_production@localhost:9100/infrastructor
+- **Redis**: redis://localhost:9104/0
 
 ## 🗄️ Database Architecture
 
@@ -244,10 +247,15 @@ POSTGRES_HOST=localhost
 POSTGRES_PORT=9100
 POSTGRES_DB=infrastructor
 
-# Server Configuration
+# Redis
+REDIS_HOST=localhost
+REDIS_PORT=9104
+REDIS_DB=0
+
+# Server Configuration  
 MCP_HOST=0.0.0.0
-MCP_PORT=9101
-WEBSOCKET_PORT=9102
+MCP_PORT=9101          # Actually used by API+WebSocket server
+WEBSOCKET_PORT=9102    # Actually used by MCP server
 
 # Authentication
 API_KEY=your-api-key-for-authentication
@@ -267,7 +275,7 @@ RATE_LIMIT_REQUESTS_PER_MINUTE=100
 
 ### Configuration Files
 - **Main Config**: `.env` (copy from `.env.example`)
-- **Docker Compose**: `docker-compose.yaml` (PostgreSQL + TimescaleDB)
+- **Docker Compose**: `docker-compose.yaml` (PostgreSQL + TimescaleDB + Redis)
 - **Alembic**: `alembic.ini` (database migration settings)
 - **Python Project**: `pyproject.toml` (dependencies, tools, scripts)
 
