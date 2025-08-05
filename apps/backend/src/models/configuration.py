@@ -59,6 +59,16 @@ class ConfigurationSnapshot(Base):
     requires_restart = Column(Boolean, default=False)
     risk_level = Column(String(20), default="MEDIUM", index=True)  # LOW, MEDIUM, HIGH, CRITICAL
 
+    # Sync and validation Status (Task 38: Configuration sync status tracking)
+    sync_status = Column(
+        String(50), default="synced", nullable=False, index=True
+    )  # synced, out-of-sync, unknown, error
+    validation_status = Column(
+        String(50), default="pending", nullable=False, index=True
+    )  # pending, valid, invalid, error
+    last_validation_output = Column(Text)
+    last_sync_error = Column(Text)
+
     # Relationships
     device = relationship("Device", back_populates="configuration_snapshots")
     change_events = relationship(
@@ -87,6 +97,30 @@ class ConfigurationSnapshot(Base):
         """Check if this configuration change requires service restart."""
         return self.requires_restart and bool(self.affected_services)
 
+    @property
+    def is_sync_healthy(self) -> bool:
+        """Check if the configuration is in a healthy sync state."""
+        return self.sync_status == "synced" and self.validation_status in ("valid", "pending")
+
+    @property
+    def has_sync_errors(self) -> bool:
+        """Check if there are sync or validation errors."""
+        return self.sync_status == "error" or self.validation_status == "error"
+
+    def update_sync_status(self, status: str, error_message: str | None = None) -> None:
+        """Update the sync status and optional error message."""
+        self.sync_status = status
+        if error_message:
+            self.last_sync_error = error_message
+        elif status == "synced":
+            self.last_sync_error = None
+
+    def update_validation_status(self, status: str, output: str | None = None) -> None:
+        """Update the validation status and optional output."""
+        self.validation_status = status
+        if output:
+            self.last_validation_output = output
+
     @classmethod
     def create_snapshot(
         cls,
@@ -105,6 +139,10 @@ class ConfigurationSnapshot(Base):
         affected_services: list[str] | None = None,
         requires_restart: bool = False,
         risk_level: str = "MEDIUM",
+        sync_status: str = "synced",
+        validation_status: str = "pending",
+        last_validation_output: str | None = None,
+        last_sync_error: str | None = None,
     ) -> "ConfigurationSnapshot":
         """
         Factory method to create a new configuration snapshot.
@@ -125,6 +163,10 @@ class ConfigurationSnapshot(Base):
             affected_services: List of services affected by this change
             requires_restart: Whether services need to be restarted
             risk_level: Risk level of the change
+            sync_status: Synchronization status ('synced', 'out-of-sync', 'unknown', 'error')
+            validation_status: Validation status ('pending', 'valid', 'invalid', 'error')
+            last_validation_output: Output from the last validation attempt
+            last_sync_error: Error message from the last sync attempt
 
         Returns:
             New ConfigurationSnapshot instance
@@ -146,6 +188,10 @@ class ConfigurationSnapshot(Base):
             affected_services=affected_services or [],
             requires_restart=requires_restart,
             risk_level=risk_level,
+            sync_status=sync_status,
+            validation_status=validation_status,
+            last_validation_output=last_validation_output,
+            last_sync_error=last_sync_error,
         )
 
 

@@ -48,7 +48,7 @@ These tables are configured with appropriate `chunk_time_interval`, compression,
 
 ## 5. Key Files & Structure
 
-```
+```plaintext
 apps/backend/src/models/
 ├── __init__.py
 ├── audit.py                   # (NEW) DataCollectionAudit model

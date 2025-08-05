@@ -328,11 +328,32 @@ class CacheService:
             if data_type:
                 base_query = base_query.where(CacheMetadata.data_type == data_type)
 
+            # Get aggregated metrics first
+            agg_query = select(
+                func.count(),
+                func.sum(CacheMetadata.data_size_bytes),
+                func.sum(CacheMetadata.access_count),
+                func.sum(CacheMetadata.hit_count),
+                func.sum(CacheMetadata.miss_count),
+            ).select_from(base_query.subquery())
+
+            agg_result = await self.db.execute(agg_query)
+            agg_data = agg_result.fetchone()
+
+            total_entries = int(agg_data[0]) if agg_data[0] else 0
+            total_size_bytes = int(agg_data[1]) if agg_data[1] else 0
+            total_accesses = int(agg_data[2]) if agg_data[2] else 0
+            total_hits = int(agg_data[3]) if agg_data[3] else 0
+            total_misses = int(agg_data[4]) if agg_data[4] else 0
+
+            # Calculate hit rate
+            avg_hit_rate = (total_hits / (total_hits + total_misses) * 100) if (total_hits + total_misses) > 0 else 0
+
             # Get performance metrics by tier - simplified for current schema
             performance_by_tier = [
                 {
                     "tier": "default",
-                    "avg_hit_rate": 0,  # Not tracked in current schema
+                    "avg_hit_rate": avg_hit_rate,
                     "avg_access_count": total_accesses / max(1, total_entries),
                     "total_size_bytes": total_size_bytes,
                 }

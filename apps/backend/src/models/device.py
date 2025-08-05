@@ -21,15 +21,15 @@ class Device(Base):
 
     # Basic device information
     hostname = Column(String(255), unique=True, nullable=False, index=True)
-    
+
     # Device classification
     device_type = Column(
         String(50), default="server", index=True
     )  # server, container_host, storage, network
     description = Column(Text)
     location = Column(String(255))
-    device_metadata = Column(JSONB, default={})  # Device-specific metadata
-    tags = Column(JSONB, default={})
+    device_metadata = Column(JSONB, default=dict, index=True, server_default="{}")
+    tags = Column(JSONB, default=dict)
 
     # Docker configuration paths
     docker_compose_path = Column(String(512), nullable=True)  # Primary docker-compose project path
@@ -41,10 +41,12 @@ class Device(Base):
     status = Column(
         String(20), default="unknown", index=True
     )  # online, offline, unknown, maintenance
-    
+
     # Phase 1: Data collection status tracking
     last_successful_collection = Column(DateTime(timezone=True), index=True)
-    last_collection_status = Column(String(20), default="never", index=True)  # never, success, failed, timeout
+    last_collection_status = Column(
+        String(20), default="never", index=True
+    )  # never, success, failed, timeout
     collection_error_count = Column(Integer, default=0)
 
     # Timestamps
@@ -61,7 +63,7 @@ class Device(Base):
     container_snapshots = relationship(
         "ContainerSnapshot", back_populates="device", cascade="all, delete-orphan"
     )
-    
+
     # Phase 1: New audit and configuration relationships
     data_collection_audits = relationship(
         "DataCollectionAudit", back_populates="device", cascade="all, delete-orphan"
@@ -74,4 +76,18 @@ class Device(Base):
     )
     cache_metadata = relationship(
         "CacheMetadata", back_populates="device", cascade="all, delete-orphan"
+    )
+    service_dependencies = relationship(
+        "ServiceDependency", back_populates="device", cascade="all, delete-orphan"
+    )
+    change_requests = relationship(
+        "ChangeRequest", back_populates="device", cascade="all, delete-orphan"
+    )
+
+    # Notification relationships
+    configuration_alerts = relationship(
+        "ConfigurationAlert", back_populates="device", cascade="all, delete-orphan"
+    )
+    proxy_configs = relationship(
+        "ProxyConfig", back_populates="device", cascade="all, delete-orphan"
     )

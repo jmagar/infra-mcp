@@ -1,0 +1,180 @@
+{
+  "$schema": "https://json.schemastore.org/claude-code-settings.json",
+  "permissions": {
+    "allow": [
+      "mcp__searxng__search",
+      "Bash(ss:*)",
+      "Bash(openssl rand:*)",
+      "Bash(pip index versions:*)",
+      "Bash(uv lock:*)",
+      "Bash(mkdir:*)",
+      "mcp__code-graph-mcp__analyze_codebase",
+      "mcp__playwright__browser_take_screenshot",
+      "mcp__playwright__browser_snapshot",
+      "mcp__playwright__browser_click",
+      "mcp__task-master-ai__analyze_project_complexity",
+      "mcp__task-master-ai__expand_task",
+      "Bash(find:*)",
+      "Bash(ls:*)",
+      "mcp__task-master-ai__get_task",
+      "mcp__task-master-ai__set_task_status",
+      "Bash(uv:*)",
+      "Bash(tree:*)",
+      "Bash(source:*)",
+      "Bash(python:*)",
+      "Bash(grep:*)",
+      "Bash(zsh:*)",
+      "Bash(cp:*)",
+      "Bash(curl:*)",
+      "Bash(pkill:*)",
+      "Bash(docker compose:*)",
+      "Bash(docker pull:*)",
+      "mcp__task-master-ai__get_tasks",
+      "Bash(timeout 5 uv run uvicorn src.main:app --host 0.0.0.0 --port 9101)",
+      "mcp__context7__resolve-library-id",
+      "mcp__context7__get-library-docs",
+      "Bash(task-master list:*)",
+      "Bash(task-master show:*)",
+      "Bash(task-master expand:*)",
+      "Bash(task-master:*)",
+      "mcp__task-master-ai__update_subtask",
+      "mcp__sequential-thinking__sequentialthinking_tools",
+      "mcp__deep-directory-tree__get_deep_directory_tree",
+      "Bash(pgrep:*)",
+      "Bash(top:*)",
+      "Bash(ps:*)",
+      "Bash(procs:*)",
+      "Bash(rm:*)",
+      "Bash(timeout:*)",
+      "Bash(true)",
+      "Bash(chmod:*)",
+      "mcp__infra__get_infrastructure_health",
+      "mcp__infra__list_containers",
+      "Bash(sed:*)",
+      "Bash(sudo lsof:*)",
+      "Bash(fuser:*)",
+      "Bash(kill:*)",
+      "Bash(./dev-restart.sh:*)",
+      "mcp__infra__get_system_metrics",
+      "mcp__infra__get_system_info",
+      "mcp__infra__get_container_info",
+      "mcp__infra__get_container_logs",
+      "Bash(git remote:*)",
+      "Bash(git add:*)",
+      "Bash(git commit:*)",
+      "Bash(git push:*)",
+      "Bash(git checkout:*)",
+      "mcp__infra__get_drive_health",
+      "mcp__infra__get_system_logs",
+      "mcp__infra__list_devices",
+      "Bash(echo:*)",
+      "mcp__infra__add_device",
+      "mcp__infra__remove_device",
+      "mcp__infra__edit_device",
+      "Bash(./dev.sh:*)",
+      "Bash(mv:*)",
+      "mcp__infra__get_drives_stats",
+      "mcp__infra__scan_proxy_configs",
+      "mcp__infra__analyze_device",
+      "Bash(docker-compose exec postgres psql:*)",
+      "mcp__postgres__list_schemas",
+      "mcp__infra__get_device_info",
+      "Bash(PYTHONPATH=/home/jmagar/code/infrastructor python -c \"\\nfrom fastapi import FastAPI\\nfrom src.api import api_router\\n\\napp = FastAPI()\\napp.include_router(api_router, prefix='/api')\\n\\n# Count endpoints in the ZFS router\\nzfs_routes = [route for route in app.routes if hasattr(route, 'path') and '/zfs/' in route.path]\\nprint(f'Found {len(zfs_routes)} ZFS endpoints:')\\nfor route in zfs_routes:\\n    if hasattr(route, 'methods'):\\n        methods = ', '.join([m for m in route.methods if m != 'OPTIONS'])\\n        print(f'  {methods} {route.path}')\\n\")",
+      "Bash(PYTHONPATH=/home/jmagar/code/infrastructor python -c \"\\ntry:\\n    from src.services.zfs import ZFSPoolService, ZFSDatasetService, ZFSSnapshotService, ZFSHealthService, ZFSAnalysisService\\n    print('✓ ZFS services imported successfully')\\n    \\n    # Test service instantiation\\n    pool_service = ZFSPoolService()\\n    dataset_service = ZFSDatasetService()\\n    snapshot_service = ZFSSnapshotService()\\n    health_service = ZFSHealthService()\\n    analysis_service = ZFSAnalysisService()\\n    print('✓ All ZFS services instantiated successfully')\\n    \\nexcept Exception as e:\\n    print(f'✗ Error importing ZFS services: {e}')\\n    import traceback\\n    traceback.print_exc()\\n\")",
+      "Bash(PYTHONPATH=/home/jmagar/code/infrastructor python -c \"\\ntry:\\n    from src.api import api_router\\n    from fastapi import FastAPI\\n    \\n    app = FastAPI()\\n    app.include_router(api_router, prefix='/api')\\n    \\n    # Count ZFS routes\\n    zfs_routes = [route for route in app.routes if hasattr(route, 'path') and '/zfs/' in route.path]\\n    print(f'✓ Found {len(zfs_routes)} ZFS endpoints registered')\\n    \\n    # Print endpoints for verification\\n    for route in zfs_routes:\\n        if hasattr(route, 'methods') and hasattr(route, 'path'):\\n            methods = [m for m in route.methods if m != 'OPTIONS']\\n            if methods:\\n                print(f'  {methods[0]} {route.path}')\\n    \\nexcept Exception as e:\\n    print(f'✗ Error testing API registration: {e}')\\n    import traceback\\n    traceback.print_exc()\\n\")",
+      "Bash(PYTHONPATH=/home/jmagar/code/infrastructor python:*)",
+      "Bash(gh pr view:*)",
+      "Bash(gh pr diff:*)",
+      "mcp__infra__get_container_stats",
+      "mcp__infra__restart_container",
+      "mcp__postgres__list_objects",
+      "mcp__postgres__get_object_details",
+      "mcp__infra__monitor_zfs_events",
+      "mcp__infra__list_zfs_pools",
+      "mcp__infra__check_zfs_health",
+      "mcp__infra__list_zfs_snapshots",
+      "mcp__infra__get_zfs_arc_stats",
+      "mcp__infra__list_zfs_datasets",
+      "Bash(git pull:*)",
+      "Bash(git merge:*)",
+      "Bash(PYTHONPATH=/home/jmagar/code/infrastructor/apps/backend uv run alembic current)",
+      "Bash(API_KEY=your-api-key-for-authentication uv run python test_websocket.py)",
+      "Bash(API_KEY=your-api-key-for-authentication uv run python debug_websocket.py)",
+      "Bash(gh pr create:*)",
+      "Bash(awk:*)",
+      "Bash(node:*)",
+      "Bash(npm:*)",
+      "Bash(npx create-next-app:*)",
+      "Bash(npx shadcn@latest init:*)",
+      "Bash(for:*)",
+      "Bash(do echo \"Fixing $file\")",
+      "Bash(done)",
+      "Bash(do if [ -f \"$file\" ])",
+      "Bash(then echo \"Fixing $file\")",
+      "Bash(fi)",
+      "Bash(PYTHONPATH=apps/backend uv run alembic -c apps/backend/alembic.ini revision --autogenerate -m \"Create unified infrastructure schema\")",
+      "Bash(PYTHONPATH=apps/backend uv run alembic -c apps/backend/alembic.ini revision -m \"Create unified infrastructure schema\")",
+      "Bash(docker volume rm:*)",
+      "Bash(docker volume:*)",
+      "Bash(PYTHONPATH=/home/jmagar/code/infrastructor/apps/backend uv run alembic upgrade head)",
+      "Bash(PYTHONPATH=/home/jmagar/code/infrastructor/apps/backend uv run alembic -c apps/backend/alembic.ini upgrade head)",
+      "Bash(PYTHONPATH=/home/jmagar/code/infrastructor/apps/backend uv run alembic -c apps/backend/alembic.ini heads)",
+      "Bash(PYTHONPATH=/home/jmagar/code/infrastructor/apps/backend uv run alembic -c apps/backend/alembic.ini history)",
+      "Bash(PYTHONPATH=/home/jmagar/code/infrastructor/apps/backend uv run alembic -c apps/backend/alembic.ini revision --autogenerate -m \"Create unified infrastructure schema with TimescaleDB compatibility\")",
+      "Bash(PYTHONPATH=/home/jmagar/code/infrastructor/apps/backend uv run alembic -c apps/backend/alembic.ini revision -m \"Rename devices.metadata to device_metadata\")",
+      "Bash(PYTHONPATH=/home/jmagar/code/infrastructor/apps/backend uv run python test_models.py)",
+      "Bash(PYTHONPATH=/home/jmagar/code/infrastructor/apps/backend/src python test_pydantic_schemas.py)",
+      "Bash(mcp list-tools:*)",
+      "Bash(claude list-tools)",
+      "Bash(gh pr checks:*)",
+      "mcp__infra__analyze_snapshot_usage",
+      "mcp__infra__generate_zfs_report",
+      "mcp__infra__optimize_zfs_settings",
+      "mcp__infra__get_zfs_pool_status",
+      "mcp__infra__get_zfs_dataset_properties",
+      "mcp__infra__get_device_logs"
+    ],
+    "additionalDirectories": [
+      "/home/jmagar/code/claude-code-sdk/"
+    ]
+  },
+  "enableAllProjectMcpServers": true,
+  "enabledMcpjsonServers": [
+    "task-master-ai"
+  ],
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Write",
+        "hooks": [
+          {
+            "type": "command",
+            "blocking": true,
+            "command": "/home/jmagar/code/infrastructor/.claude/hooks/pre_tool_use_write.py"
+          }
+        ]
+      },
+      {
+        "matcher": "Edit",
+        "hooks": [
+          {
+            "type": "command",
+            "blocking": true,
+            "command": "/home/jmagar/code/infrastructor/.claude/hooks/pre_tool_use_edit.py"
+          }
+        ]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "matcher": "Write|Edit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 -c \"import sys, json, subprocess; data=json.load(sys.stdin); file_path=data.get('tool_input', {}).get('file_path', ''); subprocess.run(['uv', 'run', 'ruff', 'format', file_path], cwd='/home/jmagar/code/infrastructor', capture_output=True) if file_path.endswith('.py') else None; print('✅ Python file formatted with ruff') if file_path.endswith('.py') else None\""
+          }
+        ]
+      }
+    ]
+  }
+}

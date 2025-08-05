@@ -49,20 +49,23 @@ class PerformanceService:
                 operations_total=metric_data.operations_total,
                 operations_successful=metric_data.operations_successful,
                 operations_failed=metric_data.operations_failed,
-                operations_cached=metric_data.operations_cached,
                 avg_duration_ms=metric_data.avg_duration_ms,
                 max_duration_ms=metric_data.max_duration_ms,
                 min_duration_ms=metric_data.min_duration_ms,
-                ssh_connections_created=metric_data.ssh_connections_created,
-                ssh_connections_reused=metric_data.ssh_connections_reused,
-                ssh_commands_executed=metric_data.ssh_commands_executed,
-                cache_hit_ratio=metric_data.cache_hit_ratio,
-                cache_size_entries=metric_data.cache_size_entries,
-                cache_evictions=metric_data.cache_evictions,
-                data_collected_bytes=metric_data.data_collected_bytes,
-                database_writes=metric_data.database_writes,
-                error_types=metric_data.error_types,
-                top_errors=metric_data.top_errors,
+                p95_duration_ms=metric_data.p95_duration_ms,
+                p99_duration_ms=metric_data.p99_duration_ms,
+                cache_hit_count=metric_data.cache_hit_count,
+                cache_miss_count=metric_data.cache_miss_count,
+                error_count=metric_data.error_count,
+                timeout_count=metric_data.timeout_count,
+                retry_count=metric_data.retry_count,
+                throughput_ops_per_sec=metric_data.throughput_ops_per_sec,
+                concurrent_operations=metric_data.concurrent_operations,
+                memory_usage_bytes=metric_data.memory_usage_bytes,
+                cpu_usage_percent=metric_data.cpu_usage_percent,
+                network_io_bytes=metric_data.network_io_bytes,
+                disk_io_bytes=metric_data.disk_io_bytes,
+                performance_metadata=metric_data.metadata or {},
             )
 
             self.db.add(metric)
@@ -126,7 +129,7 @@ class PerformanceService:
                     operations_total=metric.operations_total,
                     success_rate=((metric.operations_successful / metric.operations_total * 100) if metric.operations_total > 0 else 0),
                     avg_duration_ms=metric.avg_duration_ms,
-                    cache_hit_ratio=metric.cache_hit_ratio,
+                    cache_hit_ratio=((metric.cache_hit_count / (metric.cache_hit_count + metric.cache_miss_count) * 100) if (metric.cache_hit_count + metric.cache_miss_count) > 0 else 0),
                     performance_grade=self._calculate_performance_grade(metric),
                 )
                 for metric in metrics
@@ -162,12 +165,12 @@ class PerformanceService:
                 func.sum(ServicePerformanceMetric.operations_total),
                 func.sum(ServicePerformanceMetric.operations_successful),
                 func.sum(ServicePerformanceMetric.operations_failed),
-                func.sum(ServicePerformanceMetric.operations_cached),
+                func.sum(ServicePerformanceMetric.cache_hit_count),
                 func.avg(ServicePerformanceMetric.avg_duration_ms),
-                func.sum(ServicePerformanceMetric.ssh_connections_created),
-                func.sum(ServicePerformanceMetric.ssh_connections_reused),
-                func.sum(ServicePerformanceMetric.data_collected_bytes),
-                func.sum(ServicePerformanceMetric.database_writes),
+                func.sum(ServicePerformanceMetric.error_count),
+                func.sum(ServicePerformanceMetric.timeout_count),
+                func.sum(ServicePerformanceMetric.network_io_bytes),
+                func.sum(ServicePerformanceMetric.disk_io_bytes),
             ).where(
                 ServicePerformanceMetric.service_name == service_name,
                 ServicePerformanceMetric.time >= cutoff_time
@@ -179,18 +182,18 @@ class PerformanceService:
             total_operations = int(agg_data[0]) if agg_data[0] else 0
             total_successful = int(agg_data[1]) if agg_data[1] else 0
             total_failed = int(agg_data[2]) if agg_data[2] else 0
-            total_cached = int(agg_data[3]) if agg_data[3] else 0
+            total_cache_hits = int(agg_data[3]) if agg_data[3] else 0
             avg_duration_ms = float(agg_data[4]) if agg_data[4] else None
-            total_ssh_connections = int(agg_data[5]) if agg_data[5] else 0
-            ssh_reused = int(agg_data[6]) if agg_data[6] else 0
-            total_data_bytes = int(agg_data[7]) if agg_data[7] else 0
-            total_database_writes = int(agg_data[8]) if agg_data[8] else 0
+            total_errors = int(agg_data[5]) if agg_data[5] else 0
+            total_timeouts = int(agg_data[6]) if agg_data[6] else 0
+            total_network_bytes = int(agg_data[7]) if agg_data[7] else 0
+            total_disk_bytes = int(agg_data[8]) if agg_data[8] else 0
 
             # Calculate rates
             success_rate = (total_successful / total_operations * 100) if total_operations > 0 else 0
             failure_rate = (total_failed / total_operations * 100) if total_operations > 0 else 0
-            cache_hit_rate = (total_cached / total_operations * 100) if total_operations > 0 else 0
-            ssh_reuse_rate = (ssh_reused / total_ssh_connections * 100) if total_ssh_connections > 0 else 0
+            cache_hit_rate = 0  # Cache hit rate needs different calculation with current schema
+            error_rate = (total_errors / total_operations * 100) if total_operations > 0 else 0
 
             # Calculate performance grade and trend (simplified)
             performance_grade = "A" if success_rate > 95 else "B" if success_rate > 85 else "C"
@@ -203,7 +206,7 @@ class PerformanceService:
                 total_operations=total_operations,
                 total_successful=total_successful,
                 total_failed=total_failed,
-                total_cached=total_cached,
+                total_cached=total_cache_hits,
                 success_rate=success_rate,
                 failure_rate=failure_rate,
                 cache_hit_rate=cache_hit_rate,
@@ -211,13 +214,13 @@ class PerformanceService:
                 median_duration_ms=avg_duration_ms,  # Simplified
                 p95_duration_ms=avg_duration_ms * 1.5 if avg_duration_ms else None,  # Simplified
                 p99_duration_ms=avg_duration_ms * 2.0 if avg_duration_ms else None,  # Simplified
-                total_ssh_connections=total_ssh_connections,
-                ssh_reuse_rate=ssh_reuse_rate,
-                total_data_bytes=total_data_bytes,
-                total_database_writes=total_database_writes,
+                total_ssh_connections=0,  # Not tracked in current schema
+                ssh_reuse_rate=0,  # Not tracked in current schema
+                total_data_bytes=total_network_bytes + total_disk_bytes,
+                total_database_writes=0,  # Not tracked in current schema
                 performance_grade=performance_grade,
                 performance_trend=performance_trend,
-                top_error_types=[],  # Would be populated from error_types JSON
+                top_error_types=[],  # Would be populated from metadata JSON
                 hourly_breakdown=[],  # Would be calculated with hourly aggregation
             )
 

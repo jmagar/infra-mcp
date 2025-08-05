@@ -87,29 +87,49 @@ show_logs() {
 stop_servers() {
     echo "🛑 Stopping servers..."
     
-    # Find and kill API server processes
-    API_PIDS=$(lsof -ti:$API_PORT 2>/dev/null)
+    # Find and kill API server processes more specifically
+    API_PIDS=$(pgrep -f "uvicorn.*apps.backend.src.main:app\|python.*apps.backend.src.main" 2>/dev/null)
     if [ -n "$API_PIDS" ]; then
-        echo "🛑 Killing API server processes on port $API_PORT: $API_PIDS"
-        echo "$API_PIDS" | xargs -r kill -9
+        echo "🛑 Killing API server processes: $API_PIDS"
+        echo "$API_PIDS" | xargs -r kill -TERM
+        sleep 2
+        # Force kill if still running
+        API_PIDS_REMAINING=$(pgrep -f "uvicorn.*apps.backend.src.main:app\|python.*apps.backend.src.main" 2>/dev/null)
+        if [ -n "$API_PIDS_REMAINING" ]; then
+            echo "🛑 Force killing remaining API server processes: $API_PIDS_REMAINING"
+            echo "$API_PIDS_REMAINING" | xargs -r kill -9
+        fi
     else
-        echo "✅ No API server processes found on port $API_PORT"
+        echo "✅ No API server processes found"
     fi
 
-    # Find and kill MCP server processes
-    MCP_PIDS=$(lsof -ti:$MCP_PORT 2>/dev/null)
+    # Find and kill MCP server processes more specifically
+    MCP_PIDS=$(pgrep -f "python.*apps/backend/src/mcp/server.py" 2>/dev/null)
     if [ -n "$MCP_PIDS" ]; then
-        echo "🛑 Killing MCP server processes on port $MCP_PORT: $MCP_PIDS"
-        echo "$MCP_PIDS" | xargs -r kill -9
+        echo "🛑 Killing MCP server processes: $MCP_PIDS"
+        echo "$MCP_PIDS" | xargs -r kill -TERM
+        sleep 2
+        # Force kill if still running
+        MCP_PIDS_REMAINING=$(pgrep -f "python.*apps/backend/src/mcp/server.py" 2>/dev/null)
+        if [ -n "$MCP_PIDS_REMAINING" ]; then
+            echo "🛑 Force killing remaining MCP server processes: $MCP_PIDS_REMAINING"
+            echo "$MCP_PIDS_REMAINING" | xargs -r kill -9
+        fi
     else
-        echo "✅ No MCP server processes found on port $MCP_PORT"
+        echo "✅ No MCP server processes found"
     fi
     
     # Kill any log rotation monitor processes
     LOG_MONITOR_PIDS=$(pgrep -f "bash.*dev\.sh.*sleep 300" 2>/dev/null)
     if [ -n "$LOG_MONITOR_PIDS" ]; then
         echo "🔄 Stopping log rotation monitor: $LOG_MONITOR_PIDS"
-        kill -9 "$LOG_MONITOR_PIDS" 2>/dev/null
+        kill -TERM "$LOG_MONITOR_PIDS" 2>/dev/null
+        sleep 1
+        # Force kill if still running
+        LOG_MONITOR_REMAINING=$(pgrep -f "bash.*dev\.sh.*sleep 300" 2>/dev/null)
+        if [ -n "$LOG_MONITOR_REMAINING" ]; then
+            kill -9 "$LOG_MONITOR_REMAINING" 2>/dev/null
+        fi
     fi
 }
 
@@ -130,7 +150,7 @@ start_servers() {
 
     # Start the API server in background with log rotation
     echo "⚡ Starting API server..."
-    nohup uv run uvicorn apps.backend.src.main:app --host 0.0.0.0 --port $API_PORT --reload > logs/api_server.log 2>&1 &
+    nohup uv run uvicorn apps.backend.src.main:app --host 0.0.0.0 --port $API_PORT --reload --log-config /dev/null --access-log > logs/api_server.log 2>&1 &
     API_PID=$!
 
     # Start the MCP server in background with log rotation and environment variables

@@ -554,3 +554,25 @@ class SystemMonitoringError(InfrastructureException):
             hostname=hostname,
             operation=operation,
         )
+
+
+class CacheOperationError(InfrastructureException):
+    """Raised when cache operations fail"""
+
+    def __init__(
+        self,
+        message: str,
+        cache_key: Optional[str] = None,
+        operation: str = "cache_operation",
+        details: Optional[Dict[str, Any]] = None,
+    ):
+        cache_details = details or {}
+        if cache_key:
+            cache_details["cache_key"] = cache_key
+
+        super().__init__(
+            message=message,
+            error_code="CACHE_OPERATION_ERROR",
+            details=cache_details,
+            operation=operation,
+        )

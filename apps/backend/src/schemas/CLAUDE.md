@@ -39,7 +39,7 @@ The new architecture introduces several new schemas to support the new features:
 
 ## 5. Key Files & Structure
 
-```
+```text
 apps/backend/src/schemas/
 ├── __init__.py
 ├── audit.py                   # (NEW) Schemas for audit trail

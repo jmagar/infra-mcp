@@ -7,10 +7,10 @@ from typing import Optional, Dict, Any, List
 from uuid import UUID
 from pydantic import BaseModel, Field, field_validator
 from apps.backend.src.schemas.common import (
-    PaginatedResponse, 
-    TimeRangeParams, 
-    APIResponse, 
-    OperationResult
+    PaginatedResponse,
+    TimeRangeParams,
+    APIResponse,
+    OperationResult,
 )
 
 

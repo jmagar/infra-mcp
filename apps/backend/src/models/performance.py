@@ -55,8 +55,8 @@ class ServicePerformanceMetric(Base):
     network_io_bytes = Column(BigInteger)
     disk_io_bytes = Column(BigInteger)
     
-    # Additional metadata
-    metadata = Column(JSONB, default=lambda: {})
+    # Additional metadata (using different name to avoid SQLAlchemy conflict)
+    performance_metadata = Column('metadata', JSONB, default=lambda: {})
 
     def __repr__(self) -> str:
         return (
@@ -161,10 +161,11 @@ class ServicePerformanceMetric(Base):
         Returns:
             List of error type dictionaries with 'error' and 'count' keys
         """
-        if not self.error_types:
+        error_types = self.performance_metadata.get("error_types", {}) if self.performance_metadata else {}
+        if not error_types:
             return []
 
-        sorted_errors = sorted(self.error_types.items(), key=lambda x: x[1], reverse=True)
+        sorted_errors = sorted(error_types.items(), key=lambda x: x[1], reverse=True)
 
         return [
             {"error": error_type, "count": count} for error_type, count in sorted_errors[:limit]
@@ -224,18 +225,20 @@ class ServicePerformanceMetric(Base):
             operations_total=operations_total,
             operations_successful=operations_successful,
             operations_failed=operations_failed,
-            operations_cached=operations_cached,
             avg_duration_ms=avg_duration_ms,
             max_duration_ms=max_duration_ms,
             min_duration_ms=min_duration_ms,
-            ssh_connections_created=ssh_connections_created,
-            ssh_connections_reused=ssh_connections_reused,
-            ssh_commands_executed=ssh_commands_executed,
-            cache_hit_ratio=cache_hit_ratio,
-            cache_size_entries=cache_size_entries,
-            cache_evictions=cache_evictions,
-            data_collected_bytes=data_collected_bytes,
-            database_writes=database_writes,
-            error_types=error_types or {},
-            top_errors=top_errors or [],
+            performance_metadata={
+                "operations_cached": operations_cached,
+                "ssh_connections_created": ssh_connections_created,
+                "ssh_connections_reused": ssh_connections_reused,
+                "ssh_commands_executed": ssh_commands_executed,
+                "cache_hit_ratio": cache_hit_ratio,
+                "cache_size_entries": cache_size_entries,
+                "cache_evictions": cache_evictions,
+                "data_collected_bytes": data_collected_bytes,
+                "database_writes": database_writes,
+                "error_types": error_types or {},
+                "top_errors": top_errors or [],
+            }
         )

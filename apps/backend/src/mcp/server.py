@@ -31,17 +31,43 @@ sys.path.insert(0, project_root)
 
 # Local imports
 from apps.backend.src.core.database import init_database
+from apps.backend.src.mcp.prompts.container_workflows import (
+    deploy_application_stack,
+    troubleshoot_container_issues,
+    container_stack_maintenance,
+    scale_container_services,
+)
+from apps.backend.src.mcp.prompts.deployment_workflows import (
+    full_stack_deployment,
+    cicd_pipeline_integration,
+    infrastructure_as_code_deployment,
+    zero_downtime_deployment,
+)
+from apps.backend.src.mcp.prompts.device_analysis import (
+    analyze_device_performance,
+    container_stack_analysis,
+    infrastructure_health_check,
+    troubleshoot_system_issue,
+)
+from apps.backend.src.mcp.prompts.monitoring_workflows import (
+    infrastructure_health_monitoring,
+    performance_monitoring_optimization,
+    alerting_and_incident_management,
+)
+from apps.backend.src.mcp.prompts.proxy_workflows import (
+    deploy_reverse_proxy_service,
+    ssl_certificate_management,
+    proxy_performance_optimization,
+    proxy_security_hardening,
+)
+from apps.backend.src.mcp.prompts.zfs_workflows import (
+    zfs_health_assessment,
+    zfs_snapshot_strategy,
+    zfs_disaster_recovery,
+    zfs_pool_optimization,
+)
 from apps.backend.src.mcp.resources.compose_configs import get_compose_config_resource
 from apps.backend.src.mcp.resources.ports_resources import get_ports_resource, list_ports_resources
-from apps.backend.src.mcp.tools.device_info import get_device_info
-from apps.backend.src.mcp.tools.device_import import import_devices
-from apps.backend.src.mcp.tools.proxy_management import (
-    get_proxy_config,
-    get_proxy_config_summary,
-    list_proxy_configs,
-    scan_proxy_configs,
-    sync_proxy_config,
-)
 from apps.backend.src.mcp.tools.compose_deployment import (
     modify_compose_for_device,
     deploy_compose_to_device,
@@ -50,42 +76,16 @@ from apps.backend.src.mcp.tools.compose_deployment import (
     scan_docker_networks,
     generate_proxy_config,
 )
+from apps.backend.src.mcp.tools.device_import import import_devices
+from apps.backend.src.mcp.tools.device_info import get_device_info
+from apps.backend.src.mcp.tools.proxy_management import (
+    get_proxy_config,
+    get_proxy_config_summary,
+    list_proxy_configs,
+    scan_proxy_configs,
+    sync_proxy_config,
+)
 from apps.backend.src.mcp.tools.zfs_management import ZFS_TOOLS
-from apps.backend.src.mcp.prompts.device_analysis import (
-    analyze_device_performance,
-    container_stack_analysis,
-    infrastructure_health_check,
-    troubleshoot_system_issue,
-)
-from apps.backend.src.mcp.prompts.container_workflows import (
-    deploy_application_stack,
-    troubleshoot_container_issues,
-    container_stack_maintenance,
-    scale_container_services,
-)
-from apps.backend.src.mcp.prompts.zfs_workflows import (
-    zfs_health_assessment,
-    zfs_snapshot_strategy,
-    zfs_disaster_recovery,
-    zfs_pool_optimization,
-)
-from apps.backend.src.mcp.prompts.proxy_workflows import (
-    deploy_reverse_proxy_service,
-    ssl_certificate_management,
-    proxy_performance_optimization,
-    proxy_security_hardening,
-)
-from apps.backend.src.mcp.prompts.deployment_workflows import (
-    full_stack_deployment,
-    cicd_pipeline_integration,
-    infrastructure_as_code_deployment,
-    zero_downtime_deployment,
-)
-from apps.backend.src.mcp.prompts.monitoring_workflows import (
-    infrastructure_health_monitoring,
-    performance_monitoring_optimization,
-    alerting_and_incident_management,
-)
 
 # Configure logging
 logging.basicConfig(
@@ -701,39 +701,63 @@ def create_mcp_server():
     )(import_devices)
 
     # Register infrastructure analysis prompts
-    server.prompt(analyze_device_performance)
-    server.prompt(container_stack_analysis)
-    server.prompt(infrastructure_health_check)
-    server.prompt(troubleshoot_system_issue)
+    infrastructure_analysis_prompts = [
+        analyze_device_performance,
+        container_stack_analysis,
+        infrastructure_health_check,
+        troubleshoot_system_issue,
+    ]
+    for prompt in infrastructure_analysis_prompts:
+        server.prompt(prompt)
 
     # Register container workflow prompts
-    server.prompt(deploy_application_stack)
-    server.prompt(troubleshoot_container_issues)
-    server.prompt(container_stack_maintenance)
-    server.prompt(scale_container_services)
+    container_workflow_prompts = [
+        deploy_application_stack,
+        troubleshoot_container_issues,
+        container_stack_maintenance,
+        scale_container_services,
+    ]
+    for prompt in container_workflow_prompts:
+        server.prompt(prompt)
 
     # Register ZFS workflow prompts
-    server.prompt(zfs_health_assessment)
-    server.prompt(zfs_snapshot_strategy)
-    server.prompt(zfs_disaster_recovery)
-    server.prompt(zfs_pool_optimization)
+    zfs_workflow_prompts = [
+        zfs_health_assessment,
+        zfs_snapshot_strategy,
+        zfs_disaster_recovery,
+        zfs_pool_optimization,
+    ]
+    for prompt in zfs_workflow_prompts:
+        server.prompt(prompt)
 
     # Register proxy workflow prompts
-    server.prompt(deploy_reverse_proxy_service)
-    server.prompt(ssl_certificate_management)
-    server.prompt(proxy_performance_optimization)
-    server.prompt(proxy_security_hardening)
+    proxy_workflow_prompts = [
+        deploy_reverse_proxy_service,
+        ssl_certificate_management,
+        proxy_performance_optimization,
+        proxy_security_hardening,
+    ]
+    for prompt in proxy_workflow_prompts:
+        server.prompt(prompt)
 
     # Register deployment workflow prompts
-    server.prompt(full_stack_deployment)
-    server.prompt(cicd_pipeline_integration)
-    server.prompt(infrastructure_as_code_deployment)
-    server.prompt(zero_downtime_deployment)
+    deployment_workflow_prompts = [
+        full_stack_deployment,
+        cicd_pipeline_integration,
+        infrastructure_as_code_deployment,
+        zero_downtime_deployment,
+    ]
+    for prompt in deployment_workflow_prompts:
+        server.prompt(prompt)
 
     # Register monitoring workflow prompts
-    server.prompt(infrastructure_health_monitoring)
-    server.prompt(performance_monitoring_optimization)
-    server.prompt(alerting_and_incident_management)
+    monitoring_workflow_prompts = [
+        infrastructure_health_monitoring,
+        performance_monitoring_optimization,
+        alerting_and_incident_management,
+    ]
+    for prompt in monitoring_workflow_prompts:
+        server.prompt(prompt)
 
     # Register SWAG proxy configuration resources
     @server.resource(
@@ -1224,8 +1248,33 @@ def create_mcp_server():
                 "uri": f"ports://{hostname}"
             }, indent=2, ensure_ascii=False)
 
+    # Count tools and prompts for logging
+    # Tools are registered with server.tool() calls
+    # Prompts are registered with server.prompt() calls in loops
+    
+    # Count the prompt lists we created
+    total_prompts = (
+        len(infrastructure_analysis_prompts) +
+        len(container_workflow_prompts) +
+        len(zfs_workflow_prompts) +
+        len(proxy_workflow_prompts) +
+        len(deployment_workflow_prompts) +
+        len(monitoring_workflow_prompts)
+    )
+    
+    # For tools, we'll need to manually count them as they're registered with individual calls
+    # Container management tools: 9
+    # System monitoring tools: 3
+    # Device management tools: 3
+    # Proxy configuration management tools: 5
+    # Docker Compose deployment tools: 6
+    # ZFS management tools: len(ZFS_TOOLS)
+    # Comprehensive device info tool: 1
+    # Device import tool: 1
+    total_tools = 28 + len(ZFS_TOOLS)
+    
     logger.info(
-        "MCP server created with 45 tools, 19 prompts, and infrastructure + compose + ZFS + logs + ports resources"
+        f"MCP server created with {total_tools} tools, {total_prompts} prompts, and infrastructure + compose + ZFS + logs + ports resources"
     )
     return server
 

@@ -32,7 +32,7 @@ The `core` layer is the heart of the application, providing the essential servic
 
 ## 4. Key Files & Structure
 
-```
+```plaintext
 apps/backend/src/core/
 ├── __init__.py
 ├── config.py          # Application configuration settings

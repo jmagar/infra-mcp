@@ -11,6 +11,28 @@ from pydantic import BaseModel, Field, field_validator, model_validator
 from apps.backend.src.schemas.common import PaginatedResponse
 
 
+class FileChangeEvent(BaseModel):
+    """Schema for file change events from inotify/file watching"""
+
+    path: str = Field(..., description="Full path to the changed file")
+    event_types: list[str] = Field(
+        ..., description="List of event types (modify, create, delete, move)"
+    )
+    timestamp: datetime = Field(..., description="When the event occurred")
+    device_id: UUID = Field(..., description="Device where the change occurred")
+
+    @field_validator("event_types")
+    @classmethod
+    def validate_event_types(cls, v):
+        valid_events = ["modify", "create", "delete", "move", "attrib", "access"]
+        for event in v:
+            if event.lower() not in valid_events:
+                raise ValueError(
+                    f"Invalid event type: {event}. Must be one of: {', '.join(valid_events)}"
+                )
+        return [e.lower() for e in v]
+
+
 class ConfigurationSnapshotBase(BaseModel):
     """Base schema for configuration snapshots"""
 

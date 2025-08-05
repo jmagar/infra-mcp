@@ -13,11 +13,20 @@ from .proxy import router as proxy_router
 from .zfs import router as zfs_router
 from .compose_deployment import router as compose_deployment_router
 from .vms import router as vms_router
+
 # Phase 1 - Database-first architecture endpoints
 from .audit import router as audit_router
 from .configuration import router as configuration_router
+from .rollback import router as rollback_router
 from .performance import router as performance_router
 from .cache import router as cache_router
+from .approval_workflow import router as approval_workflow_router
+from .configuration_template import router as configuration_template_router
+from .notifications import router as notifications_router
+from .configuration_batch import router as configuration_batch_router
+from .configuration_timeline import router as configuration_timeline_router
+from .compliance import router as compliance_router
+from .export_import import router as export_import_router
 
 # Create main API router (no prefix since it's mounted at /api in main.py)
 api_router = APIRouter(tags=["API"])
@@ -36,9 +45,31 @@ api_router.include_router(vms_router, prefix="/vms", tags=["VMs"])
 
 # Phase 1 - Database-first architecture endpoints
 api_router.include_router(audit_router, prefix="/audit", tags=["Data Collection Audit"])
-api_router.include_router(configuration_router, prefix="/configuration", tags=["Configuration Management"])
+api_router.include_router(
+    configuration_router, prefix="/configuration", tags=["Configuration Management"]
+)
+api_router.include_router(rollback_router, prefix="/rollback", tags=["Configuration Rollback"])
 api_router.include_router(performance_router, prefix="/performance", tags=["Service Performance"])
 api_router.include_router(cache_router, prefix="/cache", tags=["Cache Management"])
+api_router.include_router(
+    approval_workflow_router, prefix="/approval-workflow", tags=["Approval Workflow"]
+)
+api_router.include_router(
+    configuration_template_router, prefix="/templates", tags=["Configuration Templates"]
+)
+api_router.include_router(notifications_router, prefix="/notifications", tags=["Notifications"])
+api_router.include_router(
+    configuration_batch_router, prefix="/configuration-batch", tags=["Configuration Batch"]
+)
+api_router.include_router(
+    configuration_timeline_router, prefix="/configuration-timeline", tags=["Configuration Timeline"]
+)
+api_router.include_router(
+    compliance_router, prefix="/compliance", tags=["Configuration Compliance"]
+)
+api_router.include_router(
+    export_import_router, prefix="/export-import", tags=["Configuration Export/Import"]
+)
 
 __all__ = [
     "api_router",
@@ -52,6 +83,14 @@ __all__ = [
     # Phase 1 routers
     "audit_router",
     "configuration_router",
+    "rollback_router",
     "performance_router",
     "cache_router",
+    "approval_workflow_router",
+    "configuration_template_router",
+    "notifications_router",
+    "configuration_batch_router",
+    "configuration_timeline_router",
+    "compliance_router",
+    "export_import_router",
 ]

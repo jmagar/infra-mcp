@@ -7,47 +7,151 @@
 
 -- Enable compression for system_metrics after 7 days
 -- This compresses old data to save storage space while maintaining query performance
-SELECT add_compression_policy('system_metrics', INTERVAL '7 days');
+DO $$
+BEGIN
+    IF NOT EXISTS (
+        SELECT 1 FROM timescaledb_information.compression_policies 
+        WHERE hypertable_name = 'system_metrics'
+    ) THEN
+        PERFORM add_compression_policy('system_metrics', INTERVAL '7 days');
+    END IF;
+END $$;
 
 -- Enable compression for drive_health after 7 days
-SELECT add_compression_policy('drive_health', INTERVAL '7 days');
+DO $$
+BEGIN
+    IF NOT EXISTS (
+        SELECT 1 FROM timescaledb_information.compression_policies 
+        WHERE hypertable_name = 'drive_health'
+    ) THEN
+        PERFORM add_compression_policy('drive_health', INTERVAL '7 days');
+    END IF;
+END $$;
 
 -- Enable compression for container_snapshots after 7 days
-SELECT add_compression_policy('container_snapshots', INTERVAL '7 days');
+DO $$
+BEGIN
+    IF NOT EXISTS (
+        SELECT 1 FROM timescaledb_information.compression_policies 
+        WHERE hypertable_name = 'container_snapshots'
+    ) THEN
+        PERFORM add_compression_policy('container_snapshots', INTERVAL '7 days');
+    END IF;
+END $$;
 
 -- Enable compression for zfs_status after 7 days
-SELECT add_compression_policy('zfs_status', INTERVAL '7 days');
+DO $$
+BEGIN
+    IF NOT EXISTS (
+        SELECT 1 FROM timescaledb_information.compression_policies 
+        WHERE hypertable_name = 'zfs_status'
+    ) THEN
+        PERFORM add_compression_policy('zfs_status', INTERVAL '7 days');
+    END IF;
+END $$;
 
 -- Enable compression for zfs_snapshots after 7 days
-SELECT add_compression_policy('zfs_snapshots', INTERVAL '7 days');
+DO $$
+BEGIN
+    IF NOT EXISTS (
+        SELECT 1 FROM timescaledb_information.compression_policies 
+        WHERE hypertable_name = 'zfs_snapshots'
+    ) THEN
+        PERFORM add_compression_policy('zfs_snapshots', INTERVAL '7 days');
+    END IF;
+END $$;
 
 -- Enable compression for network_interfaces after 7 days
-SELECT add_compression_policy('network_interfaces', INTERVAL '7 days');
+DO $$
+BEGIN
+    IF NOT EXISTS (
+        SELECT 1 FROM timescaledb_information.compression_policies 
+        WHERE hypertable_name = 'network_interfaces'
+    ) THEN
+        PERFORM add_compression_policy('network_interfaces', INTERVAL '7 days');
+    END IF;
+END $$;
 
 -- Enable compression for docker_networks after 7 days
-SELECT add_compression_policy('docker_networks', INTERVAL '7 days');
+DO $$
+BEGIN
+    IF NOT EXISTS (
+        SELECT 1 FROM timescaledb_information.compression_policies 
+        WHERE hypertable_name = 'docker_networks'
+    ) THEN
+        PERFORM add_compression_policy('docker_networks', INTERVAL '7 days');
+    END IF;
+END $$;
 
 -- Enable compression for vm_status after 7 days
-SELECT add_compression_policy('vm_status', INTERVAL '7 days');
+DO $$
+BEGIN
+    IF NOT EXISTS (
+        SELECT 1 FROM timescaledb_information.compression_policies 
+        WHERE hypertable_name = 'vm_status'
+    ) THEN
+        PERFORM add_compression_policy('vm_status', INTERVAL '7 days');
+    END IF;
+END $$;
 
 -- Enable compression for system_logs after 3 days (compress sooner due to high volume)
-SELECT add_compression_policy('system_logs', INTERVAL '3 days');
+DO $$
+BEGIN
+    IF NOT EXISTS (
+        SELECT 1 FROM timescaledb_information.compression_policies 
+        WHERE hypertable_name = 'system_logs'
+    ) THEN
+        PERFORM add_compression_policy('system_logs', INTERVAL '3 days');
+    END IF;
+END $$;
 
 -- =============================================================================
 -- PHASE 1: NEW HYPERTABLES COMPRESSION POLICIES
 -- =============================================================================
 
 -- Enable compression for data_collection_audit after 1 day (high volume audit data)
-SELECT add_compression_policy('data_collection_audit', INTERVAL '1 day');
+DO $$
+BEGIN
+    IF NOT EXISTS (
+        SELECT 1 FROM timescaledb_information.compression_policies 
+        WHERE hypertable_name = 'data_collection_audit'
+    ) THEN
+        PERFORM add_compression_policy('data_collection_audit', INTERVAL '1 day');
+    END IF;
+END $$;
 
 -- Enable compression for configuration_snapshots after 7 days
-SELECT add_compression_policy('configuration_snapshots', INTERVAL '7 days');
+DO $$
+BEGIN
+    IF NOT EXISTS (
+        SELECT 1 FROM timescaledb_information.compression_policies 
+        WHERE hypertable_name = 'configuration_snapshots'
+    ) THEN
+        PERFORM add_compression_policy('configuration_snapshots', INTERVAL '7 days');
+    END IF;
+END $$;
 
 -- Enable compression for configuration_change_events after 7 days
-SELECT add_compression_policy('configuration_change_events', INTERVAL '7 days');
+DO $$
+BEGIN
+    IF NOT EXISTS (
+        SELECT 1 FROM timescaledb_information.compression_policies 
+        WHERE hypertable_name = 'configuration_change_events'
+    ) THEN
+        PERFORM add_compression_policy('configuration_change_events', INTERVAL '7 days');
+    END IF;
+END $$;
 
 -- Enable compression for service_performance_metrics after 1 day (high volume metrics)
-SELECT add_compression_policy('service_performance_metrics', INTERVAL '1 day');
+DO $$
+BEGIN
+    IF NOT EXISTS (
+        SELECT 1 FROM timescaledb_information.compression_policies 
+        WHERE hypertable_name = 'service_performance_metrics'
+    ) THEN
+        PERFORM add_compression_policy('service_performance_metrics', INTERVAL '1 day');
+    END IF;
+END $$;
 
 -- =============================================================================
 -- RETENTION POLICIES CONFIGURATION

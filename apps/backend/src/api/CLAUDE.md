@@ -62,7 +62,7 @@ The API layer **does not** contain any direct SSH or data collection logic. All 
 
 ## 6. Key Files & Structure
 
-```
+```plaintext
 apps/backend/src/api/
 ├── __init__.py
 ├── common.py          # Shared utilities and dependencies

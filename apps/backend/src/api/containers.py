@@ -8,8 +8,12 @@ including listing, inspection, log retrieval, and metrics collection.
 import logging
 from datetime import datetime, timezone
 from typing import List, Optional
-from apps.backend.src.utils.ssh_client import execute_ssh_command_simple
-from apps.backend.src.mcp.tools.container_management import list_containers as mcp_list_containers
+from apps.backend.src.services.unified_data_collection import get_unified_data_collection_service
+from apps.backend.src.core.logging_config import (
+    set_correlation_id,
+    set_operation_context,
+    set_device_context,
+)
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Path
 import json
@@ -18,6 +22,11 @@ from apps.backend.src.api.common import get_current_user
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
+
+
+async def get_unified_service():
+    """Dependency to get UnifiedDataCollectionService instance"""
+    return await get_unified_data_collection_service()
 
 
 @router.get("/{hostname}")
@@ -70,7 +79,9 @@ async def get_container_info(
         ) from e
     except Exception as e:
         logger.error(f"Error getting container info for {container_name} on {hostname}: {e}")
-        raise HTTPException(status_code=500, detail=f"Failed to get container info: {str(e)}") from e
+        raise HTTPException(
+            status_code=500, detail=f"Failed to get container info: {str(e)}"
+        ) from e
 
 
 @router.get("/{hostname}/{container_name}/logs")
@@ -114,7 +125,9 @@ async def get_container_logs(
         }
     except Exception as e:
         logger.error(f"Error getting container logs for {container_name} on {hostname}: {e}")
-        raise HTTPException(status_code=500, detail=f"Failed to get container logs: {str(e)}") from e
+        raise HTTPException(
+            status_code=500, detail=f"Failed to get container logs: {str(e)}"
+        ) from e
 
 
 @router.post("/{hostname}/{container_name}/start")
@@ -126,7 +139,9 @@ async def start_container(
 ):
     """Start a Docker container"""
     try:
-        result = await execute_ssh_command_simple(hostname, f"docker start {container_name}", timeout)
+        result = await execute_ssh_command_simple(
+            hostname, f"docker start {container_name}", timeout
+        )
         if not result.success:
             raise HTTPException(
                 status_code=404, detail=f"Container {container_name} not found on {hostname}"
@@ -277,7 +292,7 @@ async def get_container_stats(
         if not output:
             raise HTTPException(status_code=500, detail="Empty container stats output")
         # Split on pipe delimiter
-        parts = output.split('|')
+        parts = output.split("|")
         if len(parts) >= 7:
             return {
                 "container_name": container_name,
@@ -294,11 +309,16 @@ async def get_container_stats(
                 "execution_time": result.execution_time,
             }
         else:
-            raise HTTPException(status_code=500, detail=f"Unable to parse container stats format - got {len(parts)} parts: {parts}")
+            raise HTTPException(
+                status_code=500,
+                detail=f"Unable to parse container stats format - got {len(parts)} parts: {parts}",
+            )
 
     except Exception as e:
         logger.error(f"Error getting container stats for {container_name} on {hostname}: {e}")
-        raise HTTPException(status_code=500, detail=f"Failed to get container stats: {str(e)}") from e
+        raise HTTPException(
+            status_code=500, detail=f"Failed to get container stats: {str(e)}"
+        ) from e
 
 
 @router.post("/{hostname}/{container_name}/exec")
@@ -329,22 +349,22 @@ async def execute_in_container(
         if not result.success:
             # Log the error for debugging
             logger.error(f"Docker exec command failed on {hostname}: {result.stderr}")
-            
+
             # Determine appropriate HTTP status based on error type
             if result.return_code == 125:  # Docker container not found or not running
                 raise HTTPException(
-                    status_code=404, 
-                    detail=f"Container '{container_name}' not found or not running on {hostname}"
+                    status_code=404,
+                    detail=f"Container '{container_name}' not found or not running on {hostname}",
                 )
             elif result.return_code == 126:  # Command not executable
                 raise HTTPException(
-                    status_code=400, 
-                    detail=f"Command not executable in container '{container_name}': {command}"
+                    status_code=400,
+                    detail=f"Command not executable in container '{container_name}': {command}",
                 )
             elif result.return_code == 127:  # Command not found
                 raise HTTPException(
-                    status_code=400, 
-                    detail=f"Command not found in container '{container_name}': {command}"
+                    status_code=400,
+                    detail=f"Command not found in container '{container_name}': {command}",
                 )
             else:
                 # Generic failure - include stderr for debugging
@@ -352,7 +372,7 @@ async def execute_in_container(
                 if result.stderr:
                     error_detail += f": {result.stderr}"
                 raise HTTPException(status_code=500, detail=error_detail)
-        
+
         return {
             "action": "exec",
             "container_name": container_name,

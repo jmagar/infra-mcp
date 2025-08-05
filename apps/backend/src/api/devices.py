@@ -39,11 +39,11 @@ from apps.backend.src.schemas.device import (
 from apps.backend.src.schemas.common import OperationResult, PaginationParams, DeviceStatus
 from ..services.device_service import DeviceService
 from apps.backend.src.api.common import get_current_user
-from apps.backend.src.mcp.tools.system_monitoring import (
-    get_drive_health,
-    get_system_logs,
-    get_drive_stats,
-    get_network_ports,
+from apps.backend.src.services.unified_data_collection import get_unified_data_collection_service
+from apps.backend.src.core.logging_config import (
+    set_correlation_id,
+    set_operation_context,
+    set_device_context,
 )
 
 logger = logging.getLogger(__name__)
@@ -52,6 +52,11 @@ router = APIRouter()
 
 def get_device_service(db: AsyncSession = Depends(get_db_session)) -> DeviceService:
     return DeviceService(db)
+
+
+async def get_unified_service():
+    """Dependency to get UnifiedDataCollectionService instance"""
+    return await get_unified_data_collection_service()
 
 
 @router.post("", response_model=DeviceResponse, status_code=201)

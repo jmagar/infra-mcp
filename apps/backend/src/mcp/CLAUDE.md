@@ -51,7 +51,7 @@ A key feature of the MCP layer is the use of tool transformation to create a mor
 
 ## 6. Key Files & Structure
 
-```
+```plaintext
 apps/backend/src/mcp/
 ├── __init__.py
 ├── server.py              # Main MCP server

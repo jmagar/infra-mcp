@@ -288,23 +288,5 @@ class ProxyConfigValidation(Base):
         return f"<ProxyConfigValidation(id={self.id}, config_id={self.config_id}, valid={self.is_valid})>"
 
 
-# Add relationship to Device model
-def add_proxy_config_relationship():
-    """
-    Add proxy_configs relationship to the Device model
-    This should be called after importing the Device model
-    """
-    try:
-        from apps.backend.src.models.device import Device
-
-        if not hasattr(Device, "proxy_configs"):
-            Device.proxy_configs = relationship(
-                "ProxyConfig", back_populates="device", cascade="all, delete-orphan"
-            )
-    except ImportError:
-        # Device model not available yet, will be added later
-        pass
-
-
-# Call the relationship setup
-add_proxy_config_relationship()
+# The relationship to Device will be set up automatically via string reference
+# and back_populates in the Device model itself

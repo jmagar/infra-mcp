@@ -10,7 +10,7 @@ import logging
 import time
 from contextlib import asynccontextmanager
 from datetime import datetime, timezone
-from typing import Dict, Any, Optional
+from typing import Any
 
 import uvicorn
 from fastapi import FastAPI, Request, Response, HTTPException, Depends
@@ -33,6 +33,14 @@ from apps.backend.src.core.database import (
     check_database_health,
 )
 from apps.backend.src.core.events import initialize_event_bus, shutdown_event_bus
+from apps.backend.src.core.logging_config import setup_logging, get_logger
+from apps.backend.src.core.middleware import (
+    StructuredLoggingMiddleware,
+    PerformanceLoggingMiddleware,
+    ErrorHandlingMiddleware,
+    RequestSizeMiddleware,
+    setup_middleware_logging,
+)
 from apps.backend.src.utils.ssh_client import cleanup_ssh_client
 from apps.backend.src.schemas.common import HealthCheckResponse
 from apps.backend.src.services.polling_service import PollingService
@@ -66,15 +74,13 @@ from apps.backend.src.api import api_router
 from apps.backend.src.api.monitoring import router as monitoring_router
 from apps.backend.src.websocket import websocket_router
 
-# Configure logging
-logging.basicConfig(
-    level=logging.INFO, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s"
-)
+# Initialize structured logging
+setup_logging()
 
-# Reduce SSH logging spam - set asyncssh to WARNING level only
-logging.getLogger("asyncssh").setLevel(logging.WARNING)
+# Set up middleware-specific logging
+setup_middleware_logging()
 
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
 
 # Global settings
 settings = get_settings()
@@ -138,7 +144,7 @@ async def lifespan(app: FastAPI):
         logger.info("Shutting down Infrastructure Management API Server...")
 
         # Stop polling service
-        polling_service = getattr(app.state, 'polling_service', None)
+        polling_service = getattr(app.state, "polling_service", None)
         if polling_service is not None:
             await polling_service.stop_polling()
             app.state.polling_service = None
@@ -190,47 +196,17 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+# Add structured logging and performance middleware
+app.add_middleware(StructuredLoggingMiddleware)
+app.add_middleware(PerformanceLoggingMiddleware, slow_request_threshold=2.0)
+app.add_middleware(ErrorHandlingMiddleware)
+app.add_middleware(RequestSizeMiddleware, max_request_size=20 * 1024 * 1024)  # 20MB
 
-# Custom middleware for request timing and logging
+
+# Security middleware for headers (simplified since security logging moved to StructuredLoggingMiddleware)
 @app.middleware("http")
-async def timing_middleware(request: Request, call_next):
-    """Add request timing and basic logging"""
-    start_time = time.time()
-
-    # Log request
-    logger.info(f"{request.method} {request.url.path} - Start")
-
-    try:
-        response = await call_next(request)
-
-        # Calculate processing time
-        process_time = time.time() - start_time
-
-        # Add timing header
-        response.headers["X-Process-Time"] = str(process_time)
-
-        # Log response
-        logger.info(
-            f"{request.method} {request.url.path} - "
-            f"Status: {response.status_code} - "
-            f"Time: {process_time:.3f}s"
-        )
-
-        return response
-
-    except Exception as e:
-        process_time = time.time() - start_time
-        logger.error(
-            f"{request.method} {request.url.path} - Error: {str(e)} - Time: {process_time:.3f}s"
-        )
-        raise
-
-
-@app.middleware("http")
-async def security_middleware(request: Request, call_next):
-    """Security and validation middleware"""
-
-    # Security headers
+async def security_headers_middleware(request: Request, call_next):
+    """Add security headers to responses"""
     response = await call_next(request)
 
     # Add security headers
@@ -245,8 +221,6 @@ async def security_middleware(request: Request, call_next):
     # Add rate limiting headers if enabled
     if settings.api.rate_limit_enabled:
         response.headers["X-RateLimit-Limit"] = str(settings.api.rate_limit_requests_per_minute)
-        # Note: actual remaining count would require accessing limiter state
-        # For now, just use the configured limit
         response.headers["X-RateLimit-Remaining"] = str(
             settings.api.rate_limit_requests_per_minute - 1
         )
@@ -646,12 +620,7 @@ app.include_router(websocket_router)
 
 # Development server startup
 if __name__ == "__main__":
-    # Configure logging for development
-    logging.basicConfig(
-        level=logging.DEBUG if settings.debug else logging.INFO,
-        format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
-    )
-
+    # Structured logging is already configured at module level
     # Run development server
     uvicorn.run(
         "apps.backend.src.main:app",
@@ -660,4 +629,5 @@ if __name__ == "__main__":
         reload=settings.debug,
         log_level=settings.mcp_server.mcp_log_level.lower(),
         access_log=True,
+        log_config=None,  # Disable uvicorn's default logging config to use our structured logging
     )
