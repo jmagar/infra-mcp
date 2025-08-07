@@ -600,26 +600,79 @@ async def _analyze_docker(
 
             docker_info["appdata_paths"] = list(set(appdata_paths))
 
-            # Check for SWAG container and reverse proxy setup
-            swag_result = await execute_ssh_command_simple(
+            # Get comprehensive container information with a single command
+            containers_result = await execute_ssh_command_simple(
                 device,
-                "docker ps --format '{{.Names}}' | grep -i swag; ls -la /mnt/appdata/swag/nginx/proxy-confs 2>/dev/null | wc -l || echo 'NO_SWAG_FOUND'",
-                timeout=15,
+                "docker ps -a --format 'json' --no-trunc 2>/dev/null || docker ps -a --format 'table {{.Names}}\t{{.Image}}\t{{.Status}}\t{{.Ports}}\t{{.CreatedAt}}' 2>/dev/null",
+                timeout=20,
             )
-
-            swag_running = False
+            
+            containers_info = []
             swag_containers = []
-            swag_config_count = 0
+            swag_running = False
+            
+            if containers_result.return_code == 0 and containers_result.stdout.strip():
+                container_lines = containers_result.stdout.strip().split('\n')
+                
+                # Try to parse as JSON first (newer Docker versions)
+                if container_lines[0].strip().startswith('{'):
+                    try:
+                        for line in container_lines:
+                            if line.strip():
+                                container_data = json.loads(line.strip())
+                                containers_info.append({
+                                    "name": container_data.get("Names", "").lstrip("/"),
+                                    "image": container_data.get("Image", ""),
+                                    "status": container_data.get("Status", ""),
+                                    "state": container_data.get("State", ""),
+                                    "ports": container_data.get("Ports", ""),
+                                    "created": container_data.get("CreatedAt", ""),
+                                    "command": container_data.get("Command", ""),
+                                    "labels": container_data.get("Labels", ""),
+                                    "size": container_data.get("Size", "")
+                                })
+                                
+                                # Check for SWAG containers
+                                container_name = container_data.get("Names", "").lower()
+                                if "swag" in container_name:
+                                    swag_containers.append(container_name.lstrip("/"))
+                                    if "running" in container_data.get("State", "").lower():
+                                        swag_running = True
+                    except json.JSONDecodeError:
+                        # Fall back to table format parsing
+                        pass
+                
+                # Parse table format (fallback for older Docker versions)
+                if not containers_info and len(container_lines) > 1:
+                    for line in container_lines[1:]:  # Skip header
+                        if line.strip():
+                            parts = line.split('\t')
+                            if len(parts) >= 4:
+                                name = parts[0].strip()
+                                image = parts[1].strip() 
+                                status = parts[2].strip()
+                                ports = parts[3].strip()
+                                created = parts[4].strip() if len(parts) > 4 else ""
+                                
+                                containers_info.append({
+                                    "name": name,
+                                    "image": image,
+                                    "status": status,
+                                    "ports": ports,
+                                    "created": created
+                                })
+                                
+                                # Check for SWAG containers
+                                if "swag" in name.lower():
+                                    swag_containers.append(name)
+                                    if "up" in status.lower():
+                                        swag_running = True
+            
+            docker_info["containers"] = containers_info
+            docker_info["container_count"] = len(containers_info)
+            docker_info["running_containers"] = len([c for c in containers_info if "up" in c.get("status", "").lower() or c.get("state", "").lower() == "running"])
 
-            if swag_result.return_code == 0 and "NO_SWAG_FOUND" not in swag_result.stdout:
-                lines = swag_result.stdout.strip().split("\n")
-                for line in lines:
-                    if line.strip() and not line.isdigit() and "NO_SWAG_FOUND" not in line:
-                        swag_containers.append(line.strip())
-                        swag_running = True
-                    elif line.strip().isdigit():
-                        swag_config_count = int(line.strip())
-
+            # Set SWAG services information
             services["swag_running"] = swag_running
             services["swag_containers"] = swag_containers
             services["swag_config_count"] = swag_config_count

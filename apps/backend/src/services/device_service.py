@@ -3,6 +3,7 @@ Service layer for device-related business logic.
 """
 
 import logging
+import time
 from datetime import datetime, timezone
 from typing import List, Optional
 from uuid import UUID
@@ -30,6 +31,8 @@ from apps.backend.src.schemas.device import (
 )
 from apps.backend.src.schemas.common import OperationResult, PaginationParams, DeviceStatus
 from apps.backend.src.utils.ssh_client import test_ssh_connectivity_simple
+from apps.backend.src.mcp.tools.device_info import get_device_info
+from apps.backend.src.services.configuration_monitoring import get_configuration_monitoring_service
 
 logger = logging.getLogger(__name__)
 
@@ -68,6 +71,15 @@ class DeviceService:
             await self.db.commit()
             await self.db.refresh(device)
             logger.info(f"Created device: {device.hostname} ({device.id})")
+            
+            # Trigger automatic device analysis if the device is online and monitoring is enabled
+            if connectivity_status == "online" and device_data.monitoring_enabled:
+                try:
+                    await self._trigger_device_analysis(device.hostname)
+                except Exception as e:
+                    # Analysis failure should not fail device creation
+                    logger.warning(f"Device analysis failed for {device.hostname}: {e}")
+            
             return device
         except IntegrityError as e:
             await self.db.rollback()
@@ -271,3 +283,81 @@ class DeviceService:
     async def get_device_summary_by_hostname(self, hostname: str) -> DeviceSummary:
         device = await self.get_device_by_hostname(hostname)
         return DeviceSummary.model_validate(device)
+
+    async def _trigger_device_analysis(self, hostname: str) -> None:
+        """
+        Trigger comprehensive device analysis after device creation.
+        
+        This method calls the get_device_info MCP tool which performs comprehensive
+        device analysis and automatically stores the results in the device registry.
+        After analysis completes, it triggers configuration monitoring setup.
+        
+        Args:
+            hostname: Device hostname to analyze
+            
+        Note:
+            This is an internal method that should not fail device creation.
+            Analysis failures are logged but do not propagate.
+        """
+        try:
+            logger.info(f"Triggering automatic device analysis for {hostname}")
+            
+            # Use the comprehensive device analysis tool
+            # This will collect system info, Docker containers, ZFS pools, etc.
+            # and automatically store the results in the device registry
+            analysis_result = await get_device_info(
+                device=hostname,
+                test_connectivity=True,
+                timeout=60  # Reasonable timeout for initial analysis
+            )
+            
+            logger.info(
+                f"Device analysis completed for {hostname}: "
+                f"connectivity={analysis_result.get('connectivity', {}).get('ssh_accessible', 'unknown')}"
+            )
+            
+            # After successful device analysis, set up configuration monitoring
+            # This will use discovered paths from the analysis results
+            await self._setup_configuration_monitoring(hostname)
+            
+        except Exception as e:
+            # Don't let analysis failures break device creation
+            logger.error(f"Device analysis failed for {hostname}: {e}")
+            # Could optionally store analysis failure in device metadata
+            # but for now we just log and continue
+
+    async def _setup_configuration_monitoring(self, hostname: str) -> None:
+        """
+        Set up configuration monitoring for a device after analysis completes.
+        
+        This method gets the configuration monitoring service and sets up file watching
+        for discovered configuration paths (SWAG configs, Docker Compose files, etc.)
+        
+        Args:
+            hostname: Device hostname to set up monitoring for
+        """
+        try:
+            logger.info(f"Setting up configuration monitoring for {hostname}")
+            
+            # Get the device from the database to access analysis results
+            device = await self.get_device_by_hostname(hostname)
+            
+            # Get the configuration monitoring service
+            config_service = get_configuration_monitoring_service()
+            
+            # Set up monitoring using discovered paths from device analysis
+            # The service will extract paths from device.tags automatically
+            monitoring_started = await config_service.setup_device_monitoring(
+                device_id=device.id,
+                custom_watch_paths=None  # Let it use discovered paths
+            )
+            
+            if monitoring_started:
+                logger.info(f"Configuration monitoring started successfully for {hostname}")
+            else:
+                logger.warning(f"Configuration monitoring failed to start for {hostname}")
+                
+        except Exception as e:
+            # Configuration monitoring failure should not fail device creation
+            logger.error(f"Configuration monitoring setup failed for {hostname}: {e}")
+            # Continue - this is not critical for device creation

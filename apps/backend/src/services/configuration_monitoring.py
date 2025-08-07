@@ -227,13 +227,11 @@ class ConfigurationMonitoringService:
         self.logger = logging.getLogger(f"{__name__}.ConfigurationMonitoringService")
         
         # Default watch paths for different configuration types
-        self.default_watch_paths = [
-            "/mnt/appdata/swag/nginx/proxy-confs",  # SWAG proxy configs
-            "/opt/docker-compose",                   # Docker compose files
-            "/home/*/docker-compose.yml",            # User docker compose files
-            "/etc/nginx",                            # Nginx configs
-            "/etc/apache2",                          # Apache configs
-            "/etc/traefik",                          # Traefik configs
+        # NOTE: These are fallback paths. Actual paths should be discovered during device analysis
+        self.fallback_watch_paths = [
+            "/etc/nginx",                            # System Nginx configs
+            "/etc/apache2",                          # System Apache configs  
+            "/etc/traefik",                          # System Traefik configs
         ]
         
     async def setup_device_monitoring(
@@ -267,8 +265,14 @@ class ConfigurationMonitoringService:
                     self.logger.error(f"Device {device_id} not found in database")
                     return False
                     
-            # Use custom paths or defaults
-            watch_paths = custom_watch_paths or self.default_watch_paths
+            # Use custom paths from device analysis, or fallback paths, or empty if no discovery yet
+            watch_paths = custom_watch_paths or self.fallback_watch_paths
+            
+            # If no paths provided, try to get discovered paths from device tags
+            if not custom_watch_paths:
+                discovered_paths = await self._get_discovered_config_paths(device)
+                if discovered_paths:
+                    watch_paths = discovered_paths
             
             # Create file watcher
             watcher = RemoteFileWatcher(
@@ -299,6 +303,78 @@ class ConfigurationMonitoringService:
             await watcher.stop_monitoring()
             del self.device_watchers[device_id]
             self.logger.info(f"Stopped configuration monitoring for device {device_id}")
+    
+    async def _get_discovered_config_paths(self, device: Device) -> List[str]:
+        """
+        Extract configuration paths from device analysis results stored in device tags.
+        
+        Args:
+            device: Device model with analysis results in tags
+            
+        Returns:
+            List of discovered configuration paths to monitor
+        """
+        discovered_paths = []
+        
+        if not device.tags:
+            return discovered_paths
+            
+        try:
+            # Get SWAG proxy config paths
+            if device.tags.get("swag") and device.tags.get("swag_running"):
+                # Look for SWAG config paths in analysis results
+                analysis = device.tags.get("last_analysis", {})
+                services = analysis.get("services", {}) if isinstance(analysis, dict) else {}
+                
+                # Add discovered SWAG config directories
+                swag_containers = device.tags.get("swag_containers", [])
+                if swag_containers:
+                    # Common SWAG config paths to check
+                    potential_swag_paths = [
+                        "/mnt/appdata/swag/nginx/proxy-confs",
+                        "/opt/appdata/swag/nginx/proxy-confs", 
+                        "/srv/swag/nginx/proxy-confs",
+                        "/home/*/swag/nginx/proxy-confs"
+                    ]
+                    discovered_paths.extend(potential_swag_paths)
+            
+            # Get Docker Compose paths from analysis
+            docker_compose_paths = device.tags.get("all_docker_compose_paths", [])
+            if docker_compose_paths:
+                # Add parent directories for Docker Compose file monitoring
+                for compose_path in docker_compose_paths:
+                    # Get directory containing docker-compose.yml
+                    compose_dir = str(Path(compose_path).parent)
+                    discovered_paths.append(compose_dir)
+                    
+                    # Also watch subdirectories that might contain additional compose files
+                    discovered_paths.append(f"{compose_dir}/*")
+            
+            # Get appdata paths that might contain configs
+            appdata_paths = device.tags.get("all_appdata_paths", [])
+            if appdata_paths:
+                for appdata_path in appdata_paths:
+                    # Monitor config-heavy subdirectories
+                    config_subdirs = [
+                        f"{appdata_path}/*/config",
+                        f"{appdata_path}/nginx",
+                        f"{appdata_path}/traefik"  
+                    ]
+                    discovered_paths.extend(config_subdirs)
+            
+            # Remove duplicates and return
+            unique_paths = list(set(discovered_paths))
+            
+            if unique_paths:
+                self.logger.info(
+                    f"Discovered {len(unique_paths)} config paths for device {device.hostname}: {unique_paths}"
+                )
+            
+            return unique_paths
+            
+        except Exception as e:
+            self.logger.error(f"Error extracting discovered config paths for device {device.hostname}: {e}")
+            return []
             
     async def stop_all_monitoring(self) -> None:
         """Stop all configuration monitoring"""
