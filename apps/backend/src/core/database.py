@@ -283,7 +283,7 @@ async def check_database_health() -> dict:
     health_data = {
         "status": "unknown",
         "connection_pool": {},
-        "timescaledb_info": {},
+        "database_info": {},
         "table_counts": {},
         "performance_metrics": {},
     }
@@ -306,20 +306,19 @@ async def check_database_health() -> dict:
             # Basic connectivity
             await session.execute(text("SELECT 1"))
 
-            # TimescaleDB specific checks
-            result = await session.execute(
-                text("SELECT COUNT(*) FROM timescaledb_information.hypertables")
-            )
-            hypertable_count = result.scalar()
+            # PostgreSQL version and extension info
+            result = await session.execute(text("SELECT version()"))
+            pg_version = result.scalar()
 
             result = await session.execute(
-                text("SELECT COUNT(*) FROM timescaledb_information.continuous_aggregates")
+                text("SELECT extname FROM pg_extension WHERE extname IN ('uuid-ossp', 'btree_gin', 'btree_gist')")
             )
-            cagg_count = result.scalar()
+            extensions = [row[0] for row in result.fetchall()]
 
-            health_data["timescaledb_info"] = {
-                "hypertables": hypertable_count,
-                "continuous_aggregates": cagg_count,
+            health_data["database_info"] = {
+                "postgresql_version": pg_version,
+                "extensions": extensions,
+                "database_type": "PostgreSQL",
             }
 
             # Table counts for key tables

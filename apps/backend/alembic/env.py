@@ -14,14 +14,15 @@ from sqlalchemy.engine import Connection
 from sqlalchemy.ext.asyncio import create_async_engine
 from alembic import context
 
-# Import standalone models file for Alembic
-import importlib.util
+# Add the project root to Python path for absolute imports
+project_root = os.path.join(os.path.dirname(__file__), '..', '..')
+if project_root not in sys.path:
+    sys.path.insert(0, project_root)
 
-models_path = os.path.join(os.path.dirname(__file__), "models.py")
-spec = importlib.util.spec_from_file_location("alembic_models", models_path)
-models = importlib.util.module_from_spec(spec)
-spec.loader.exec_module(models)
-Base = models.Base
+# Import the actual models from the application
+from apps.backend.src.core.database import Base
+# Import all models to ensure they're registered with Base.metadata
+from apps.backend.src import models
 
 # this is the Alembic Config object, which provides
 # access to the values within the .ini file in use.

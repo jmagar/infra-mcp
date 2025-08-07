@@ -12,18 +12,108 @@ from pathlib import Path
 from typing import Any
 from urllib.parse import urlparse, parse_qs
 
-from apps.backend.src.mcp.tools.proxy_management import (
-    _get_real_time_file_info,
-    _get_real_time_file_content,
-)
+# HTTP client for API access (resources should also use API, not direct SSH)
+import httpx
+import os
+
 from apps.backend.src.utils.nginx_parser import NginxConfigParser
-from apps.backend.src.utils.ssh_client import execute_ssh_command_simple
-from apps.backend.src.core.database import get_async_session
-from apps.backend.src.core.config import get_settings
-from apps.backend.src.models.proxy_config import ProxyConfig
-from sqlalchemy import select, and_
 
 logger = logging.getLogger(__name__)
+
+# API client configuration
+API_BASE_URL = os.getenv("API_BASE_URL", "http://localhost:9101/api")
+API_KEY = os.getenv("API_KEY")
+API_TIMEOUT = float(os.getenv("API_TIMEOUT", "120.0"))
+
+class APIClient:
+    """HTTP client for FastAPI endpoints"""
+    def __init__(self):
+        headers = {"Content-Type": "application/json"}
+        if API_KEY:
+            headers["Authorization"] = f"Bearer {API_KEY}"
+        
+        self.client = httpx.AsyncClient(
+            base_url=API_BASE_URL,
+            timeout=httpx.Timeout(API_TIMEOUT),
+            headers=headers
+        )
+
+_api_client = None
+
+async def get_api_client() -> APIClient:
+    """Get or create API client instance"""
+    global _api_client
+    if _api_client is None:
+        _api_client = APIClient()
+    return _api_client
+
+
+async def _get_real_time_file_info(device: str, file_path: str) -> dict:
+    """Get real-time file metadata via proxy API"""
+    try:
+        api_client = await get_api_client()
+        # Extract service name from file path for proxy configs
+        service_name = _extract_service_name_from_path(file_path)
+        if not service_name:
+            return {"exists": False, "error": "Could not extract service name from path"}
+            
+        response = await api_client.client.get(f"/proxies/configs/{service_name}", params={
+            "device": device,
+            "include_content": False
+        })
+        
+        if response.status_code == 404:
+            return {"exists": False, "size": 0, "last_modified": None}
+            
+        response.raise_for_status()
+        data = response.json()
+        
+        return {
+            "exists": True,
+            "size": data.get("file_size", 0),
+            "last_modified": data.get("last_modified"),
+            "permissions": None,
+            "owner": None,
+            "group": None
+        }
+        
+    except Exception as e:
+        logger.error(f"Error getting file info for {file_path} on {device}: {e}")
+        return {"exists": False, "error": str(e)}
+
+
+async def _get_real_time_file_content(device: str, file_path: str) -> str:
+    """Get real-time file content via proxy API"""
+    try:
+        api_client = await get_api_client()
+        # Extract service name from file path for proxy configs
+        service_name = _extract_service_name_from_path(file_path)
+        if not service_name:
+            return ""
+            
+        response = await api_client.client.get(f"/proxies/configs/{service_name}/content", params={
+            "device": device
+        })
+        
+        if response.status_code == 404:
+            return ""
+            
+        response.raise_for_status()
+        return response.text
+        
+    except Exception as e:
+        logger.error(f"Error reading file content for {file_path} on {device}: {e}")
+        return ""
+
+
+def _extract_service_name_from_path(file_path: str) -> str:
+    """Extract service name from proxy config file path"""
+    # Extract filename from path and remove .conf extension
+    from pathlib import Path
+    filename = Path(file_path).name
+    if filename.endswith('.conf'):
+        return filename[:-5]  # Remove .conf
+    return filename
 
 
 def _get_swag_config():

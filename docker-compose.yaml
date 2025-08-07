@@ -1,17 +1,13 @@
 
 services:
   postgres:
-    image: timescale/timescaledb:latest-pg15
+    image: postgres:15-alpine
     container_name: infrastructor-postgres
     restart: unless-stopped
     environment:
       POSTGRES_DB: ${POSTGRES_DB}
       POSTGRES_USER: ${POSTGRES_USER}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
-      TIMESCALEDB_TELEMETRY: off
-      TS_TUNE_MEMORY: ${TS_TUNE_MEMORY}
-      TS_TUNE_NUM_CPUS: ${TS_TUNE_NUM_CPUS}
-      TS_TUNE_MAX_CONNS: ${TS_TUNE_MAX_CONNS}
     volumes:
       - postgres_data:/var/lib/postgresql/data
       - ./init-scripts:/docker-entrypoint-initdb.d:ro

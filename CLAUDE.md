@@ -6,7 +6,7 @@ This file contains comprehensive instructions for Claude to follow when working 
 
 ### Core Architecture
 - **Dual-Server Design**: FastAPI REST API + WebSocket Server (port 9101) + Independent FastMCP Server (port 9102)
-- **Database**: PostgreSQL + TimescaleDB for time-series data storage (port 9100)
+- **Database**: PostgreSQL for relational data storage (port 9100)
 - **Caching**: Redis for session storage and caching (port 9104)
 - **Communication**: All MCP operations are HTTP client calls to the REST API
 - **Package Management**: UV package manager for modern Python dependency management
@@ -15,7 +15,7 @@ This file contains comprehensive instructions for Claude to follow when working 
 ### Technology Stack
 - **Web Framework**: FastAPI with comprehensive middleware (CORS, security, rate limiting, timing)
 - **MCP Integration**: FastMCP with 27 resources across 6 categories
-- **Database**: SQLAlchemy + AsyncPG + Alembic migrations + TimescaleDB hypertables
+- **Database**: SQLAlchemy + AsyncPG + Alembic migrations + PostgreSQL
 - **SSH Communication**: AsyncSSH for secure device communication over Tailscale
 - **Authentication**: Bearer token auth with JWT support
 - **Code Quality**: Ruff (linting/formatting) + MyPy (type checking) + Pre-commit hooks
@@ -38,7 +38,7 @@ infraestructor/
 │   ├── alembic.ini           # Alembic configuration
 │   ├── init-scripts/         # Database initialization SQL
 ├── dev.sh                    # Development script (start/stop/logs)
-├── docker-compose.yaml       # PostgreSQL + TimescaleDB container
+├── docker-compose.yaml       # PostgreSQL container
 └── logs/                     # Application logs with rotation
 ```
 
@@ -64,7 +64,7 @@ uv run mypy src/              # Type checking
 uv run pytest                # Run tests with coverage
 
 # Database operations
-docker compose up postgres -d # Start PostgreSQL + TimescaleDB
+docker compose up postgres -d # Start PostgreSQL
 cd apps/backend && uv run alembic upgrade head   # Apply migrations
 cd apps/backend && uv run alembic revision --autogenerate -m "description"  # Create migration
 ```
@@ -82,17 +82,18 @@ cd apps/backend && uv run alembic revision --autogenerate -m "description"  # Cr
 
 ### Core Tables
 - **devices**: Device registry with JSONB metadata, tags, SSH config
-- **system_metrics**: TimescaleDB hypertable for CPU, memory, disk metrics
+- **system_metrics**: Time-series data for CPU, memory, disk metrics with PostgreSQL indexes
 - **container_snapshots**: Container status and resource usage over time
 - **drive_health**: S.M.A.R.T. drive monitoring data
 - **proxy_configurations**: SWAG reverse proxy configuration management
+- **data_collection_audit**: Complete audit trail for all data collection operations
+- **configuration_snapshots**: Configuration file change tracking
 
-### TimescaleDB Features
-- **Hypertables**: Automatic partitioning for time-series data
-- **Compression**: After 7 days with policies
-- **Retention**: 30-90 days depending on data type
-- **Continuous Aggregates**: Pre-computed hourly/daily rollups
-- **Proper Indexing**: GIN indexes for JSONB, time-based indexes
+### PostgreSQL Features
+- **Efficient Indexing**: BTREE indexes for time-based queries, GIN indexes for JSONB data
+- **Data Retention**: Manual cleanup policies for time-series data (90-365 days)
+- **JSONB Support**: Native JSON storage and querying capabilities
+- **Foreign Keys**: Proper referential integrity with CASCADE deletions
 
 ### Migration Management
 ```bash
@@ -275,7 +276,7 @@ RATE_LIMIT_REQUESTS_PER_MINUTE=100
 
 ### Configuration Files
 - **Main Config**: `.env` (copy from `.env.example`)
-- **Docker Compose**: `docker-compose.yaml` (PostgreSQL + TimescaleDB + Redis)
+- **Docker Compose**: `docker-compose.yaml` (PostgreSQL + Redis)
 - **Alembic**: `alembic.ini` (database migration settings)
 - **Python Project**: `pyproject.toml` (dependencies, tools, scripts)
 
@@ -319,3 +320,8 @@ RATE_LIMIT_REQUESTS_PER_MINUTE=100
 - **API changes**: Update OpenAPI documentation automatically generated
 
 *This CLAUDE.md provides comprehensive guidance for working effectively with the infrastructor project. Refer to specific sections as needed and keep this file updated as the project evolves.*
+
+## 📝 System Configuration Memories
+
+### Docker and Containers
+- postgres is running in a container

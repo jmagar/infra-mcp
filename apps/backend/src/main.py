@@ -33,9 +33,15 @@ from apps.backend.src.core.database import (
     check_database_health,
 )
 from apps.backend.src.core.events import initialize_event_bus, shutdown_event_bus
-from apps.backend.src.utils.ssh_client import cleanup_ssh_client
+from apps.backend.src.utils.ssh_client import cleanup_ssh_client, get_ssh_client, SSHConnectionInfo
 from apps.backend.src.schemas.common import HealthCheckResponse
 from apps.backend.src.services.polling_service import PollingService
+from apps.backend.src.services.configuration_monitoring import get_configuration_monitoring_service
+from apps.backend.src.services.unified_data_collection import get_unified_data_collection_service
+from apps.backend.src.core.database import get_async_session_factory
+from apps.backend.src.models.device import Device
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import async_sessionmaker, AsyncSession
 from apps.backend.src.core.exceptions import (
     InfrastructureException,
     DatabaseConnectionError,
@@ -79,8 +85,9 @@ logger = logging.getLogger(__name__)
 # Global settings
 settings = get_settings()
 
-# Global polling service instance
+# Global service instances
 polling_service = None
+config_monitoring_service = None
 
 # Rate limiter configuration
 limiter = Limiter(
@@ -97,7 +104,7 @@ security = HTTPBearer(auto_error=False)
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Application lifespan manager for startup and shutdown tasks"""
-    global polling_service
+    global polling_service, config_monitoring_service
     logger.info("Starting Infrastructure Management API Server...")
 
     # Startup tasks
@@ -119,6 +126,29 @@ async def lifespan(app: FastAPI):
         else:
             app.state.polling_service = None
             logger.info("Polling service disabled via configuration")
+
+        # Set up SWAG device monitoring (only if SWAG devices are found)
+        try:
+            db_session_factory = get_async_session_factory()
+            ssh_client = get_ssh_client()
+            unified_data_service = await get_unified_data_collection_service(
+                db_session_factory=db_session_factory,
+                ssh_client=ssh_client
+            )
+            
+            config_monitoring_service = await _setup_swag_monitoring(
+                db_session_factory, ssh_client, unified_data_service
+            )
+            app.state.config_monitoring_service = config_monitoring_service
+            
+            if config_monitoring_service:
+                logger.info("SWAG device monitoring set up successfully")
+            else:
+                logger.info("No SWAG devices found - configuration monitoring not needed")
+                
+        except Exception as e:
+            logger.error(f"Failed to set up SWAG monitoring: {e}")
+            app.state.config_monitoring_service = None
 
         # Log configuration
         logger.info(f"Environment: {settings.environment}")
@@ -146,6 +176,15 @@ async def lifespan(app: FastAPI):
         else:
             logger.info("Polling service was not running")
 
+        # Stop configuration monitoring service
+        config_monitoring_service = getattr(app.state, 'config_monitoring_service', None)
+        if config_monitoring_service is not None:
+            await config_monitoring_service.stop_all_monitoring()
+            app.state.config_monitoring_service = None
+            logger.info("Configuration monitoring service stopped")
+        else:
+            logger.info("Configuration monitoring service was not running")
+
         # Shutdown event bus
         await shutdown_event_bus()
         logger.info("Event bus shutdown complete")
@@ -159,6 +198,105 @@ async def lifespan(app: FastAPI):
         logger.info("Database connections closed")
 
         logger.info("Shutdown complete")
+
+
+async def _setup_swag_monitoring(db_session_factory, ssh_client, unified_data_service):
+    """
+    Detect SWAG devices and set up monitoring only if found.
+    
+    Returns:
+        ConfigurationMonitoringService if SWAG devices found, None otherwise
+    """
+    try:
+        async with db_session_factory() as session:
+            # Get all monitoring-enabled devices
+            result = await session.execute(
+                select(Device).where(Device.monitoring_enabled == True)
+            )
+            devices = result.scalars().all()
+            
+            swag_devices_found = []
+            
+            for device in devices:
+                try:
+                    # Check for running SWAG container AND nginx directory
+                    swag_check_cmd = (
+                        "docker ps --format '{{.Names}}' | grep -i swag && "
+                        "find /*/swag/nginx/ -type d 2>/dev/null | head -1 || "
+                        "find /mnt/*/swag/nginx/ -type d 2>/dev/null | head -1"
+                    )
+                    
+                    connection_info = SSHConnectionInfo(
+                        host=device.hostname,
+                        port=device.ssh_port,
+                        username=device.ssh_username,
+                        password=device.ssh_password,
+                        private_key_path=device.ssh_private_key_path,
+                        connect_timeout=10,
+                    )
+                    
+                    result = await ssh_client.execute_command(
+                        connection_info, swag_check_cmd, timeout=15
+                    )
+                    
+                    if result.return_code == 0 and result.stdout.strip():
+                        lines = result.stdout.strip().split('\n')
+                        has_running_container = any('swag' in line.lower() for line in lines if not line.startswith('/'))
+                        has_nginx_dir = any(line.startswith('/') and 'swag/nginx' in line for line in lines)
+                        
+                        if has_running_container and has_nginx_dir:
+                            # Found SWAG device
+                            nginx_dir = next((line for line in lines if line.startswith('/') and 'swag/nginx' in line), None)
+                            if nginx_dir:
+                                proxy_conf_dir = f"{nginx_dir.rstrip('/')}/proxy-confs"
+                                swag_devices_found.append({
+                                    'device': device,
+                                    'proxy_conf_dir': proxy_conf_dir
+                                })
+                                logger.info(f"Found SWAG device: {device.hostname} at {proxy_conf_dir}")
+                        
+                except Exception as e:
+                    logger.debug(f"Could not check SWAG on device {device.hostname}: {e}")
+                    continue
+            
+            # Only initialize ConfigurationMonitoringService if we found SWAG devices
+            if swag_devices_found:
+                config_monitoring_service = get_configuration_monitoring_service(
+                    db_session_factory=db_session_factory,
+                    ssh_client=ssh_client,
+                    unified_data_service=unified_data_service
+                )
+                
+                # Set up monitoring for each SWAG device found
+                successful_setups = 0
+                for swag_device in swag_devices_found:
+                    device = swag_device['device']
+                    proxy_conf_dir = swag_device['proxy_conf_dir']
+                    
+                    success = await config_monitoring_service.setup_device_monitoring(
+                        device_id=device.id,
+                        custom_watch_paths=[proxy_conf_dir]
+                    )
+                    
+                    if success:
+                        successful_setups += 1
+                        logger.info(f"Started file watching for SWAG device {device.hostname} at {proxy_conf_dir}")
+                    else:
+                        logger.warning(f"Failed to start file watching for SWAG device {device.hostname}")
+                
+                if successful_setups > 0:
+                    logger.info(f"Successfully set up SWAG monitoring for {successful_setups}/{len(swag_devices_found)} device(s)")
+                    return config_monitoring_service
+                else:
+                    logger.error("Failed to set up monitoring for any SWAG devices")
+                    return None
+            else:
+                logger.info("No SWAG devices found - configuration monitoring not needed")
+                return None
+                
+    except Exception as e:
+        logger.error(f"Failed to set up SWAG monitoring: {e}")
+        return None
 
 
 # Create FastAPI application

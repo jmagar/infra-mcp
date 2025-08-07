@@ -40,11 +40,9 @@ from apps.backend.src.schemas.common import OperationResult, PaginationParams, D
 from ..services.device_service import DeviceService
 from apps.backend.src.api.common import get_current_user
 from apps.backend.src.mcp.tools.system_monitoring import (
-    get_drive_health,
-    get_system_logs,
-    get_drive_stats,
     get_network_ports,
 )
+from apps.backend.src.services.polling_service import PollingService
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -52,6 +50,15 @@ router = APIRouter()
 
 def get_device_service(db: AsyncSession = Depends(get_db_session)) -> DeviceService:
     return DeviceService(db)
+
+
+async def get_device_by_hostname_or_error(hostname: str, db: AsyncSession):
+    """Get device by hostname or raise HTTP exception if not found"""
+    service = DeviceService(db)
+    try:
+        return await service.get_device_by_hostname(hostname)
+    except DeviceNotFoundError as e:
+        raise HTTPException(status_code=404, detail=str(e)) from e
 
 
 @router.post("", response_model=DeviceResponse, status_code=201)
@@ -217,10 +224,22 @@ async def get_device_drives_by_hostname(
     drive: str | None = Query(None, description="Filter by specific drive name"),
     timeout: int = Query(60, description="SSH timeout in seconds"),
     current_user=Depends(get_current_user),
+    db_session: AsyncSession = Depends(get_db_session),
 ):
     """Get S.M.A.R.T. drive health information and disk status"""
     try:
-        return await get_drive_health(hostname, drive, timeout)
+        # Get device first
+        device = await get_device_by_hostname_or_error(hostname, db_session)
+        
+        # Use polling service unified method directly (eliminates SSH duplication)
+        polling_service = PollingService()
+        polling_service.session_factory = lambda: db_session
+        
+        # Use the unified collection method that properly uses SSH command manager
+        result = await polling_service._collect_drive_health_unified(device)
+        
+        return result
+        
     except SSHCommandError as e:
         raise HTTPException(status_code=500, detail=str(e)) from e
     except SSHConnectionError as e:
@@ -236,10 +255,22 @@ async def get_device_drives_stats_by_hostname(
     drive: str | None = Query(None, description="Filter by specific drive name (e.g., 'sda')"),
     timeout: int = Query(60, description="SSH timeout in seconds"),
     current_user=Depends(get_current_user),
+    db_session: AsyncSession = Depends(get_db_session),
 ):
     """Get drive usage statistics, I/O performance, and utilization metrics"""
     try:
-        return await get_drive_stats(hostname, drive, timeout)
+        # Get device first
+        device = await get_device_by_hostname_or_error(hostname, db_session)
+        
+        # Use polling service unified method directly (eliminates SSH duplication)
+        polling_service = PollingService()
+        polling_service.session_factory = lambda: db_session
+        
+        # Use the unified collection method that properly uses SSH command manager
+        result = await polling_service._collect_drive_stats_unified(device, drive)
+        
+        return result
+        
     except SSHCommandError as e:
         raise HTTPException(status_code=500, detail=str(e)) from e
     except SSHConnectionError as e:
@@ -257,10 +288,22 @@ async def get_device_logs_by_hostname(
     lines: int = Query(100, ge=1, le=1000, description="Number of log lines to return"),
     timeout: int = Query(60, description="SSH timeout in seconds"),
     current_user=Depends(get_current_user),
+    db_session: AsyncSession = Depends(get_db_session),
 ) -> dict:
     """Get system logs from journald or traditional syslog"""
     try:
-        return await get_system_logs(hostname, service, since, lines, timeout)
+        # Get device first
+        device = await get_device_by_hostname_or_error(hostname, db_session)
+        
+        # Use polling service unified method directly (eliminates SSH duplication)
+        polling_service = PollingService()
+        polling_service.session_factory = lambda: db_session
+        
+        # Use the unified collection method that properly uses SSH command manager
+        result = await polling_service._collect_system_logs_unified(device, service, since, lines)
+        
+        return result
+        
     except SSHCommandError as e:
         raise HTTPException(status_code=500, detail=str(e)) from e
     except SSHConnectionError as e:

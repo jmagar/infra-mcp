@@ -17,7 +17,7 @@
 *   **Device Management:** Register and manage all of your infrastructure devices in a central location.
 *   **ZFS Management:** Complete ZFS filesystem management including pools, datasets, snapshots, health monitoring, optimization recommendations, and comprehensive MCP tools for all ZFS operations.
 *   **Proxy Configuration Management:** Seamlessly manage your SWAG reverse proxy configurations.
-*   **Time-Series Database:** `infrastructor` uses TimescaleDB to store and analyze time-series data, providing powerful insights into your infrastructure's performance over time.
+*   **PostgreSQL Database:** `infrastructor` uses PostgreSQL to store and analyze infrastructure data, providing comprehensive insights into your infrastructure's performance and configuration over time.
 *   **Dual-Interface:** Interact with your infrastructure through a powerful REST API or a flexible `fastmcp` command-line interface.
 
 ## 🏛️ Architecture
@@ -41,7 +41,7 @@ This architecture ensures that all operations, whether initiated from the API or
         v                      v
 +-----------------------------------------------------------------+
 |                                                                 |
-|   TimescaleDB (PostgreSQL)                                      |
+|   PostgreSQL Database                                           |
 |                                                                 |
 +-----------------------------------------------------------------+
 ```

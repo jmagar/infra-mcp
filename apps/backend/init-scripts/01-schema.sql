@@ -1,14 +1,11 @@
 -- Infrastructure Management MCP Server - Database Schema
--- This script creates the initial database schema with TimescaleDB extension and core tables
+-- This script creates the initial database schema with PostgreSQL and core tables
 
 -- =============================================================================
--- ENABLE TIMESCALEDB EXTENSION
+-- ENABLE POSTGRESQL EXTENSIONS
 -- =============================================================================
 
--- Enable TimescaleDB extension for time-series data
-CREATE EXTENSION IF NOT EXISTS timescaledb CASCADE;
-
--- Enable additional extensions for enhanced functionality
+-- Enable essential PostgreSQL extensions
 CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
 CREATE EXTENSION IF NOT EXISTS "btree_gin";
 CREATE EXTENSION IF NOT EXISTS "btree_gist";
@@ -21,13 +18,15 @@ CREATE EXTENSION IF NOT EXISTS "btree_gist";
 CREATE TABLE IF NOT EXISTS devices (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     hostname VARCHAR(255) UNIQUE NOT NULL,
-    ip_address INET NOT NULL,
+    ip_address INET,
     ssh_port INTEGER DEFAULT 22,
     ssh_username VARCHAR(100) DEFAULT 'root',
     device_type VARCHAR(50) DEFAULT 'server', -- server, container_host, storage, network
     description TEXT,
     location VARCHAR(255),
     tags JSONB DEFAULT '{}',
+    docker_compose_path VARCHAR(512), -- Primary docker-compose project path
+    docker_appdata_path VARCHAR(512), -- Primary appdata directory path
     monitoring_enabled BOOLEAN DEFAULT true,
     last_seen TIMESTAMPTZ,
     status VARCHAR(20) DEFAULT 'unknown', -- online, offline, unknown, maintenance
@@ -44,12 +43,13 @@ CREATE INDEX IF NOT EXISTS idx_devices_last_seen ON devices(last_seen);
 CREATE INDEX IF NOT EXISTS idx_devices_tags ON devices USING GIN(tags);
 
 -- =============================================================================
--- TIME-SERIES DATA TABLES (TO BE CONVERTED TO HYPERTABLES)
+-- TIME-SERIES DATA TABLES (REGULAR POSTGRESQL TABLES)
 -- =============================================================================
 
 -- System metrics time-series data
 CREATE TABLE IF NOT EXISTS system_metrics (
-    time TIMESTAMPTZ NOT NULL,
+    id BIGSERIAL PRIMARY KEY,
+    time TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     device_id UUID NOT NULL REFERENCES devices(id) ON DELETE CASCADE,
     cpu_usage_percent NUMERIC(5,2),
     memory_usage_percent NUMERIC(5,2),
@@ -68,14 +68,15 @@ CREATE TABLE IF NOT EXISTS system_metrics (
     additional_metrics JSONB DEFAULT '{}'
 );
 
--- Create indexes for system_metrics (before hypertable conversion)
+-- Create indexes for system_metrics
 CREATE INDEX IF NOT EXISTS idx_system_metrics_device_time ON system_metrics(device_id, time DESC);
 CREATE INDEX IF NOT EXISTS idx_system_metrics_time ON system_metrics(time DESC);
 CREATE INDEX IF NOT EXISTS idx_system_metrics_additional ON system_metrics USING GIN(additional_metrics);
 
 -- Drive health monitoring data
 CREATE TABLE IF NOT EXISTS drive_health (
-    time TIMESTAMPTZ NOT NULL,
+    id BIGSERIAL PRIMARY KEY,
+    time TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     device_id UUID NOT NULL REFERENCES devices(id) ON DELETE CASCADE,
     drive_name VARCHAR(100) NOT NULL, -- /dev/sda, /dev/nvme0n1, etc.
     drive_type VARCHAR(20), -- ssd, hdd, nvme
@@ -94,7 +95,7 @@ CREATE TABLE IF NOT EXISTS drive_health (
     health_status VARCHAR(20) DEFAULT 'unknown' -- healthy, warning, critical, unknown
 );
 
--- Create indexes for drive_health (before hypertable conversion)
+-- Create indexes for drive_health
 CREATE INDEX IF NOT EXISTS idx_drive_health_device_time ON drive_health(device_id, time DESC);
 CREATE INDEX IF NOT EXISTS idx_drive_health_time ON drive_health(time DESC);
 CREATE INDEX IF NOT EXISTS idx_drive_health_drive_name ON drive_health(drive_name);
@@ -104,16 +105,25 @@ CREATE INDEX IF NOT EXISTS idx_drive_health_smart_attrs ON drive_health USING GI
 
 -- Container snapshots and metrics
 CREATE TABLE IF NOT EXISTS container_snapshots (
-    time TIMESTAMPTZ NOT NULL,
+    id BIGSERIAL PRIMARY KEY,
+    time TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     device_id UUID NOT NULL REFERENCES devices(id) ON DELETE CASCADE,
     container_id VARCHAR(64) NOT NULL,
     container_name VARCHAR(255) NOT NULL,
-    image VARCHAR(255),
+    image VARCHAR(500),
     status VARCHAR(50), -- running, paused, restarting, removing, dead, created, exited
-    state VARCHAR(50), -- created, restarting, running, removing, paused, exited, dead
+    state JSONB DEFAULT '{}',
+    running BOOLEAN,
+    paused BOOLEAN,
+    restarting BOOLEAN,
+    oom_killed BOOLEAN,
+    dead BOOLEAN,
+    pid INTEGER,
+    exit_code INTEGER,
     cpu_usage_percent NUMERIC(5,2),
     memory_usage_bytes BIGINT,
     memory_limit_bytes BIGINT,
+    memory_cache_bytes BIGINT,
     network_bytes_sent BIGINT,
     network_bytes_recv BIGINT,
     block_read_bytes BIGINT,
@@ -122,16 +132,18 @@ CREATE TABLE IF NOT EXISTS container_snapshots (
     environment JSONB DEFAULT '{}',
     labels JSONB DEFAULT '{}',
     volumes JSONB DEFAULT '[]',
-    networks JSONB DEFAULT '[]'
+    networks JSONB DEFAULT '[]',
+    resource_limits JSONB DEFAULT '{}',
+    metadata_info JSONB DEFAULT '{}',
+    created_at TIMESTAMPTZ DEFAULT NOW()
 );
 
--- Create indexes for container_snapshots (before hypertable conversion)
+-- Create indexes for container_snapshots
 CREATE INDEX IF NOT EXISTS idx_container_snapshots_device_time ON container_snapshots(device_id, time DESC);
 CREATE INDEX IF NOT EXISTS idx_container_snapshots_time ON container_snapshots(time DESC);
 CREATE INDEX IF NOT EXISTS idx_container_snapshots_container_id ON container_snapshots(container_id);
 CREATE INDEX IF NOT EXISTS idx_container_snapshots_container_name ON container_snapshots(container_name);
 CREATE INDEX IF NOT EXISTS idx_container_snapshots_status ON container_snapshots(status);
-CREATE INDEX IF NOT EXISTS idx_container_snapshots_state ON container_snapshots(state);
 CREATE INDEX IF NOT EXISTS idx_container_snapshots_labels ON container_snapshots USING GIN(labels);
 CREATE INDEX IF NOT EXISTS idx_container_snapshots_environment ON container_snapshots USING GIN(environment);
 
@@ -141,275 +153,153 @@ CREATE INDEX IF NOT EXISTS idx_container_snapshots_environment ON container_snap
 
 -- ZFS pool and dataset status
 CREATE TABLE IF NOT EXISTS zfs_status (
+    id BIGSERIAL PRIMARY KEY,
     time TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     device_id UUID NOT NULL REFERENCES devices(id) ON DELETE CASCADE,
     pool_name VARCHAR(255) NOT NULL,
     dataset_name VARCHAR(255),
     pool_state VARCHAR(50), -- ONLINE, DEGRADED, FAULTED, OFFLINE, UNAVAIL, REMOVED
     pool_health VARCHAR(50), -- ONLINE, DEGRADED, FAULTED, OFFLINE, UNAVAIL, REMOVED
-    capacity_bytes BIGINT,
-    allocated_bytes BIGINT,
-    free_bytes BIGINT,
+    pool_capacity_bytes BIGINT,
+    pool_allocated_bytes BIGINT,
+    pool_free_bytes BIGINT,
     fragmentation_percent NUMERIC(5,2),
-    dedup_ratio NUMERIC(6,2),
-    compression_ratio NUMERIC(6,2),
-    scrub_state VARCHAR(50), -- none, scanning, finished, canceled, suspended
-    scrub_progress_percent NUMERIC(5,2),
-    scrub_errors INTEGER DEFAULT 0,
-    last_scrub TIMESTAMPTZ,
-    properties JSONB DEFAULT '{}'
+    dedup_ratio NUMERIC(8,2),
+    compression_ratio NUMERIC(8,2),
+    dataset_used_bytes BIGINT,
+    dataset_available_bytes BIGINT,
+    dataset_referenced_bytes BIGINT,
+    dataset_compression VARCHAR(50),
+    dataset_mountpoint VARCHAR(500),
+    properties JSONB DEFAULT '{}',
+    errors JSONB DEFAULT '[]'
 );
 
 -- Create indexes for zfs_status
 CREATE INDEX IF NOT EXISTS idx_zfs_status_device_time ON zfs_status(device_id, time DESC);
 CREATE INDEX IF NOT EXISTS idx_zfs_status_time ON zfs_status(time DESC);
 CREATE INDEX IF NOT EXISTS idx_zfs_status_pool_name ON zfs_status(pool_name);
+CREATE INDEX IF NOT EXISTS idx_zfs_status_dataset_name ON zfs_status(dataset_name);
 CREATE INDEX IF NOT EXISTS idx_zfs_status_pool_state ON zfs_status(pool_state);
 CREATE INDEX IF NOT EXISTS idx_zfs_status_pool_health ON zfs_status(pool_health);
-CREATE INDEX IF NOT EXISTS idx_zfs_status_scrub_state ON zfs_status(scrub_state);
 CREATE INDEX IF NOT EXISTS idx_zfs_status_properties ON zfs_status USING GIN(properties);
 
--- ZFS snapshots tracking
-CREATE TABLE IF NOT EXISTS zfs_snapshots (
-    time TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+-- =============================================================================
+-- PROXY CONFIGURATION MANAGEMENT
+-- =============================================================================
+
+-- SWAG reverse proxy configurations
+CREATE TABLE IF NOT EXISTS proxy_configurations (
+    id BIGSERIAL PRIMARY KEY,
     device_id UUID NOT NULL REFERENCES devices(id) ON DELETE CASCADE,
-    dataset_name VARCHAR(255) NOT NULL,
-    snapshot_name VARCHAR(255) NOT NULL,
-    creation_time TIMESTAMPTZ NOT NULL,
-    used_bytes BIGINT,
-    referenced_bytes BIGINT,
-    properties JSONB DEFAULT '{}'
+    service_name VARCHAR(255) NOT NULL,
+    file_path VARCHAR(500) NOT NULL,
+    content_hash VARCHAR(64),
+    ssl_enabled BOOLEAN DEFAULT false,
+    domains JSONB DEFAULT '[]',
+    upstream_port INTEGER,
+    upstream_protocol VARCHAR(10) DEFAULT 'http',
+    auth_enabled BOOLEAN DEFAULT false,
+    custom_config TEXT,
+    status VARCHAR(20) DEFAULT 'active', -- active, inactive, error
+    last_validated_at TIMESTAMPTZ,
+    sync_status VARCHAR(20) DEFAULT 'synced', -- synced, pending, error
+    created_at TIMESTAMPTZ DEFAULT NOW(),
+    updated_at TIMESTAMPTZ DEFAULT NOW()
 );
 
--- Create indexes for zfs_snapshots
-CREATE INDEX IF NOT EXISTS idx_zfs_snapshots_device_time ON zfs_snapshots(device_id, time DESC);
-CREATE INDEX IF NOT EXISTS idx_zfs_snapshots_dataset ON zfs_snapshots(dataset_name);
-CREATE INDEX IF NOT EXISTS idx_zfs_snapshots_creation_time ON zfs_snapshots(creation_time DESC);
-CREATE INDEX IF NOT EXISTS idx_zfs_snapshots_properties ON zfs_snapshots USING GIN(properties);
+-- Create indexes for proxy_configurations
+CREATE INDEX IF NOT EXISTS idx_proxy_configurations_device_id ON proxy_configurations(device_id);
+CREATE INDEX IF NOT EXISTS idx_proxy_configurations_service_name ON proxy_configurations(service_name);
+CREATE INDEX IF NOT EXISTS idx_proxy_configurations_file_path ON proxy_configurations(file_path);
+CREATE INDEX IF NOT EXISTS idx_proxy_configurations_status ON proxy_configurations(status);
+CREATE INDEX IF NOT EXISTS idx_proxy_configurations_ssl_enabled ON proxy_configurations(ssl_enabled);
+CREATE INDEX IF NOT EXISTS idx_proxy_configurations_domains ON proxy_configurations USING GIN(domains);
 
 -- =============================================================================
--- NETWORK TOPOLOGY AND DOCKER NETWORKS
+-- AUDIT AND METADATA TABLES
 -- =============================================================================
 
--- Network topology and interface information
-CREATE TABLE IF NOT EXISTS network_interfaces (
-    time TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+-- Data collection audit trail
+CREATE TABLE IF NOT EXISTS data_collection_audit (
+    id BIGSERIAL PRIMARY KEY,
+    data_type VARCHAR(50) NOT NULL,
     device_id UUID NOT NULL REFERENCES devices(id) ON DELETE CASCADE,
-    interface_name VARCHAR(100) NOT NULL,
-    interface_type VARCHAR(50), -- ethernet, wifi, loopback, bridge, vlan, etc.
-    mac_address MACADDR,
-    ip_addresses JSONB DEFAULT '[]', -- Array of IP addresses
-    mtu INTEGER,
-    speed_mbps INTEGER,
-    duplex VARCHAR(20), -- full, half, unknown
-    state VARCHAR(20), -- up, down, unknown
-    rx_bytes BIGINT,
-    tx_bytes BIGINT,
-    rx_packets BIGINT,
-    tx_packets BIGINT,
-    rx_errors BIGINT,
-    tx_errors BIGINT,
-    rx_dropped BIGINT,
-    tx_dropped BIGINT
-);
-
--- Create indexes for network_interfaces
-CREATE INDEX IF NOT EXISTS idx_network_interfaces_device_time ON network_interfaces(device_id, time DESC);
-CREATE INDEX IF NOT EXISTS idx_network_interfaces_interface_name ON network_interfaces(interface_name);
-CREATE INDEX IF NOT EXISTS idx_network_interfaces_interface_type ON network_interfaces(interface_type);
-CREATE INDEX IF NOT EXISTS idx_network_interfaces_state ON network_interfaces(state);
-CREATE INDEX IF NOT EXISTS idx_network_interfaces_ip_addresses ON network_interfaces USING GIN(ip_addresses);
-
--- Docker networks tracking
-CREATE TABLE IF NOT EXISTS docker_networks (
-    time TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    device_id UUID NOT NULL REFERENCES devices(id) ON DELETE CASCADE,
-    network_id VARCHAR(64) NOT NULL,
-    network_name VARCHAR(255) NOT NULL,
-    driver VARCHAR(100),
-    scope VARCHAR(50), -- local, global, swarm
-    subnet CIDR,
-    gateway INET,
-    containers_count INTEGER DEFAULT 0,
-    labels JSONB DEFAULT '{}',
-    options JSONB DEFAULT '{}',
-    config JSONB DEFAULT '{}'
-);
-
--- Create indexes for docker_networks
-CREATE INDEX IF NOT EXISTS idx_docker_networks_device_time ON docker_networks(device_id, time DESC);
-CREATE INDEX IF NOT EXISTS idx_docker_networks_network_id ON docker_networks(network_id);
-CREATE INDEX IF NOT EXISTS idx_docker_networks_network_name ON docker_networks(network_name);
-CREATE INDEX IF NOT EXISTS idx_docker_networks_driver ON docker_networks(driver);
-CREATE INDEX IF NOT EXISTS idx_docker_networks_scope ON docker_networks(scope);
-CREATE INDEX IF NOT EXISTS idx_docker_networks_labels ON docker_networks USING GIN(labels);
-
--- =============================================================================
--- BACKUP AND MAINTENANCE TRACKING
--- =============================================================================
-
--- Backup status and history
-CREATE TABLE IF NOT EXISTS backup_status (
-    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-    device_id UUID NOT NULL REFERENCES devices(id) ON DELETE CASCADE,
-    backup_type VARCHAR(100) NOT NULL, -- system, database, container, zfs, custom
-    backup_name VARCHAR(255) NOT NULL,
-    source_path TEXT,
-    destination_path TEXT,
-    status VARCHAR(50) DEFAULT 'pending', -- pending, running, completed, failed, cancelled
-    start_time TIMESTAMPTZ,
-    end_time TIMESTAMPTZ,
-    duration_seconds INTEGER,
-    size_bytes BIGINT,
-    compressed_size_bytes BIGINT,
-    files_count BIGINT,
-    success_count BIGINT,
-    error_count BIGINT,
-    warning_count BIGINT,
-    error_message TEXT,
-    metadata JSONB DEFAULT '{}',
+    correlation_id VARCHAR(100),
+    collected_at TIMESTAMPTZ NOT NULL,
+    collection_duration_seconds NUMERIC(8,3),
+    data_size INTEGER,
+    cache_hit BOOLEAN DEFAULT false,
+    force_refresh BOOLEAN DEFAULT false,
+    metadata_info JSONB DEFAULT '{}',
     created_at TIMESTAMPTZ DEFAULT NOW()
 );
 
--- Create indexes for backup_status
-CREATE INDEX IF NOT EXISTS idx_backup_status_device_id ON backup_status(device_id);
-CREATE INDEX IF NOT EXISTS idx_backup_status_backup_type ON backup_status(backup_type);
-CREATE INDEX IF NOT EXISTS idx_backup_status_status ON backup_status(status);
-CREATE INDEX IF NOT EXISTS idx_backup_status_start_time ON backup_status(start_time DESC);
-CREATE INDEX IF NOT EXISTS idx_backup_status_end_time ON backup_status(end_time DESC);
-CREATE INDEX IF NOT EXISTS idx_backup_status_created_at ON backup_status(created_at DESC);
-CREATE INDEX IF NOT EXISTS idx_backup_status_metadata ON backup_status USING GIN(metadata);
+-- Create indexes for data_collection_audit
+CREATE INDEX IF NOT EXISTS idx_data_collection_audit_device_id ON data_collection_audit(device_id);
+CREATE INDEX IF NOT EXISTS idx_data_collection_audit_data_type ON data_collection_audit(data_type);
+CREATE INDEX IF NOT EXISTS idx_data_collection_audit_collected_at ON data_collection_audit(collected_at DESC);
+CREATE INDEX IF NOT EXISTS idx_data_collection_audit_correlation_id ON data_collection_audit(correlation_id);
 
--- System updates tracking
-CREATE TABLE IF NOT EXISTS system_updates (
-    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+-- Configuration snapshots for change tracking
+CREATE TABLE IF NOT EXISTS configuration_snapshots (
+    id BIGSERIAL PRIMARY KEY,
     device_id UUID NOT NULL REFERENCES devices(id) ON DELETE CASCADE,
-    package_type VARCHAR(50) NOT NULL, -- system, container, snap, flatpak, custom
-    package_name VARCHAR(255) NOT NULL,
-    current_version VARCHAR(255),
-    available_version VARCHAR(255),
-    update_priority VARCHAR(20) DEFAULT 'normal', -- critical, high, normal, low
-    security_update BOOLEAN DEFAULT false,
-    release_date DATE,
-    description TEXT,
-    changelog TEXT,
-    update_status VARCHAR(50) DEFAULT 'available', -- available, pending, installed, failed, skipped
-    last_checked TIMESTAMPTZ DEFAULT NOW(),
-    metadata JSONB DEFAULT '{}'
-);
-
--- Create indexes for system_updates
-CREATE INDEX IF NOT EXISTS idx_system_updates_device_id ON system_updates(device_id);
-CREATE INDEX IF NOT EXISTS idx_system_updates_package_type ON system_updates(package_type);
-CREATE INDEX IF NOT EXISTS idx_system_updates_package_name ON system_updates(package_name);
-CREATE INDEX IF NOT EXISTS idx_system_updates_update_priority ON system_updates(update_priority);
-CREATE INDEX IF NOT EXISTS idx_system_updates_security_update ON system_updates(security_update);
-CREATE INDEX IF NOT EXISTS idx_system_updates_update_status ON system_updates(update_status);
-CREATE INDEX IF NOT EXISTS idx_system_updates_last_checked ON system_updates(last_checked DESC);
-CREATE INDEX IF NOT EXISTS idx_system_updates_metadata ON system_updates USING GIN(metadata);
-
--- =============================================================================
--- VIRTUAL MACHINE MONITORING
--- =============================================================================
-
--- Virtual machine status and metrics
-CREATE TABLE IF NOT EXISTS vm_status (
     time TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    device_id UUID NOT NULL REFERENCES devices(id) ON DELETE CASCADE,
-    vm_id VARCHAR(255) NOT NULL,
-    vm_name VARCHAR(255) NOT NULL,
-    hypervisor VARCHAR(100), -- kvm, xen, vmware, virtualbox, etc.
-    status VARCHAR(50), -- running, paused, shutdown, crashed, dying, pmsuspended
-    vcpus INTEGER,
-    memory_mb INTEGER,
-    memory_usage_mb INTEGER,
-    cpu_usage_percent NUMERIC(5,2),
-    disk_usage_bytes BIGINT,
-    network_bytes_sent BIGINT,
-    network_bytes_recv BIGINT,
-    uptime_seconds BIGINT,
-    boot_time TIMESTAMPTZ,
-    config JSONB DEFAULT '{}'
+    config_type VARCHAR(50) NOT NULL,
+    file_path VARCHAR(500) NOT NULL,
+    content_hash VARCHAR(64) NOT NULL,
+    raw_content TEXT NOT NULL,
+    parsed_data JSONB DEFAULT '{}',
+    change_type VARCHAR(20), -- CREATE, MODIFY, DELETE, MOVE
+    previous_hash VARCHAR(64),
+    created_at TIMESTAMPTZ DEFAULT NOW()
 );
 
--- Create indexes for vm_status
-CREATE INDEX IF NOT EXISTS idx_vm_status_device_time ON vm_status(device_id, time DESC);
-CREATE INDEX IF NOT EXISTS idx_vm_status_time ON vm_status(time DESC);
-CREATE INDEX IF NOT EXISTS idx_vm_status_vm_id ON vm_status(vm_id);
-CREATE INDEX IF NOT EXISTS idx_vm_status_vm_name ON vm_status(vm_name);
-CREATE INDEX IF NOT EXISTS idx_vm_status_hypervisor ON vm_status(hypervisor);
-CREATE INDEX IF NOT EXISTS idx_vm_status_status ON vm_status(status);
-CREATE INDEX IF NOT EXISTS idx_vm_status_config ON vm_status USING GIN(config);
+-- Create indexes for configuration_snapshots
+CREATE INDEX IF NOT EXISTS idx_configuration_snapshots_device_time ON configuration_snapshots(device_id, time DESC);
+CREATE INDEX IF NOT EXISTS idx_configuration_snapshots_config_type ON configuration_snapshots(config_type);
+CREATE INDEX IF NOT EXISTS idx_configuration_snapshots_file_path ON configuration_snapshots(file_path);
+CREATE INDEX IF NOT EXISTS idx_configuration_snapshots_content_hash ON configuration_snapshots(content_hash);
 
--- =============================================================================
--- SYSTEM LOGS AND EVENTS
--- =============================================================================
-
--- System logs aggregation and analysis
-CREATE TABLE IF NOT EXISTS system_logs (
-    time TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+-- Service dependencies mapping
+CREATE TABLE IF NOT EXISTS service_dependencies (
+    id BIGSERIAL PRIMARY KEY,
     device_id UUID NOT NULL REFERENCES devices(id) ON DELETE CASCADE,
-    service_name VARCHAR(255),
-    log_level VARCHAR(20), -- emergency, alert, critical, error, warning, notice, info, debug
-    message TEXT NOT NULL,
-    source VARCHAR(255), -- systemd, syslog, kernel, application, etc.
-    process_id INTEGER,
-    user_name VARCHAR(100),
-    facility VARCHAR(50), -- kern, user, mail, daemon, auth, syslog, etc.
-    raw_message TEXT,
-    metadata JSONB DEFAULT '{}'
+    service_name VARCHAR(255) NOT NULL,
+    dependency_type VARCHAR(50) NOT NULL, -- container, volume, network, config
+    dependency_name VARCHAR(255) NOT NULL,
+    relationship VARCHAR(20) NOT NULL, -- depends_on, volume_mount, network_connect
+    metadata_info JSONB DEFAULT '{}',
+    discovered_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    last_verified_at TIMESTAMPTZ,
+    status VARCHAR(20) DEFAULT 'active' -- active, inactive, missing
 );
 
--- Create indexes for system_logs
-CREATE INDEX IF NOT EXISTS idx_system_logs_device_time ON system_logs(device_id, time DESC);
-CREATE INDEX IF NOT EXISTS idx_system_logs_time ON system_logs(time DESC);
-CREATE INDEX IF NOT EXISTS idx_system_logs_service_name ON system_logs(service_name);
-CREATE INDEX IF NOT EXISTS idx_system_logs_log_level ON system_logs(log_level);
-CREATE INDEX IF NOT EXISTS idx_system_logs_source ON system_logs(source);
-CREATE INDEX IF NOT EXISTS idx_system_logs_process_id ON system_logs(process_id);
-CREATE INDEX IF NOT EXISTS idx_system_logs_facility ON system_logs(facility);
-CREATE INDEX IF NOT EXISTS idx_system_logs_message_text ON system_logs USING GIN(to_tsvector('english', message));
-CREATE INDEX IF NOT EXISTS idx_system_logs_metadata ON system_logs USING GIN(metadata);
+-- Create indexes for service_dependencies
+CREATE INDEX IF NOT EXISTS idx_service_dependencies_device_id ON service_dependencies(device_id);
+CREATE INDEX IF NOT EXISTS idx_service_dependencies_service_name ON service_dependencies(service_name);
+CREATE INDEX IF NOT EXISTS idx_service_dependencies_dependency_type ON service_dependencies(dependency_type);
+CREATE INDEX IF NOT EXISTS idx_service_dependencies_relationship ON service_dependencies(relationship);
 
 -- =============================================================================
--- UPDATE TRIGGERS FOR TIMESTAMP MANAGEMENT
+-- PERFORMANCE OPTIMIZATION RULES
 -- =============================================================================
 
--- Function to update the updated_at timestamp
-CREATE OR REPLACE FUNCTION update_updated_at_column()
-RETURNS TRIGGER AS $$
-BEGIN
-    NEW.updated_at = NOW();
-    RETURN NEW;
-END;
-$$ LANGUAGE plpgsql;
+-- Data retention policy (manual cleanup for regular PostgreSQL)
+-- System metrics: Keep last 90 days, aggregate older data
+-- Container snapshots: Keep last 30 days  
+-- Drive health: Keep last 180 days
+-- Configuration snapshots: Keep permanently (small data size)
+-- Audit logs: Keep last 365 days
 
--- Add update trigger to devices table
-CREATE TRIGGER update_devices_updated_at
-    BEFORE UPDATE ON devices
-    FOR EACH ROW
-    EXECUTE FUNCTION update_updated_at_column();
-
--- =============================================================================
--- INITIAL SAMPLE DATA (OPTIONAL FOR TESTING)
--- =============================================================================
-
--- Insert a sample device for testing purposes
-INSERT INTO devices (hostname, ip_address, device_type, description, location, tags)
-VALUES (
-    'localhost',
-    '127.0.0.1',
-    'development',
-    'Local development machine for testing',
-    'local',
-    '{"environment": "development", "role": "test"}'
-) ON CONFLICT (hostname) DO NOTHING;
-
--- Log schema initialization
-DO $$
-BEGIN
-    RAISE NOTICE 'Infrastructure Management MCP Server schema initialized successfully';
-    RAISE NOTICE 'TimescaleDB extension enabled: %', (SELECT installed_version FROM pg_available_extensions WHERE name = 'timescaledb');
-    RAISE NOTICE 'Total tables created: %', (SELECT COUNT(*) FROM information_schema.tables WHERE table_schema = 'public');
-    RAISE NOTICE 'Total indexes created: %', (SELECT COUNT(*) FROM pg_indexes WHERE schemaname = 'public');
-END $$;
+COMMENT ON DATABASE infrastructor IS 'Infrastructure Management System Database - PostgreSQL';
+COMMENT ON TABLE devices IS 'Infrastructure device registry and connectivity information';
+COMMENT ON TABLE system_metrics IS 'System performance metrics time-series data';
+COMMENT ON TABLE drive_health IS 'Storage drive health and SMART monitoring data';
+COMMENT ON TABLE container_snapshots IS 'Docker container status and resource usage snapshots';
+COMMENT ON TABLE zfs_status IS 'ZFS filesystem and pool status monitoring';
+COMMENT ON TABLE proxy_configurations IS 'Reverse proxy configuration management';
+COMMENT ON TABLE data_collection_audit IS 'Audit trail for all data collection operations';
+COMMENT ON TABLE configuration_snapshots IS 'Configuration file change tracking';
+COMMENT ON TABLE service_dependencies IS 'Service dependency mapping and relationship tracking';

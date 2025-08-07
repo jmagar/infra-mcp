@@ -221,12 +221,17 @@ class ComposeDeploymentService:
             # Scan Docker container ports
             await self._scan_docker_ports(request.device, result)
             
-            # Determine available ports
-            all_used_ports = set(result.system_port_usage.keys()) | set(result.docker_port_usage.keys())
-            all_ports = set(range(request.port_range_start, request.port_range_end + 1))
+            # Remove Docker ports from system ports to avoid duplication
+            docker_ports = set(result.docker_port_usage.keys())
+            for port in docker_ports:
+                result.system_port_usage.pop(port, None)
             
-            result.available_ports = sorted(list(all_ports - all_used_ports))
+            # Focus on used ports only - combine system and Docker ports
+            all_used_ports = set(result.system_port_usage.keys()) | docker_ports
             result.used_ports = sorted(list(all_used_ports))
+            
+            # Don't calculate available ports - not useful for this use case
+            result.available_ports = []
             
         except Exception as e:
             self.logger.error(f"Error scanning ports on device {request.device}: {e}")
@@ -588,7 +593,7 @@ server {{
     async def _scan_system_ports(self, device: str, start_port: int, end_port: int, result: PortScanResult):
         """Scan system ports using netstat."""
         try:
-            # Let Python determine the range; just list all listening sockets
+            # Scan all listening ports - remove range filtering to show all ports in use
             cmd = "netstat -tulpn | grep LISTEN"
             netstat_result = await execute_ssh_command_simple(device, cmd, timeout=30)
             
@@ -599,10 +604,10 @@ server {{
                         match = re.search(r':(\d+)\s+.*LISTEN\s+(\d+)/(\S+)', line)
                         if match:
                             port = int(match.group(1))
-                            if start_port <= port <= end_port:
-                                pid = match.group(2)
-                                process = match.group(3)
-                                result.system_port_usage[port] = f"{process} (PID: {pid})"
+                            # Remove range filtering to show all system ports
+                            pid = match.group(2)
+                            process = match.group(3)
+                            result.system_port_usage[port] = f"{process} (PID: {pid})"
                                 
         except Exception as e:
             self.logger.warning(f"Error scanning system ports: {e}")
@@ -610,22 +615,30 @@ server {{
     async def _scan_docker_ports(self, device: str, result: PortScanResult):
         """Scan Docker container port mappings."""
         try:
-            cmd = "docker ps --format '{{.Names}}|{{.Ports}}'"
+            # Include all containers (running and stopped) with -a flag
+            cmd = "docker ps -a --format '{{.Names}}|{{.Ports}}|{{.Status}}'"
             docker_result = await execute_ssh_command_simple(device, cmd, timeout=30)
             
             if docker_result.success:
                 for line in docker_result.stdout.strip().split('\n'):
                     if '|' in line:
-                        parts = line.split('|', 1)
-                        if len(parts) == 2:
-                            container_name, ports_str = parts
+                        parts = line.split('|', 2)
+                        if len(parts) >= 2:
+                            container_name = parts[0]
+                            ports_str = parts[1]
+                            status = parts[2] if len(parts) > 2 else "unknown"
                             
-                            # Parse port mappings like "0.0.0.0:8080->80/tcp"
-                            port_matches = re.findall(r'(?:0.0.0.0:)?(\d+)->', ports_str)
+                            # Only process running containers for port usage
+                            if not status.startswith('Up'):
+                                continue
+                            
+                            # Parse port mappings like "0.0.0.0:8080->80/tcp, :::9000->9000/tcp"
+                            # Remove the range filter - show ALL ports in use
+                            port_matches = re.findall(r'(?:0\.0\.0\.0:|:::)?(\d+)->', ports_str)
                             for port_str in port_matches:
                                 port = int(port_str)
-                                if result.port_range_start <= port <= result.port_range_end:
-                                    result.docker_port_usage[port] = container_name
+                                # Remove range filtering to show all ports
+                                result.docker_port_usage[port] = container_name
                                     
         except Exception as e:
             self.logger.warning(f"Error scanning Docker ports: {e}")

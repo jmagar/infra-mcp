@@ -19,7 +19,7 @@ class ContainerSnapshotBase(BaseModel):
 
     # Container status
     status: Optional[str] = Field(None, description="Container status")
-    state: Optional[str] = Field(None, description="Container state")
+    state: Optional[Dict[str, Any]] = Field(None, description="Container state JSON object")
 
     # Resource usage metrics
     cpu_usage_percent: Optional[float] = Field(
@@ -64,25 +64,6 @@ class ContainerSnapshotBase(BaseModel):
             return v.lower()
         return v
 
-    @field_validator("state")
-    @classmethod
-    def validate_state(cls, v):
-        if v is not None:
-            valid_states = [
-                "created",
-                "restarting",
-                "running",
-                "removing",
-                "paused",
-                "exited",
-                "dead",
-            ]
-            if v.lower() not in valid_states:
-                raise ValueError(
-                    f"Invalid container state. Valid states: {', '.join(valid_states)}"
-                )
-            return v.lower()
-        return v
 
     @field_validator("memory_usage_bytes")
     @classmethod
@@ -147,7 +128,7 @@ class ContainerSummary(BaseModel):
 
     # Current status
     status: Optional[str] = Field(description="Current container status")
-    state: Optional[str] = Field(description="Current container state")
+    state: Optional[Dict[str, Any]] = Field(description="Current container state JSON object")
     uptime: Optional[str] = Field(description="Container uptime")
 
     # Resource usage
@@ -227,7 +208,7 @@ class ContainerDetails(BaseModel):
 
     # Status information
     status: str = Field(description="Container status")
-    state: str = Field(description="Container state")
+    state: Dict[str, Any] = Field(description="Container state JSON object")
     running: bool = Field(description="Whether container is running")
     paused: bool = Field(description="Whether container is paused")
     restarting: bool = Field(description="Whether container is restarting")

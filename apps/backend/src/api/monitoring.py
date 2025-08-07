@@ -341,12 +341,18 @@ async def performance_metrics(request: Request) -> PerformanceMetricsResponse:
 
         # SSH Command Manager performance
         ssh_cmd_manager = get_ssh_command_manager()
-        cache_stats = ssh_cmd_manager.get_cache_stats()
+        ssh_cache_stats = ssh_cmd_manager.get_cache_stats()
 
-        # Calculate cache hit ratio (estimated)
-        cache_efficiency = 0
-        if cache_stats["total_entries"] > 0:
-            cache_efficiency = (cache_stats["active_entries"] / cache_stats["total_entries"]) * 100
+        # Calculate SSH cache hit ratio (estimated)
+        ssh_cache_efficiency = 0
+        if ssh_cache_stats["total_entries"] > 0:
+            ssh_cache_efficiency = (ssh_cache_stats["active_entries"] / ssh_cache_stats["total_entries"]) * 100
+        
+        # Enhanced Cache Manager performance metrics
+        from apps.backend.src.utils.cache_manager import get_cache_manager
+        cache_manager = await get_cache_manager()
+        cache_metrics = await cache_manager.get_metrics()
+        cache_health = await cache_manager.health_check()
 
         # System performance metrics
         settings = get_settings()
@@ -357,7 +363,9 @@ async def performance_metrics(request: Request) -> PerformanceMetricsResponse:
             "performance_metrics": {
                 "api_response_time_ms": round(total_response_time, 2),
                 "database_query_time_ms": round(db_query_time, 2),
-                "ssh_cache_efficiency_percent": round(cache_efficiency, 2),
+                "ssh_cache_efficiency_percent": round(ssh_cache_efficiency, 2),
+                "enhanced_cache_hit_ratio_percent": round(cache_metrics.hit_ratio * 100, 2),
+                "enhanced_cache_response_time_ms": round(cache_metrics.average_response_time_ms, 2),
                 "measurement_timestamp": datetime.now(UTC).isoformat(),
             },
             "database_performance": {
@@ -368,9 +376,24 @@ async def performance_metrics(request: Request) -> PerformanceMetricsResponse:
                 }
             },
             "ssh_performance": {
-                "command_cache": cache_stats,
+                "command_cache": ssh_cache_stats,
                 "registry_size": len(ssh_cmd_manager.command_registry),
-                "cache_hit_ratio_estimate": round(cache_efficiency, 2),
+                "cache_hit_ratio_estimate": round(ssh_cache_efficiency, 2),
+            },
+            "enhanced_cache_performance": {
+                "metrics": {
+                    "hits": cache_metrics.hits,
+                    "misses": cache_metrics.misses,
+                    "evictions": cache_metrics.evictions,
+                    "hit_ratio_percent": round(cache_metrics.hit_ratio * 100, 2),
+                    "average_response_time_ms": round(cache_metrics.average_response_time_ms, 2),
+                    "cache_size": cache_metrics.cache_size,
+                    "memory_usage_mb": round(cache_metrics.memory_usage_mb, 2),
+                    "total_operations": cache_metrics.total_operations,
+                },
+                "configuration": cache_health.get("lru_config", {}),
+                "status": cache_health.get("status", "unknown"),
+                "redis_connected": cache_health.get("redis_connected", False),
             },
             "system_configuration": {
                 "polling_intervals": {
@@ -388,8 +411,15 @@ async def performance_metrics(request: Request) -> PerformanceMetricsResponse:
                 if db_query_time < 50
                 else "Consider database optimization",
                 "SSH cache working efficiently"
-                if cache_efficiency > 50
-                else "Consider increasing cache TTL",
+                if ssh_cache_efficiency > 50
+                else "Consider increasing SSH cache TTL",
+                "Enhanced cache performing excellently"
+                if cache_metrics.hit_ratio > 0.8
+                else "Enhanced cache building efficiency" if cache_metrics.total_operations < 100
+                else "Consider reviewing cache configuration",
+                "LRU eviction working effectively"
+                if cache_metrics.evictions < cache_metrics.total_operations * 0.1
+                else "Cache eviction rate may be high - consider increasing cache size",
                 "System performance nominal"
                 if total_response_time < 200
                 else "Monitor API response times",

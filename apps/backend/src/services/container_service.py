@@ -84,7 +84,11 @@ class ContainerService:
             filters.append(ContainerSnapshot.status.in_(statuses))
 
         if states:
-            filters.append(ContainerSnapshot.state.in_(states))
+            # Filter by state.status in JSONB field
+            state_filters = []
+            for state in states:
+                state_filters.append(ContainerSnapshot.state['status'].astext == state)
+            filters.append(or_(*state_filters))
 
         if since:
             # Parse since time (simplified)
@@ -329,6 +333,21 @@ class ContainerService:
                 network_settings = container_data.get("NetworkSettings", {})
                 host_config = container_data.get("HostConfig", {})
 
+                # Convert state to JSON object for consistency with database
+                state_json = {
+                    "status": "running" if state.get("Running") else "stopped",
+                    "running": state.get("Running", False),
+                    "paused": state.get("Paused", False),
+                    "restarting": state.get("Restarting", False),
+                    "oom_killed": state.get("OOMKilled", False),
+                    "dead": state.get("Dead", False),
+                    "pid": state.get("Pid"),
+                    "exit_code": state.get("ExitCode"),
+                    "error": state.get("Error"),
+                    "started_at": state.get("StartedAt"),
+                    "finished_at": state.get("FinishedAt")
+                }
+
                 return ContainerDetails(
                     device_id=device_id,
                     hostname=device.hostname,
@@ -337,7 +356,7 @@ class ContainerService:
                     image=config.get("Image", ""),
                     image_id=container_data.get("Image", ""),
                     status=state.get("Status", ""),
-                    state="running" if state.get("Running") else "stopped",
+                    state=state_json,
                     running=state.get("Running", False),
                     paused=state.get("Paused", False),
                     restarting=state.get("Restarting", False),

@@ -58,4 +58,14 @@ class Device(Base):
     container_snapshots = relationship(
         "ContainerSnapshot", back_populates="device", cascade="all, delete-orphan"
     )
+    configuration_snapshots = relationship(
+        "ConfigurationSnapshot", back_populates="device", cascade="all, delete-orphan"
+    )
+    audit_records = relationship(
+        "DataCollectionAudit", back_populates="device", cascade="all, delete-orphan"
+    )
+    # Proxy configuration relationship
+    proxy_configs = relationship(
+        "ProxyConfig", back_populates="device", cascade="all, delete-orphan"
+    )
     # Additional relationships defined in original models.py will be added here

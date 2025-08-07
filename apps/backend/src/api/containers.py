@@ -8,8 +8,13 @@ including listing, inspection, log retrieval, and metrics collection.
 import logging
 from datetime import datetime, timezone
 from typing import List, Optional
+from uuid import UUID
 from apps.backend.src.utils.ssh_client import execute_ssh_command_simple
 from apps.backend.src.mcp.tools.container_management import list_containers as mcp_list_containers
+from apps.backend.src.services.unified_data_collection import get_unified_data_collection_service
+from apps.backend.src.core.database import get_async_session_factory
+from apps.backend.src.utils.ssh_client import get_ssh_client
+from apps.backend.src.services.device_service import DeviceService
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Path
 import json
@@ -30,10 +35,39 @@ async def list_device_containers(
         None, description="Maximum number of containers to return", ge=1, le=1000
     ),
     offset: int = Query(0, description="Number of containers to skip", ge=0),
+    live: bool = Query(False, description="Force fresh data collection"),
     current_user=Depends(get_current_user),
 ):
     try:
-        return await mcp_list_containers(hostname, status, all_containers, timeout, limit, offset)
+        # Get unified service
+        session_factory = get_async_session_factory()
+        ssh_client = get_ssh_client()
+        unified_service = await get_unified_data_collection_service(
+            db_session_factory=session_factory,
+            ssh_client=ssh_client
+        )
+        
+        # Get device ID from hostname
+        async with session_factory() as db:
+            device_service = DeviceService(db)
+            device = await device_service.get_device_by_hostname(hostname)
+            device_id = device.id
+        
+        # Define collection method for container listing
+        async def collect_container_list():
+            return await mcp_list_containers(hostname, status, all_containers, timeout, limit, offset)
+        
+        # Use unified service to collect data
+        result = await unified_service.collect_and_store_data(
+            data_type="containers",
+            device_id=device_id,
+            collection_method=collect_container_list,
+            force_refresh=live,
+            correlation_id=f"containers_{hostname}"
+        )
+        
+        return result
+        
     except Exception as e:
         logger.error(f"Error listing containers on {hostname}: {e}")
         raise HTTPException(
@@ -46,24 +80,52 @@ async def get_container_info(
     hostname: str = Path(..., description="Device hostname"),
     container_name: str = Path(..., description="Container name"),
     timeout: int = Query(60, description="SSH timeout in seconds"),
+    live: bool = Query(False, description="Force fresh data collection"),
     current_user=Depends(get_current_user),
 ):
     try:
-        result = await execute_ssh_command_simple(
-            hostname, f"docker inspect {container_name}", timeout
+        # Get unified service
+        session_factory = get_async_session_factory()
+        ssh_client = get_ssh_client()
+        unified_service = await get_unified_data_collection_service(
+            db_session_factory=session_factory,
+            ssh_client=ssh_client
         )
-        if not result.success:
-            raise HTTPException(
-                status_code=404, detail=f"Container {container_name} not found on {hostname}"
+        
+        # Get device ID from hostname
+        async with session_factory() as db:
+            device_service = DeviceService(db)
+            device = await device_service.get_device_by_hostname(hostname)
+            device_id = device.id
+        
+        # Define collection method for container info
+        async def collect_container_info():
+            result = await execute_ssh_command_simple(
+                hostname, f"docker inspect {container_name}", timeout
             )
-
-        container_data = json.loads(result.stdout)
-        return {
-            "container": container_data[0] if container_data else {},
-            "hostname": hostname,
-            "container_name": container_name,
-            "timestamp": result.execution_time,
-        }
+            if not result.success:
+                raise HTTPException(
+                    status_code=404, detail=f"Container {container_name} not found on {hostname}"
+                )
+            
+            container_data = json.loads(result.stdout)
+            return {
+                "container": container_data[0] if container_data else {},
+                "hostname": hostname,
+                "container_name": container_name,
+            }
+        
+        # Use unified service to collect data
+        result = await unified_service.collect_and_store_data(
+            data_type="container_info",
+            device_id=device_id,
+            collection_method=collect_container_info,
+            force_refresh=live,
+            correlation_id=f"container_info_{hostname}_{container_name}"
+        )
+        
+        return result
+        
     except json.JSONDecodeError as e:
         raise HTTPException(
             status_code=500, detail=f"Failed to parse container data from {hostname}"
@@ -85,33 +147,62 @@ async def get_container_logs(
     ),
     timestamps: bool = Query(True, description="Include timestamps in log output"),
     timeout: int = Query(60, description="SSH timeout in seconds"),
+    live: bool = Query(False, description="Force fresh data collection"),
     current_user=Depends(get_current_user),
 ):
     try:
-        # Build docker logs command
-        cmd = f"docker logs {container_name}"
-        if since:
-            cmd += f" --since {since}"
-        if tail:
-            cmd += f" --tail {tail}"
-        if timestamps:
-            cmd += " --timestamps"
+        # Get unified service
+        session_factory = get_async_session_factory()
+        ssh_client = get_ssh_client()
+        unified_service = await get_unified_data_collection_service(
+            db_session_factory=session_factory,
+            ssh_client=ssh_client
+        )
+        
+        # Get device ID from hostname
+        async with session_factory() as db:
+            device_service = DeviceService(db)
+            device = await device_service.get_device_by_hostname(hostname)
+            device_id = device.id
+        
+        # Define collection method for container logs
+        async def collect_container_logs():
+            # Build docker logs command
+            cmd = f"docker logs {container_name}"
+            if since:
+                cmd += f" --since {since}"
+            if tail:
+                cmd += f" --tail {tail}"
+            if timestamps:
+                cmd += " --timestamps"
 
-        result = await execute_ssh_command_simple(hostname, cmd, timeout)
-        if not result.success:
-            raise HTTPException(
-                status_code=404, detail=f"Container {container_name} not found on {hostname}"
-            )
+            result = await execute_ssh_command_simple(hostname, cmd, timeout)
+            if not result.success:
+                raise HTTPException(
+                    status_code=404, detail=f"Container {container_name} not found on {hostname}"
+                )
 
-        return {
-            "logs": result.stdout,
-            "hostname": hostname,
-            "container_name": container_name,
-            "since": since,
-            "tail": tail,
-            "timestamps": timestamps,
-            "execution_time": result.execution_time,
-        }
+            return {
+                "logs": result.stdout,
+                "hostname": hostname,
+                "container_name": container_name,
+                "since": since,
+                "tail": tail,
+                "timestamps": timestamps,
+            }
+        
+        # Use unified service to collect data
+        # Container logs change frequently so should have shorter cache TTL
+        result = await unified_service.collect_and_store_data(
+            data_type="container_logs",
+            device_id=device_id,
+            collection_method=collect_container_logs,
+            force_refresh=live,
+            correlation_id=f"container_logs_{hostname}_{container_name}"
+        )
+        
+        return result
+        
     except Exception as e:
         logger.error(f"Error getting container logs for {container_name} on {hostname}: {e}")
         raise HTTPException(status_code=500, detail=f"Failed to get container logs: {str(e)}") from e
@@ -260,42 +351,70 @@ async def get_container_stats(
     hostname: str = Path(..., description="Device hostname"),
     container_name: str = Path(..., description="Container name"),
     timeout: int = Query(30, description="SSH timeout in seconds"),
+    live: bool = Query(True, description="Force fresh data collection (stats are real-time by default)"),
     current_user=Depends(get_current_user),
 ):
     """Get real-time container resource usage statistics"""
     try:
-        cmd = f"docker stats {container_name} --no-stream --format '{{{{.Container}}}}|{{{{.CPUPerc}}}}|{{{{.MemUsage}}}}|{{{{.MemPerc}}}}|{{{{.NetIO}}}}|{{{{.BlockIO}}}}|{{{{.PIDs}}}}'"
+        # Get unified service
+        session_factory = get_async_session_factory()
+        ssh_client = get_ssh_client()
+        unified_service = await get_unified_data_collection_service(
+            db_session_factory=session_factory,
+            ssh_client=ssh_client
+        )
+        
+        # Get device ID from hostname
+        async with session_factory() as db:
+            device_service = DeviceService(db)
+            device = await device_service.get_device_by_hostname(hostname)
+            device_id = device.id
+        
+        # Define collection method for container stats
+        async def collect_container_stats():
+            cmd = f"docker stats {container_name} --no-stream --format '{{{{.Container}}}}|{{{{.CPUPerc}}}}|{{{{.MemUsage}}}}|{{{{.MemPerc}}}}|{{{{.NetIO}}}}|{{{{.BlockIO}}}}|{{{{.PIDs}}}}'"
 
-        result = await execute_ssh_command_simple(hostname, cmd, timeout)
-        if not result.success:
-            raise HTTPException(
-                status_code=404, detail=f"Container {container_name} not found on {hostname}"
-            )
+            result = await execute_ssh_command_simple(hostname, cmd, timeout)
+            if not result.success:
+                raise HTTPException(
+                    status_code=404, detail=f"Container {container_name} not found on {hostname}"
+                )
 
-        # Parse the pipe-delimited stats output
-        output = result.stdout.strip()
-        if not output:
-            raise HTTPException(status_code=500, detail="Empty container stats output")
-        # Split on pipe delimiter
-        parts = output.split('|')
-        if len(parts) >= 7:
-            return {
-                "container_name": container_name,
-                "hostname": hostname,
-                "stats": {
-                    "cpu_percent": parts[1].strip(),
-                    "memory_usage": parts[2].strip(),
-                    "memory_percent": parts[3].strip(),
-                    "network_io": parts[4].strip(),
-                    "block_io": parts[5].strip(),
-                    "pids": parts[6].strip(),
-                },
-                "timestamp": datetime.now(timezone.utc).isoformat(),
-                "execution_time": result.execution_time,
-            }
-        else:
-            raise HTTPException(status_code=500, detail=f"Unable to parse container stats format - got {len(parts)} parts: {parts}")
-
+            # Parse the pipe-delimited stats output
+            output = result.stdout.strip()
+            if not output:
+                raise HTTPException(status_code=500, detail="Empty container stats output")
+            # Split on pipe delimiter
+            parts = output.split('|')
+            if len(parts) >= 7:
+                return {
+                    "container_name": container_name,
+                    "hostname": hostname,
+                    "stats": {
+                        "cpu_percent": parts[1].strip(),
+                        "memory_usage": parts[2].strip(),
+                        "memory_percent": parts[3].strip(),
+                        "network_io": parts[4].strip(),
+                        "block_io": parts[5].strip(),
+                        "pids": parts[6].strip(),
+                    },
+                    "timestamp": datetime.now(timezone.utc).isoformat(),
+                }
+            else:
+                raise HTTPException(status_code=500, detail=f"Unable to parse container stats format - got {len(parts)} parts: {parts}")
+        
+        # Use unified service to collect data
+        # Container stats are real-time and should always be fresh
+        result = await unified_service.collect_and_store_data(
+            data_type="container_stats",
+            device_id=device_id,
+            collection_method=collect_container_stats,
+            force_refresh=live,
+            correlation_id=f"container_stats_{hostname}_{container_name}"
+        )
+        
+        return result
+        
     except Exception as e:
         logger.error(f"Error getting container stats for {container_name} on {hostname}: {e}")
         raise HTTPException(status_code=500, detail=f"Failed to get container stats: {str(e)}") from e

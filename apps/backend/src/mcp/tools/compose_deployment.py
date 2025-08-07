@@ -377,13 +377,12 @@ async def scan_device_ports(
         
         return {
             "device": result.device,
-            "port_range_start": result.port_range_start,
-            "port_range_end": result.port_range_end,
-            "total_scanned": result.total_scanned,
-            "available_ports": result.available_ports,
             "used_ports": result.used_ports,
             "docker_port_usage": result.docker_port_usage,
             "system_port_usage": result.system_port_usage,
+            "total_ports_in_use": len(result.used_ports),
+            "docker_containers": len(result.docker_port_usage),
+            "system_services": len(result.system_port_usage),
             "execution_time_ms": result.execution_time_ms,
         }
         

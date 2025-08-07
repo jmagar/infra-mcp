@@ -882,12 +882,15 @@ async def get_system_logs(
     priority: Optional[str] = None,
 ) -> Dict[str, Any]:
     """
-    Retrieve system logs from a specific device using journalctl.
+    Retrieve system logs from a specific device using OS-appropriate commands.
 
-    This tool connects to a device via SSH and retrieves systemd journal logs
-    with support for service-specific filtering, time-based filtering, and
-    priority level filtering. Provides structured log entries with timestamps,
-    service names, log levels, and messages.
+    This tool connects to a device via SSH and retrieves system logs using
+    the appropriate command based on the device's OS type:
+    - Ubuntu/systemd: journalctl  
+    - Unraid/syslog: tail /var/log/syslog or dmesg
+    
+    Supports service-specific filtering, time-based filtering, and
+    priority level filtering where applicable.
 
     Args:
         device: Device hostname or IP address to query
@@ -901,103 +904,163 @@ async def get_system_logs(
         Dict containing:
         - device: Device hostname
         - timestamp: Query timestamp (ISO 8601)
+        - os_type: Detected OS type
+        - log_source: Source of logs (journalctl, syslog, etc.)
         - service_filter: Applied service filter (if any)
         - since_filter: Applied time filter (if any)
         - log_count: Number of log entries returned
-        - logs: List of SystemLogEntry objects with parsed log data
+        - logs: List of log entries with parsed log data
 
     Raises:
         DeviceNotFoundError: If device cannot be reached
         SSHConnectionError: If SSH connection fails
-        SSHCommandError: If journalctl command fails
+        SSHCommandError: If log command fails
     """
     logger.info(f"Collecting system logs from device: {device}")
 
     try:
+        # First, get device OS type from database
+        from apps.backend.src.core.database import get_async_session
+        from sqlalchemy import select
+        from apps.backend.src.models.device import Device
+        
+        async with get_async_session() as db:
+            result = await db.execute(select(Device.tags).where(Device.hostname == device))
+            device_record = result.scalar_one_or_none()
+            
+        os_name = "unknown"
+        if device_record and device_record.get('os_name'):
+            os_name = device_record['os_name'].lower()
+            
         # Create SSH connection info
         connection_info = SSHConnectionInfo(host=device, command_timeout=timeout)
 
         # Get SSH client
         ssh_client = get_ssh_client()
 
-        # Build journalctl command with filters
-        cmd_parts = ["journalctl", "--output=json", f"--lines={limit}", "--no-pager"]
+        # Determine command based on OS type
+        if 'unraid' in os_name:
+            # Unraid uses syslog - use tail to get recent entries
+            cmd_parts = ["tail", f"-{limit}", "/var/log/syslog"]
+            log_source = "syslog"
+        else:
+            # Default to journalctl for Ubuntu and other systemd systems
+            cmd_parts = ["journalctl", "--output=json", f"--lines={limit}", "--no-pager"]
+            log_source = "journalctl"
 
-        # Add service filter
-        if service:
+        # Add service filter (only for journalctl)
+        if service and log_source == "journalctl":
             cmd_parts.append(f"--unit={service}")
 
-        # Add time range filter
-        if since:
+        # Add time range filter (only for journalctl)  
+        if since and log_source == "journalctl":
             cmd_parts.append(f"--since={since}")
 
-        # Add priority filter
-        if priority:
+        # Add priority filter (only for journalctl)
+        if priority and log_source == "journalctl":
             cmd_parts.append(f"--priority={priority}")
 
+        # For syslog, add service filtering via grep if specified
+        if service and log_source == "syslog":
+            # Pipe through grep to filter by service
+            cmd_parts.extend(["|", "grep", "-i", service])
+
         # Join command parts
-        journalctl_cmd = " ".join(cmd_parts)
+        log_cmd = " ".join(cmd_parts)
 
-        logger.debug(f"Executing journalctl command on {device}: {journalctl_cmd}")
+        logger.debug(f"Executing {log_source} command on {device}: {log_cmd}")
 
-        # Execute journalctl command
+        # Execute log command
         result = await ssh_client.execute_command(
-            connection_info=connection_info, command=journalctl_cmd, timeout=timeout, check=False
+            connection_info=connection_info, command=log_cmd, timeout=timeout, check=False
         )
 
         if not result.success:
-            logger.error(f"journalctl command failed on {device}: {result.stderr}")
+            logger.error(f"{log_source} command failed on {device}: {result.stderr}")
 
             # Check for common errors
-            error_msg = result.stderr.lower()
-            if "unit" in error_msg and "not found" in error_msg:
-                return {
+            error_msg = result.stderr.lower() if result.stderr else ""
+            
+            if log_source == "journalctl":
+                if "unit" in error_msg and "not found" in error_msg:
+                    return {
+                        "device": device,
+                        "timestamp": datetime.now(timezone.utc).isoformat(),
+                        "os_type": os_name,
+                        "log_source": log_source,
+                        "service_filter": service,
+                        "since_filter": since,
+                        "log_count": 0,
+                        "logs": [],
+                        "error": f"Service '{service}' not found or not active",
+                    }
+                elif "invalid" in error_msg and "time" in error_msg:
+                    return {
+                        "device": device,
+                        "timestamp": datetime.now(timezone.utc).isoformat(),
+                        "os_type": os_name,
+                        "log_source": log_source,
+                        "service_filter": service,
+                        "since_filter": since,
+                        "log_count": 0,
+                        "logs": [],
+                        "error": f"Invalid time format: '{since}'",
+                    }
+            elif log_source == "syslog":
+                if "no such file" in error_msg or "cannot open" in error_msg:
+                    return {
+                        "device": device,
+                        "timestamp": datetime.now(timezone.utc).isoformat(),
+                        "os_type": os_name,
+                        "log_source": log_source,
+                        "service_filter": service,
+                        "since_filter": since,
+                        "log_count": 0,
+                        "logs": [],
+                        "error": "Syslog file not found or not accessible",
+                    }
+                    
+            return {
                     "device": device,
                     "timestamp": datetime.now(timezone.utc).isoformat(),
                     "service_filter": service,
                     "since_filter": since,
                     "log_count": 0,
                     "logs": [],
-                    "error": f"Service '{service}' not found or not active",
-                }
-            elif "invalid" in error_msg and "time" in error_msg:
-                return {
-                    "device": device,
-                    "timestamp": datetime.now(timezone.utc).isoformat(),
-                    "service_filter": service,
-                    "since_filter": since,
-                    "log_count": 0,
-                    "logs": [],
-                    "error": f"Invalid time format: '{since}'",
-                }
-            else:
-                return {
-                    "device": device,
-                    "timestamp": datetime.now(timezone.utc).isoformat(),
-                    "service_filter": service,
-                    "since_filter": since,
-                    "log_count": 0,
-                    "logs": [],
-                    "error": f"journalctl failed: {result.stderr}",
+                    "error": f"{log_source} failed: {result.stderr}",
                 }
 
-        # Parse JSON log entries
+        # Parse log entries based on source
         log_entries = []
         lines = result.stdout.strip().split("\n")
 
-        for line in lines:
-            if line.strip():
-                try:
-                    log_data = json.loads(line)
-                    parsed_entry = _parse_journalctl_json_entry(log_data)
-                    if parsed_entry:
-                        log_entries.append(parsed_entry)
-                except json.JSONDecodeError as e:
-                    logger.debug(f"Failed to parse JSON log line: {line[:100]}..., error: {e}")
-                    continue
-                except Exception as e:
-                    logger.debug(f"Error processing log entry: {e}")
-                    continue
+        if log_source == "journalctl":
+            # Parse JSON log entries from journalctl
+            for line in lines:
+                if line.strip():
+                    try:
+                        log_data = json.loads(line)
+                        parsed_entry = _parse_journalctl_json_entry(log_data)
+                        if parsed_entry:
+                            log_entries.append(parsed_entry)
+                    except json.JSONDecodeError as e:
+                        logger.debug(f"Failed to parse JSON log line: {line[:100]}..., error: {e}")
+                        continue
+                    except Exception as e:
+                        logger.debug(f"Error processing log entry: {e}")
+                        continue
+        
+        elif log_source == "syslog":
+            # Parse plain text syslog entries
+            for line in lines:
+                if line.strip():
+                    try:
+                        parsed_entry = _parse_syslog_line(line.strip())
+                        if parsed_entry:
+                            log_entries.append(parsed_entry)
+                    except Exception as e:
+                        logger.debug(f"Error processing syslog entry: {e}")
+                        continue
 
         # Sort by timestamp (most recent first)
         log_entries.sort(key=lambda x: x.get("timestamp", ""), reverse=True)
@@ -1006,6 +1069,8 @@ async def get_system_logs(
         response = {
             "device": device,
             "timestamp": datetime.now(timezone.utc).isoformat(),
+            "os_type": os_name,
+            "log_source": log_source,
             "service_filter": service,
             "since_filter": since,
             "log_count": len(log_entries),
@@ -1103,6 +1168,68 @@ def _parse_journalctl_json_entry(log_data: Dict[str, Any]) -> Optional[Dict[str,
 
     except Exception as e:
         logger.debug(f"Error parsing journalctl entry: {e}")
+        return None
+
+
+def _parse_syslog_line(line: str) -> Optional[Dict[str, Any]]:
+    """
+    Parse a single syslog line into SystemLogEntry format.
+    
+    Example syslog line:
+    Dec  7 10:30:15 tootie kernel: [12345.123456] Some kernel message
+    
+    Args:
+        line: Raw syslog line
+        
+    Returns:
+        Parsed log entry dict or None if parsing fails
+    """
+    try:
+        import re
+        from datetime import datetime, timezone
+        
+        # Regex to parse standard syslog format
+        # Month Day Time Hostname Service[PID]: Message
+        syslog_pattern = r'^(\w{3}\s+\d{1,2}\s+\d{2}:\d{2}:\d{2})\s+(\S+)\s+([^:\[]+)(?:\[(\d+)\])?:\s*(.+)$'
+        
+        match = re.match(syslog_pattern, line.strip())
+        if not match:
+            # Fallback for lines that don't match standard format
+            return {
+                "timestamp": datetime.now(timezone.utc).isoformat(),
+                "hostname": "unknown",
+                "service": "unknown",
+                "priority": "info",
+                "message": line.strip(),
+                "pid": None,
+            }
+            
+        date_str, hostname, service, pid, message = match.groups()
+        
+        # Parse timestamp (add current year since syslog doesn't include it)
+        try:
+            current_year = datetime.now().year
+            full_date_str = f"{current_year} {date_str}"
+            dt = datetime.strptime(full_date_str, "%Y %b %d %H:%M:%S")
+            dt = dt.replace(tzinfo=timezone.utc)
+            timestamp = dt.isoformat()
+        except ValueError:
+            timestamp = datetime.now(timezone.utc).isoformat()
+        
+        # Extract PID if present
+        pid_int = int(pid) if pid else None
+        
+        return {
+            "timestamp": timestamp,
+            "hostname": hostname.strip(),
+            "service": service.strip(),
+            "priority": "info",  # Syslog doesn't easily provide priority in this format
+            "message": message.strip(),
+            "pid": pid_int,
+        }
+        
+    except Exception as e:
+        logger.debug(f"Error parsing syslog entry: {e}")
         return None
 
 
