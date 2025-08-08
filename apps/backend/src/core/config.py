@@ -5,15 +5,19 @@ This module handles all configuration settings including database connections,
 SSH settings, polling intervals, and environment-specific configurations.
 """
 
-import os
-from typing import Annotated, Optional
-from pydantic import Field, field_validator, BeforeValidator
-from pydantic_settings import BaseSettings, SettingsConfigDict
 from functools import lru_cache
+import os
+
+from pydantic import Field, field_validator
+from typing import Any
+from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
-def parse_cors_origins(v):
-    """Parse CORS_ORIGINS from comma-separated string or return as-is if already a list"""
+def parse_cors_origins(v: str | list[str]) -> list[str]:
+    """Parse CORS_ORIGINS from comma-separated string or return as-is if already a list.
+
+    Ensures the return type is always a list[str].
+    """
     if isinstance(v, str):
         return [origin.strip() for origin in v.split(",") if origin.strip()]
     return v
@@ -23,17 +27,17 @@ class DatabaseSettings(BaseSettings):
     """Database configuration settings for PostgreSQL + TimescaleDB"""
 
     # Database Connection
-    postgres_host: str = Field(default="localhost", env="POSTGRES_HOST")
-    postgres_port: int = Field(default=9100, env="POSTGRES_PORT")
-    postgres_db: str = Field(default="infrastructor", env="POSTGRES_DB")
-    postgres_user: str = Field(default="infrastructor", env="POSTGRES_USER")
-    postgres_password: str = Field(default="change_me_in_production", env="POSTGRES_PASSWORD")
+    postgres_host: str = Field(default="localhost", validation_alias="POSTGRES_HOST")
+    postgres_port: int = Field(default=9100, validation_alias="POSTGRES_PORT")
+    postgres_db: str = Field(default="infrastructor", validation_alias="POSTGRES_DB")
+    postgres_user: str = Field(default="infrastructor", validation_alias="POSTGRES_USER")
+    postgres_password: str = Field(default="change_me_in_production", validation_alias="POSTGRES_PASSWORD")
 
     # Connection Pool Settings
-    db_pool_size: int = Field(default=10, env="DB_POOL_SIZE")
-    db_max_overflow: int = Field(default=20, env="DB_MAX_OVERFLOW")
-    db_pool_timeout: int = Field(default=30, env="DB_POOL_TIMEOUT")
-    db_pool_recycle: int = Field(default=3600, env="DB_POOL_RECYCLE")
+    db_pool_size: int = Field(default=10, validation_alias="DB_POOL_SIZE")
+    db_max_overflow: int = Field(default=20, validation_alias="DB_MAX_OVERFLOW")
+    db_pool_timeout: int = Field(default=30, validation_alias="DB_POOL_TIMEOUT")
+    db_pool_recycle: int = Field(default=3600, validation_alias="DB_POOL_RECYCLE")
 
     @property
     def database_url(self) -> str:
@@ -57,16 +61,16 @@ class DatabaseSettings(BaseSettings):
 class RedisSettings(BaseSettings):
     """Redis configuration settings for caching and session storage"""
 
-    redis_host: str = Field(default="localhost", env="REDIS_HOST")
-    redis_port: int = Field(default=9104, env="REDIS_PORT")
-    redis_password: str | None = Field(default=None, env="REDIS_PASSWORD")
-    redis_db: int = Field(default=0, env="REDIS_DB")
-    
+    redis_host: str = Field(default="localhost", validation_alias="REDIS_HOST")
+    redis_port: int = Field(default=9104, validation_alias="REDIS_PORT")
+    redis_password: str | None = Field(default=None, validation_alias="REDIS_PASSWORD")
+    redis_db: int = Field(default=0, validation_alias="REDIS_DB")
+
     # Connection Pool Settings
-    redis_pool_size: int = Field(default=10, env="REDIS_POOL_SIZE")
-    redis_max_connections: int = Field(default=20, env="REDIS_MAX_CONNECTIONS")
-    redis_socket_timeout: int = Field(default=5, env="REDIS_SOCKET_TIMEOUT")
-    redis_socket_connect_timeout: int = Field(default=5, env="REDIS_SOCKET_CONNECT_TIMEOUT")
+    redis_pool_size: int = Field(default=10, validation_alias="REDIS_POOL_SIZE")
+    redis_max_connections: int = Field(default=20, validation_alias="REDIS_MAX_CONNECTIONS")
+    redis_socket_timeout: int = Field(default=5, validation_alias="REDIS_SOCKET_TIMEOUT")
+    redis_socket_connect_timeout: int = Field(default=5, validation_alias="REDIS_SOCKET_CONNECT_TIMEOUT")
 
     @property
     def redis_url(self) -> str:
@@ -81,10 +85,10 @@ class RedisSettings(BaseSettings):
 class MCPServerSettings(BaseSettings):
     """FastMCP server configuration settings"""
 
-    mcp_host: str = Field(default="0.0.0.0", env="MCP_HOST")
-    mcp_port: int = Field(default=9102, env="MCP_PORT")
-    mcp_path: str = Field(default="/mcp", env="MCP_PATH")
-    mcp_log_level: str = Field(default="info", env="MCP_LOG_LEVEL")
+    mcp_host: str = Field(default="0.0.0.0", validation_alias="MCP_HOST")
+    mcp_port: int = Field(default=9102, validation_alias="MCP_PORT")
+    mcp_path: str = Field(default="/mcp", validation_alias="MCP_PATH")
+    mcp_log_level: str = Field(default="info", validation_alias="MCP_LOG_LEVEL")
 
     model_config = SettingsConfigDict(env_file=".env", case_sensitive=False, extra="ignore")
 
@@ -92,7 +96,7 @@ class MCPServerSettings(BaseSettings):
 class WebSocketSettings(BaseSettings):
     """WebSocket server configuration for real-time streaming"""
 
-    websocket_max_connections: int = Field(default=50, env="WEBSOCKET_MAX_CONNECTIONS")
+    websocket_max_connections: int = Field(default=50, validation_alias="WEBSOCKET_MAX_CONNECTIONS")
 
     model_config = SettingsConfigDict(env_file=".env", case_sensitive=False, extra="ignore")
 
@@ -100,15 +104,15 @@ class WebSocketSettings(BaseSettings):
 class SSHSettings(BaseSettings):
     """SSH configuration for device communication"""
 
-    ssh_connection_timeout: int = Field(default=10, env="SSH_CONNECTION_TIMEOUT")
+    ssh_connection_timeout: int = Field(default=10, validation_alias="SSH_CONNECTION_TIMEOUT")
     ssh_connect_timeout: int = Field(
-        default=10, env="SSH_CONNECT_TIMEOUT"
+        default=10, validation_alias="SSH_CONNECT_TIMEOUT"
     )  # Alias for compatibility
-    ssh_command_timeout: int = Field(default=30, env="SSH_COMMAND_TIMEOUT")
-    ssh_max_retries: int = Field(default=3, env="SSH_MAX_RETRIES")
-    ssh_retry_delay: int = Field(default=5, env="SSH_RETRY_DELAY")
-    ssh_max_connections_per_host: int = Field(default=5, env="SSH_MAX_CONNECTIONS_PER_HOST")
-    ssh_key_path: str | None = Field(default=None, env="SSH_KEY_PATH")
+    ssh_command_timeout: int = Field(default=30, validation_alias="SSH_COMMAND_TIMEOUT")
+    ssh_max_retries: int = Field(default=3, validation_alias="SSH_MAX_RETRIES")
+    ssh_retry_delay: int = Field(default=5, validation_alias="SSH_RETRY_DELAY")
+    ssh_max_connections_per_host: int = Field(default=5, validation_alias="SSH_MAX_CONNECTIONS_PER_HOST")
+    ssh_key_path: str | None = Field(default=None, validation_alias="SSH_KEY_PATH")
 
     @property
     def default_ssh_key_path(self) -> str:
@@ -121,16 +125,16 @@ class SSHSettings(BaseSettings):
 class PollingSettings(BaseSettings):
     """Polling intervals and data collection settings"""
 
-    polling_enabled: bool = Field(default=False, env="POLLING_ENABLED")
-    polling_container_interval: int = Field(default=30, env="POLLING_CONTAINER_INTERVAL")
-    polling_system_metrics_interval: int = Field(default=300, env="POLLING_SYSTEM_METRICS_INTERVAL")
-    polling_drive_health_interval: int = Field(default=3600, env="POLLING_DRIVE_HEALTH_INTERVAL")
-    polling_max_concurrent_devices: int = Field(default=10, env="POLLING_MAX_CONCURRENT_DEVICES")
-    
+    polling_enabled: bool = Field(default=False, validation_alias="POLLING_ENABLED")
+    polling_container_interval: int = Field(default=30, validation_alias="POLLING_CONTAINER_INTERVAL")
+    polling_system_metrics_interval: int = Field(default=300, validation_alias="POLLING_SYSTEM_METRICS_INTERVAL")
+    polling_drive_health_interval: int = Field(default=3600, validation_alias="POLLING_DRIVE_HEALTH_INTERVAL")
+    polling_max_concurrent_devices: int = Field(default=10, validation_alias="POLLING_MAX_CONCURRENT_DEVICES")
+
     # Startup timing settings to reduce SSH congestion
-    polling_startup_delay: int = Field(default=30, env="POLLING_STARTUP_DELAY")
-    polling_device_stagger_delay: int = Field(default=30, env="POLLING_DEVICE_STAGGER_DELAY")
-    polling_task_stagger_delay: int = Field(default=10, env="POLLING_TASK_STAGGER_DELAY")
+    polling_startup_delay: int = Field(default=30, validation_alias="POLLING_STARTUP_DELAY")
+    polling_device_stagger_delay: int = Field(default=30, validation_alias="POLLING_DEVICE_STAGGER_DELAY")
+    polling_task_stagger_delay: int = Field(default=10, validation_alias="POLLING_TASK_STAGGER_DELAY")
 
     model_config = SettingsConfigDict(env_file=".env", case_sensitive=False, extra="ignore")
 
@@ -139,18 +143,18 @@ class MonitoringSettings(BaseSettings):
     """Monitoring and data collection feature settings"""
 
     # SMART Drive Monitoring
-    smart_monitoring_enabled: bool = Field(default=True, env="SMART_MONITORING_ENABLED")
-    smart_command_timeout: int = Field(default=15, env="SMART_COMMAND_TIMEOUT")
-    smart_graceful_fallback: bool = Field(default=True, env="SMART_GRACEFUL_FALLBACK")
-    smart_require_sudo: bool = Field(default=False, env="SMART_REQUIRE_SUDO")
+    smart_monitoring_enabled: bool = Field(default=True, validation_alias="SMART_MONITORING_ENABLED")
+    smart_command_timeout: int = Field(default=15, validation_alias="SMART_COMMAND_TIMEOUT")
+    smart_graceful_fallback: bool = Field(default=True, validation_alias="SMART_GRACEFUL_FALLBACK")
+    smart_require_sudo: bool = Field(default=False, validation_alias="SMART_REQUIRE_SUDO")
 
     # Other monitoring features
-    container_monitoring_enabled: bool = Field(default=True, env="CONTAINER_MONITORING_ENABLED")
-    system_metrics_enabled: bool = Field(default=True, env="SYSTEM_METRICS_ENABLED")
-    network_monitoring_enabled: bool = Field(default=True, env="NETWORK_MONITORING_ENABLED")
+    container_monitoring_enabled: bool = Field(default=True, validation_alias="CONTAINER_MONITORING_ENABLED")
+    system_metrics_enabled: bool = Field(default=True, validation_alias="SYSTEM_METRICS_ENABLED")
+    network_monitoring_enabled: bool = Field(default=True, validation_alias="NETWORK_MONITORING_ENABLED")
 
     @field_validator("smart_command_timeout")
-    def validate_smart_timeout(cls, v):
+    def validate_smart_timeout(cls, v: int) -> int:
         if v < 5 or v > 300:
             raise ValueError("SMART command timeout must be between 5 and 300 seconds")
         return v
@@ -161,12 +165,12 @@ class MonitoringSettings(BaseSettings):
 class RetentionSettings(BaseSettings):
     """Data retention and compression settings"""
 
-    retention_system_metrics_days: int = Field(default=30, env="RETENTION_SYSTEM_METRICS_DAYS")
-    retention_drive_health_days: int = Field(default=90, env="RETENTION_DRIVE_HEALTH_DAYS")
+    retention_system_metrics_days: int = Field(default=30, validation_alias="RETENTION_SYSTEM_METRICS_DAYS")
+    retention_drive_health_days: int = Field(default=90, validation_alias="RETENTION_DRIVE_HEALTH_DAYS")
     retention_container_snapshots_days: int = Field(
-        default=30, env="RETENTION_CONTAINER_SNAPSHOTS_DAYS"
+        default=30, validation_alias="RETENTION_CONTAINER_SNAPSHOTS_DAYS"
     )
-    compression_after_days: int = Field(default=7, env="COMPRESSION_AFTER_DAYS")
+    compression_after_days: int = Field(default=7, validation_alias="COMPRESSION_AFTER_DAYS")
 
     model_config = SettingsConfigDict(env_file=".env", case_sensitive=False, extra="ignore")
 
@@ -176,13 +180,13 @@ class AuthSettings(BaseSettings):
 
     # JWT Authentication
     jwt_secret_key: str = Field(
-        default="your-super-secret-jwt-key-change-in-production", env="JWT_SECRET_KEY"
+        default="your-super-secret-jwt-key-change-in-production", validation_alias="JWT_SECRET_KEY"
     )
-    jwt_algorithm: str = Field(default="HS256", env="JWT_ALGORITHM")
-    jwt_expire_minutes: int = Field(default=1440, env="JWT_EXPIRE_MINUTES")
+    jwt_algorithm: str = Field(default="HS256", validation_alias="JWT_ALGORITHM")
+    jwt_expire_minutes: int = Field(default=1440, validation_alias="JWT_EXPIRE_MINUTES")
 
     # API Key Authentication
-    api_key: str | None = Field(default=None, env="API_KEY")
+    api_key: str | None = Field(default=None, validation_alias="API_KEY")
 
     model_config = SettingsConfigDict(env_file=".env", case_sensitive=False, extra="ignore")
 
@@ -190,11 +194,11 @@ class AuthSettings(BaseSettings):
 class LoggingSettings(BaseSettings):
     """Logging configuration settings"""
 
-    log_level: str = Field(default="INFO", env="LOG_LEVEL")
-    log_format: str = Field(default="json", env="LOG_FORMAT")
-    log_file_path: str = Field(default="./logs/infrastructor.log", env="LOG_FILE_PATH")
-    log_max_bytes: int = Field(default=10485760, env="LOG_MAX_BYTES")  # 10MB
-    log_backup_count: int = Field(default=5, env="LOG_BACKUP_COUNT")
+    log_level: str = Field(default="INFO", validation_alias="LOG_LEVEL")
+    log_format: str = Field(default="json", validation_alias="LOG_FORMAT")
+    log_file_path: str = Field(default="./logs/infrastructor.log", validation_alias="LOG_FILE_PATH")
+    log_max_bytes: int = Field(default=10485760, validation_alias="LOG_MAX_BYTES")  # 10MB
+    log_backup_count: int = Field(default=5, validation_alias="LOG_BACKUP_COUNT")
 
     model_config = SettingsConfigDict(env_file=".env", case_sensitive=False, extra="ignore")
 
@@ -203,10 +207,10 @@ class APISettings(BaseSettings):
     """FastAPI REST API server configuration settings"""
 
     # API Server Configuration
-    api_host: str = Field(default="0.0.0.0", env="API_HOST")
-    api_port: int = Field(default=9101, env="API_PORT")
-    api_log_level: str = Field(default="info", env="API_LOG_LEVEL")
-    
+    api_host: str = Field(default="0.0.0.0", validation_alias="API_HOST")
+    api_port: int = Field(default=9101, validation_alias="API_PORT")
+    api_log_level: str = Field(default="info", validation_alias="API_LOG_LEVEL")
+
     # CORS Configuration - avoid JSON parsing entirely
     cors_origins: list[str] = Field(
         default_factory=lambda: [
@@ -215,20 +219,20 @@ class APISettings(BaseSettings):
             "http://127.0.0.1:3000",
         ]
     )
-    
-    # Cache settings
-    cache_enabled: bool = Field(default=True, env="CACHE_ENABLED")
-    cache_ttl: int = Field(default=300, env="CACHE_TTL")
-    cache_max_size: int = Field(default=1000, env="CACHE_MAX_SIZE")
 
-    rate_limit_enabled: bool = Field(default=True, env="RATE_LIMIT_ENABLED")
-    rate_limit_requests_per_minute: int = Field(default=100, env="RATE_LIMIT_REQUESTS_PER_MINUTE")
+    # Cache settings
+    cache_enabled: bool = Field(default=True, validation_alias="CACHE_ENABLED")
+    cache_ttl: int = Field(default=300, validation_alias="CACHE_TTL")
+    cache_max_size: int = Field(default=1000, validation_alias="CACHE_MAX_SIZE")
+
+    rate_limit_enabled: bool = Field(default=True, validation_alias="RATE_LIMIT_ENABLED")
+    rate_limit_requests_per_minute: int = Field(default=100, validation_alias="RATE_LIMIT_REQUESTS_PER_MINUTE")
 
     # SSH concurrency limits
-    max_concurrent_ssh_connections: int = Field(default=50, env="MAX_CONCURRENT_SSH_CONNECTIONS")
+    max_concurrent_ssh_connections: int = Field(default=50, validation_alias="MAX_CONCURRENT_SSH_CONNECTIONS")
 
-    def __init__(self, **kwargs):
-        super().__init__(**kwargs)
+    def model_post_init(self, __context: Any) -> None:
+        super().model_post_init(__context)
         # Handle CORS_ORIGINS environment variable manually after initialization
         cors_env = os.getenv("CORS_ORIGINS")
         if cors_env:
@@ -241,9 +245,9 @@ class SWAGSettings(BaseSettings):
     """SWAG reverse proxy configuration settings"""
 
     # SWAG device and paths
-    swag_device: str = Field(default="squirts", env="SWAG_DEVICE")
+    swag_device: str = Field(default="squirts", validation_alias="SWAG_DEVICE")
     swag_config_dir: str = Field(
-        default="/mnt/appdata/swag/nginx/proxy-confs", env="SWAG_CONFIG_DIR"
+        default="/mnt/appdata/swag/nginx/proxy-confs", validation_alias="SWAG_CONFIG_DIR"
     )
 
     model_config = SettingsConfigDict(env_file=".env", case_sensitive=False, extra="ignore")
@@ -253,8 +257,8 @@ class ExternalIntegrationSettings(BaseSettings):
     """External service integration settings"""
 
     # Gotify Notifications
-    gotify_url: Optional[str] = Field(default=None, env="GOTIFY_URL")
-    gotify_token: Optional[str] = Field(default=None, env="GOTIFY_TOKEN")
+    gotify_url: str | None = Field(default=None, validation_alias="GOTIFY_URL")
+    gotify_token: str | None = Field(default=None, validation_alias="GOTIFY_TOKEN")
 
     model_config = SettingsConfigDict(env_file=".env", case_sensitive=False, extra="ignore")
 
@@ -263,8 +267,8 @@ class ApplicationSettings(BaseSettings):
     """Main application settings combining all configuration sections"""
 
     # Environment
-    environment: str = Field(default="development", env="ENVIRONMENT")
-    debug: bool = Field(default=False, env="DEBUG")
+    environment: str = Field(default="development", validation_alias="ENVIRONMENT")
+    debug: bool = Field(default=False, validation_alias="DEBUG")
 
     # Component settings
     database: DatabaseSettings = Field(default_factory=DatabaseSettings)
@@ -294,7 +298,7 @@ class ApplicationSettings(BaseSettings):
     model_config = SettingsConfigDict(env_file=".env", case_sensitive=False, extra="ignore")
 
 
-@lru_cache()
+@lru_cache
 def get_settings() -> ApplicationSettings:
     """Get cached application settings instance"""
     return ApplicationSettings()

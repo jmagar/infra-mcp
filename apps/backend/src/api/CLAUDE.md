@@ -12,8 +12,17 @@ The API layer provides REST endpoints for infrastructure management with the fol
 - **`containers.py`**: Docker container lifecycle management
 - **`compose_deployment.py`**: Docker Compose deployment and modification
 - **`proxy.py`**: SWAG reverse proxy configuration management
-- **`zfs.py`**: ZFS filesystem operations (16 endpoints)
+- **`zfs.py`**: ZFS filesystem operations (pools, datasets, snapshots, health, analysis)
 - **`vms.py`**: Virtual machine log access
+
+### Router Mounting Map (as in `api/__init__.py`)
+- `common` → `/api` (no additional prefix; endpoints like `/api/status`, `/api/system-info`)
+- `devices` → `/api/devices`
+- `containers` → `/api/containers`
+- `proxy` → `/api/proxies`
+- `zfs` → `/api/zfs`
+- `compose_deployment` → `/api/compose`
+- `vms` → `/api/vms`
 
 ## 🔧 API Patterns & Standards
 
@@ -42,7 +51,8 @@ current_user=Depends(get_current_user)
 
 # Authentication is implemented in common.py with Bearer token
 # Simple validation: tokens must be >= 10 characters
-# Production: Should implement proper JWT validation
+# If settings.auth.api_key is not configured, endpoints accept unauthenticated requests (development mode)
+# Production: Implement proper JWT validation or API key verification
 ```
 
 ### Error Handling Pattern
@@ -86,6 +96,7 @@ async def endpoint(request: Request):
 - **Information Gathering**: List, inspect, logs, stats
 - **Command Execution**: Execute commands inside containers
 - **Resource Monitoring**: Real-time container resource usage
+- **Error Mapping**: Maps Docker exec return codes (e.g., 125/126/127) to appropriate HTTP status codes
 
 **Key Pattern**: Direct SSH command execution with structured response formatting
 
@@ -106,7 +117,7 @@ async def endpoint(request: Request):
 **Key Pattern**: MCP resource integration with database synchronization
 
 ### ZFS Management (`zfs.py`)
-- **16 Comprehensive Endpoints**: Pools, datasets, snapshots, health, analysis
+- **ZFS filesystem operations**: Pools, datasets, snapshots, health, analysis
 - **Service Layer Architecture**: Dedicated service classes for each ZFS area
 - **Complex Operations**: Snapshot send/receive, cloning, diffing
 - **Health Monitoring**: ARC stats, events, comprehensive health checks
@@ -276,19 +287,38 @@ async def create_device(
 
 ## 🔗 Cross-Module Integration
 
-### MCP Tool Integration
+### Unified Data Collection Integration
 ```python
-# Import MCP tools for reuse
-from apps.backend.src.mcp.tools.container_management import list_containers
+# Use unified data collection service for data retrieval + caching/persistence
+from apps.backend.src.services.unified_data_collection import get_unified_data_collection_service
+from apps.backend.src.core.database import get_async_session_factory
+from apps.backend.src.utils.ssh_client import get_ssh_client, execute_ssh_command_simple
 
-# Use in API endpoints
-async def list_device_containers(hostname: str):
-    return await list_containers(hostname, status, all_containers, timeout)
+session_factory = get_async_session_factory()
+ssh_client = get_ssh_client()
+unified_service = await get_unified_data_collection_service(
+    db_session_factory=session_factory,
+    ssh_client=ssh_client,
+)
+
+# Define a collection method that performs the SSH work
+async def collect_container_list():
+    result = await execute_ssh_command_simple(hostname, "docker ps --format '{{json .}}'", timeout)
+    # parse and return structured data...
+
+# Collect and store with caching and correlation
+result = await unified_service.collect_and_store_data(
+    data_type="container_list",
+    device_id=device_id,
+    collection_method=collect_container_list,
+    force_refresh=live,
+    correlation_id=f"container_list_{hostname}",
+)
 ```
 
 ### Resource Access Pattern
 ```python
-# Access MCP resources for real-time data
+# Access MCP resources for real-time SWAG template/sample data (proxy.py)
 from apps.backend.src.mcp.resources.proxy_configs import get_proxy_config_resource
 
 uri = f"swag://{service_name}"

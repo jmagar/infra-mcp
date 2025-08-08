@@ -83,54 +83,161 @@ show_logs() {
     fi
 }
 
-# Function to stop servers
+# Function to kill process tree recursively
+kill_process_tree() {
+    local pid=$1
+    local signal=${2:-TERM}
+    
+    if [ -n "$pid" ] && kill -0 "$pid" 2>/dev/null; then
+        # Get all child processes
+        local children
+        children=$(pgrep -P "$pid" 2>/dev/null || true)
+        
+        # Recursively kill children first
+        for child in $children; do
+            kill_process_tree "$child" "$signal"
+        done
+        
+        # Kill the parent process
+        kill -"$signal" "$pid" 2>/dev/null || true
+    fi
+}
+
+# Function to stop servers with comprehensive cleanup
 stop_servers() {
     echo "🛑 Stopping servers..."
     
-    # Find and kill API server processes (specifically uvicorn with our app)
-    API_PIDS=$(pgrep -f "uvicorn.*apps\.backend\.src\.main:app.*--port $API_PORT" 2>/dev/null)
+    # Read stored PIDs if they exist
+    API_STORED_PID=""
+    MCP_STORED_PID=""
+    LOG_MONITOR_STORED_PID=""
+    
+    if [ -f "logs/api.pid" ]; then
+        API_STORED_PID=$(cat logs/api.pid 2>/dev/null)
+    fi
+    if [ -f "logs/mcp.pid" ]; then
+        MCP_STORED_PID=$(cat logs/mcp.pid 2>/dev/null)
+    fi
+    if [ -f "logs/rotation.pid" ]; then
+        LOG_MONITOR_STORED_PID=$(cat logs/rotation.pid 2>/dev/null)
+    fi
+    
+    # Find API server processes using multiple methods
+    API_PIDS=""
+    
+    # Method 1: Stored PID
+    if [ -n "$API_STORED_PID" ] && kill -0 "$API_STORED_PID" 2>/dev/null; then
+        API_PIDS="$API_STORED_PID"
+    fi
+    
+    # Method 2: Pattern matching for uvicorn with our app
+    PATTERN_API_PIDS=$(pgrep -f "uvicorn.*apps\.backend\.src\.main:app" 2>/dev/null || true)
+    if [ -n "$PATTERN_API_PIDS" ]; then
+        API_PIDS="$API_PIDS $PATTERN_API_PIDS"
+    fi
+    
+    # Method 3: Port-based detection
+    PORT_API_PIDS=$(ss -tulpn | grep ":$API_PORT " | awk '{print $7}' | cut -d',' -f2 | cut -d'=' -f2 2>/dev/null || true)
+    if [ -n "$PORT_API_PIDS" ]; then
+        API_PIDS="$API_PIDS $PORT_API_PIDS"
+    fi
+    
+    # Remove duplicates and kill API processes
+    API_PIDS=$(echo "$API_PIDS" | tr ' ' '\n' | sort -u | tr '\n' ' ')
     if [ -n "$API_PIDS" ]; then
         echo "🛑 Killing API server processes: $API_PIDS"
-        echo "$API_PIDS" | xargs -r kill -TERM
-        sleep 2
-        # Force kill if still running
-        REMAINING_API_PIDS=$(pgrep -f "uvicorn.*apps\.backend\.src\.main:app.*--port $API_PORT" 2>/dev/null)
-        if [ -n "$REMAINING_API_PIDS" ]; then
-            echo "💀 Force killing remaining API server processes: $REMAINING_API_PIDS"
-            echo "$REMAINING_API_PIDS" | xargs -r kill -9
-        fi
+        for pid in $API_PIDS; do
+            if [ -n "$pid" ] && kill -0 "$pid" 2>/dev/null; then
+                kill_process_tree "$pid" "TERM"
+            fi
+        done
+        
+        # Wait and force kill if needed
+        sleep 3
+        for pid in $API_PIDS; do
+            if [ -n "$pid" ] && kill -0 "$pid" 2>/dev/null; then
+                echo "💀 Force killing API process: $pid"
+                kill_process_tree "$pid" "KILL"
+            fi
+        done
     else
         echo "✅ No API server processes found"
     fi
 
-    # Find and kill MCP server processes (specifically our Python MCP server)
-    MCP_PIDS=$(pgrep -f "python.*apps/backend/src/mcp/server\.py" 2>/dev/null)
+    # Find and kill MCP server processes using multiple methods
+    MCP_PIDS=""
+    
+    # Method 1: Stored PID
+    if [ -n "$MCP_STORED_PID" ] && kill -0 "$MCP_STORED_PID" 2>/dev/null; then
+        MCP_PIDS="$MCP_STORED_PID"
+    fi
+    
+    # Method 2: Pattern matching
+    PATTERN_MCP_PIDS=$(pgrep -f "python.*apps/backend/src/mcp/server\.py" 2>/dev/null || true)
+    if [ -n "$PATTERN_MCP_PIDS" ]; then
+        MCP_PIDS="$MCP_PIDS $PATTERN_MCP_PIDS"
+    fi
+    
+    # Method 3: Port-based detection
+    PORT_MCP_PIDS=$(ss -tulpn | grep ":$MCP_PORT " | awk '{print $7}' | cut -d',' -f2 | cut -d'=' -f2 2>/dev/null || true)
+    if [ -n "$PORT_MCP_PIDS" ]; then
+        MCP_PIDS="$MCP_PIDS $PORT_MCP_PIDS"
+    fi
+    
+    # Remove duplicates and kill MCP processes
+    MCP_PIDS=$(echo "$MCP_PIDS" | tr ' ' '\n' | sort -u | tr '\n' ' ')
     if [ -n "$MCP_PIDS" ]; then
         echo "🛑 Killing MCP server processes: $MCP_PIDS"
-        echo "$MCP_PIDS" | xargs -r kill -TERM
-        sleep 2
-        # Force kill if still running
-        REMAINING_MCP_PIDS=$(pgrep -f "python.*apps/backend/src/mcp/server\.py" 2>/dev/null)
-        if [ -n "$REMAINING_MCP_PIDS" ]; then
-            echo "💀 Force killing remaining MCP server processes: $REMAINING_MCP_PIDS"
-            echo "$REMAINING_MCP_PIDS" | xargs -r kill -9
-        fi
+        for pid in $MCP_PIDS; do
+            if [ -n "$pid" ] && kill -0 "$pid" 2>/dev/null; then
+                kill_process_tree "$pid" "TERM"
+            fi
+        done
+        
+        # Wait and force kill if needed
+        sleep 3
+        for pid in $MCP_PIDS; do
+            if [ -n "$pid" ] && kill -0 "$pid" 2>/dev/null; then
+                echo "💀 Force killing MCP process: $pid"
+                kill_process_tree "$pid" "KILL"
+            fi
+        done
     else
         echo "✅ No MCP server processes found"
     fi
     
-    # Kill any log rotation monitor processes
-    LOG_MONITOR_PIDS=$(pgrep -f "bash.*dev\.sh.*sleep 300" 2>/dev/null)
-    if [ -n "$LOG_MONITOR_PIDS" ]; then
-        echo "🔄 Stopping log rotation monitor: $LOG_MONITOR_PIDS"
-        kill -TERM "$LOG_MONITOR_PIDS" 2>/dev/null
+    # Kill log rotation monitor
+    if [ -n "$LOG_MONITOR_STORED_PID" ] && kill -0 "$LOG_MONITOR_STORED_PID" 2>/dev/null; then
+        echo "🔄 Stopping log rotation monitor: $LOG_MONITOR_STORED_PID"
+        kill_process_tree "$LOG_MONITOR_STORED_PID" "TERM"
         sleep 1
-        # Force kill if still running
-        REMAINING_LOG_PIDS=$(pgrep -f "bash.*dev\.sh.*sleep 300" 2>/dev/null)
-        if [ -n "$REMAINING_LOG_PIDS" ]; then
-            kill -9 "$REMAINING_LOG_PIDS" 2>/dev/null
+        if kill -0 "$LOG_MONITOR_STORED_PID" 2>/dev/null; then
+            kill_process_tree "$LOG_MONITOR_STORED_PID" "KILL"
         fi
     fi
+    
+    # Additional cleanup: Kill any orphaned infrastructor-related Python processes
+    echo "🧹 Cleaning up orphaned processes..."
+    ORPHANED_PIDS=$(pgrep -f "infrastructor" | grep -E "^[0-9]+$" || true)
+    for pid in $ORPHANED_PIDS; do
+        # Check if it's a Python process in our project directory
+        if [ -n "$pid" ] && kill -0 "$pid" 2>/dev/null; then
+            PROC_CMD=$(ps -p "$pid" -o cmd --no-headers 2>/dev/null || true)
+            if echo "$PROC_CMD" | grep -q "python.*apps/backend\|uvicorn.*apps\.backend"; then
+                echo "🧹 Killing orphaned process $pid: $(echo "$PROC_CMD" | cut -c1-60)..."
+                kill_process_tree "$pid" "TERM"
+                sleep 1
+                if kill -0 "$pid" 2>/dev/null; then
+                    kill_process_tree "$pid" "KILL"
+                fi
+            fi
+        fi
+    done
+    
+    # Clean up PID files
+    rm -f logs/api.pid logs/mcp.pid logs/rotation.pid
+    
+    echo "✅ All processes stopped and cleaned up"
 }
 
 # Function to start servers
@@ -152,6 +259,7 @@ start_servers() {
     echo "⚡ Starting API server..."
     nohup uv run uvicorn apps.backend.src.main:app --host 0.0.0.0 --port $API_PORT --reload > logs/api_server.log 2>&1 &
     API_PID=$!
+    echo "$API_PID" > logs/api.pid
 
     # Start the MCP server in background with log rotation and environment variables
     echo "⚡ Starting MCP server..."
@@ -159,8 +267,9 @@ start_servers() {
     if [ -f ".env" ]; then
         export $(grep -v '^#' .env | grep -v '^$' | xargs)
     fi
-    nohup python apps/backend/src/mcp/server.py > logs/mcp_server.log 2>&1 &
+    nohup uv run python apps/backend/src/mcp/server.py > logs/mcp_server.log 2>&1 &
     MCP_PID=$!
+    echo "$MCP_PID" > logs/mcp.pid
 
     echo "📊 API Server started with PID: $API_PID"
     echo "📊 MCP Server started with PID: $MCP_PID"
@@ -197,8 +306,8 @@ start_servers() {
         done
     ) &
     LOG_MONITOR_PID=$!
-    echo "🔄 Log rotation monitor started with PID: $LOG_MONITOR_PID"
     echo "$LOG_MONITOR_PID" > logs/rotation.pid
+    echo "🔄 Log rotation monitor started with PID: $LOG_MONITOR_PID"
 }
 
 # Parse command line arguments

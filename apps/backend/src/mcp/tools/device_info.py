@@ -6,30 +6,32 @@ system performance monitoring to provide a complete view of device status,
 capabilities, and current performance metrics.
 """
 
-import logging
+from datetime import UTC, datetime
 import json
+import logging
 import re
-from datetime import datetime, timezone
-from typing import Any
+from typing import Any, cast
+
 from sqlalchemy import select
 
+from apps.backend.src.core.config import get_settings
 from apps.backend.src.core.database import get_async_session
-from apps.backend.src.models.device import Device
-from apps.backend.src.utils.ssh_client import (
-    get_ssh_client,
-    SSHConnectionInfo,
-    execute_ssh_command_simple,
-)
 from apps.backend.src.core.exceptions import (
     SystemMonitoringError,
 )
-from apps.backend.src.core.config import get_settings
+from apps.backend.src.models.device import Device
+from apps.backend.src.utils.ssh_client import (
+    SSHClient,
+    SSHConnectionInfo,
+    execute_ssh_command_simple,
+    get_ssh_client,
+)
 
 logger = logging.getLogger(__name__)
 
 
 async def _collect_smart_data(
-    ssh_client, connection_info: SSHConnectionInfo, drive_path: str, drive_name: str
+    ssh_client: SSHClient, connection_info: SSHConnectionInfo, drive_path: str, drive_name: str
 ) -> dict[str, Any]:
     """
     Collect SMART data for a drive with configurable sudo behavior.
@@ -201,7 +203,7 @@ def _parse_smart_output(smart_output: str, drive_path: str) -> dict[str, Any]:
 
 
 async def _analyze_connectivity(
-    device: str, ssh_client, connection_info: SSHConnectionInfo
+    device: str, ssh_client: SSHClient, connection_info: SSHConnectionInfo
 ) -> dict[str, Any]:
     """Analyze network and SSH connectivity for the device."""
     connectivity_results = {}
@@ -281,7 +283,7 @@ async def _analyze_connectivity(
     return connectivity_results
 
 
-async def _analyze_system_metrics(ssh_client, connection_info: SSHConnectionInfo) -> dict[str, Any]:
+async def _analyze_system_metrics(ssh_client: SSHClient, connection_info: SSHConnectionInfo) -> dict[str, Any]:
     """Collect comprehensive system performance metrics."""
     cpu_metrics = {}
     memory_metrics = {}
@@ -396,7 +398,7 @@ async def _analyze_system_metrics(ssh_client, connection_info: SSHConnectionInfo
             timeout=15,
         )
         if df_result.return_code == 0:
-            filesystems = []
+            filesystems: list[dict[str, Any]] = []
             for line in df_result.stdout.strip().split("\n"):
                 if line.strip():
                     parts = line.split()
@@ -417,7 +419,7 @@ async def _analyze_system_metrics(ssh_client, connection_info: SSHConnectionInfo
             connection_info, "cat /proc/diskstats", timeout=10
         )
         if iostat_result.return_code == 0:
-            disk_io = []
+            disk_io: list[dict[str, Any]] = []
             for line in iostat_result.stdout.strip().split("\n"):
                 parts = line.split()
                 if len(parts) >= 14 and not parts[2].startswith("loop"):
@@ -452,13 +454,13 @@ async def _analyze_system_metrics(ssh_client, connection_info: SSHConnectionInfo
             connection_info, "cat /proc/net/dev", timeout=10
         )
         if net_result.return_code == 0:
-            interfaces = []
+            interfaces: list[dict[str, Any]] = []
             lines = net_result.stdout.strip().split("\n")[2:]  # Skip header lines
             for line in lines:
                 if ":" in line:
-                    interface_name, stats = line.split(":", 1)
+                    interface_name, stats_str = line.split(":", 1)
                     interface_name = interface_name.strip()
-                    stats = stats.split()
+                    stats = stats_str.split()
 
                     if len(stats) >= 16:
                         interface_stats = {
@@ -509,7 +511,7 @@ async def _analyze_system_metrics(ssh_client, connection_info: SSHConnectionInfo
         )
         if boot_time_result.return_code == 0:
             boot_timestamp = int(boot_time_result.stdout.strip())
-            boot_time = datetime.fromtimestamp(boot_timestamp, tz=timezone.utc)
+            boot_time = datetime.fromtimestamp(boot_timestamp, tz=UTC)
             system_info["boot_time"] = boot_time.isoformat()
 
     except Exception as e:
@@ -526,11 +528,11 @@ async def _analyze_system_metrics(ssh_client, connection_info: SSHConnectionInfo
 
 
 async def _analyze_docker(
-    device: str, ssh_client, connection_info: SSHConnectionInfo
-) -> dict[str, Any]:
+    device: str, ssh_client: SSHClient, connection_info: SSHConnectionInfo
+) -> tuple[dict[str, Any], dict[str, Any]]:
     """Analyze Docker configuration and container setup."""
-    docker_info = {}
-    services = {}
+    docker_info: dict[str, Any] = {}
+    services: dict[str, Any] = {}
 
     try:
         # Check if Docker is installed and running
@@ -564,10 +566,10 @@ async def _analyze_docker(
             docker_info["version"] = docker_version
             docker_info["docker_info"] = docker_info_data
 
-            # Detect Docker Compose projects and common paths
+            # Detect Docker Compose projects and common paths, excluding non-deployment directories
             compose_result = await execute_ssh_command_simple(
                 device,
-                "find /home /opt /srv -name 'docker-compose.yml' -o -name 'docker-compose.yaml' 2>/dev/null | head -10",
+                "find /mnt /home /opt /srv \\( -path '*/go/pkg/mod/*' -o -path '*/node_modules/*' -o -path '*/.git/*' -o -path '*/.cache/*' -o -path '*/vendor/*' -o -path '*/test/*' -o -path '*/tests/*' -o -path '*/tmp/*' \\) -prune -o \\( -name 'docker-compose.yml' -o -name 'docker-compose.yaml' -o -name 'compose.yml' -o -name 'compose.yaml' \\) -type f -print 2>/dev/null | head -20",
                 timeout=20,
             )
 
@@ -606,14 +608,14 @@ async def _analyze_docker(
                 "docker ps -a --format 'json' --no-trunc 2>/dev/null || docker ps -a --format 'table {{.Names}}\t{{.Image}}\t{{.Status}}\t{{.Ports}}\t{{.CreatedAt}}' 2>/dev/null",
                 timeout=20,
             )
-            
+
             containers_info = []
             swag_containers = []
             swag_running = False
-            
+
             if containers_result.return_code == 0 and containers_result.stdout.strip():
                 container_lines = containers_result.stdout.strip().split('\n')
-                
+
                 # Try to parse as JSON first (newer Docker versions)
                 if container_lines[0].strip().startswith('{'):
                     try:
@@ -631,7 +633,7 @@ async def _analyze_docker(
                                     "labels": container_data.get("Labels", ""),
                                     "size": container_data.get("Size", "")
                                 })
-                                
+
                                 # Check for SWAG containers
                                 container_name = container_data.get("Names", "").lower()
                                 if "swag" in container_name:
@@ -641,7 +643,7 @@ async def _analyze_docker(
                     except json.JSONDecodeError:
                         # Fall back to table format parsing
                         pass
-                
+
                 # Parse table format (fallback for older Docker versions)
                 if not containers_info and len(container_lines) > 1:
                     for line in container_lines[1:]:  # Skip header
@@ -649,11 +651,11 @@ async def _analyze_docker(
                             parts = line.split('\t')
                             if len(parts) >= 4:
                                 name = parts[0].strip()
-                                image = parts[1].strip() 
+                                image = parts[1].strip()
                                 status = parts[2].strip()
                                 ports = parts[3].strip()
                                 created = parts[4].strip() if len(parts) > 4 else ""
-                                
+
                                 containers_info.append({
                                     "name": name,
                                     "image": image,
@@ -661,17 +663,20 @@ async def _analyze_docker(
                                     "ports": ports,
                                     "created": created
                                 })
-                                
+
                                 # Check for SWAG containers
                                 if "swag" in name.lower():
                                     swag_containers.append(name)
                                     if "up" in status.lower():
                                         swag_running = True
-            
+
             docker_info["containers"] = containers_info
             docker_info["container_count"] = len(containers_info)
             docker_info["running_containers"] = len([c for c in containers_info if "up" in c.get("status", "").lower() or c.get("state", "").lower() == "running"])
 
+            # Initialize swag_config_count (this was missing)
+            swag_config_count = 0
+            
             # Set SWAG services information
             services["swag_running"] = swag_running
             services["swag_containers"] = swag_containers
@@ -690,7 +695,7 @@ async def _analyze_docker(
 
 
 async def _analyze_storage_info(
-    device: str, ssh_client, connection_info: SSHConnectionInfo
+    device: str, ssh_client: SSHClient, connection_info: SSHConnectionInfo
 ) -> dict[str, Any]:
     """Analyze ZFS pools and storage configuration."""
     storage_info = {}
@@ -746,10 +751,10 @@ async def _analyze_storage_info(
 
 
 async def _analyze_hardware(
-    device: str, ssh_client, connection_info: SSHConnectionInfo
+    device: str, ssh_client: SSHClient, connection_info: SSHConnectionInfo
 ) -> dict[str, Any]:
     """Analyze hardware information including CPU, memory, and GPU."""
-    hardware_info = {}
+    hardware_info: dict[str, Any] = {}
 
     try:
         # Get CPU, memory, and hardware info
@@ -762,9 +767,9 @@ async def _analyze_hardware(
         if hw_result.return_code == 0:
             hw_lines = hw_result.stdout.strip().split("\n")
 
-            cpu_info = {}
-            memory_info = {}
-            gpu_info = []
+            cpu_info: dict[str, str] = {}
+            memory_info: dict[str, str] = {}
+            gpu_info: list[str] = []
 
             for line in hw_lines:
                 line = line.strip()
@@ -798,10 +803,10 @@ async def _analyze_hardware(
 
 
 async def _analyze_os_info(
-    device: str, ssh_client, connection_info: SSHConnectionInfo
+    device: str, ssh_client: SSHClient, connection_info: SSHConnectionInfo
 ) -> dict[str, Any]:
     """Analyze operating system information."""
-    os_info = {}
+    os_info: dict[str, str] = {}
 
     try:
         os_result = await execute_ssh_command_simple(
@@ -828,10 +833,10 @@ async def _analyze_os_info(
 
 
 async def _analyze_virtualization(
-    device: str, ssh_client, connection_info: SSHConnectionInfo
+    device: str, ssh_client: SSHClient, connection_info: SSHConnectionInfo
 ) -> dict[str, Any]:
     """Analyze virtualization capabilities and VM detection."""
-    virtualization = {}
+    virtualization: dict[str, Any] = {}
 
     try:
         virt_result = await execute_ssh_command_simple(
@@ -857,7 +862,7 @@ async def _analyze_virtualization(
     return virtualization
 
 
-async def _analyze_drives(ssh_client, connection_info: SSHConnectionInfo) -> dict[str, Any]:
+async def _analyze_drives(ssh_client: SSHClient, connection_info: SSHConnectionInfo) -> dict[str, Any]:
     """Analyze drive health and S.M.A.R.T. data."""
     drive_health = {}
 
@@ -886,7 +891,7 @@ async def _analyze_drives(ssh_client, connection_info: SSHConnectionInfo) -> dic
 
         # Check each drive
         for drive_path in drives_to_check:
-            drive_info = {
+            drive_info: dict[str, Any] = {
                 "device": drive_path,
                 "health_status": "unknown",
                 "smart_available": smart_available,
@@ -924,11 +929,15 @@ async def _analyze_drives(ssh_client, connection_info: SSHConnectionInfo) -> dic
                             drive_info["smart_attributes"] = smart_data
 
                     except Exception as e:
-                        drive_info["errors"].append(f"S.M.A.R.T. query failed: {str(e)}")
+                        errors_list = drive_info["errors"]
+                        if isinstance(errors_list, list):
+                            errors_list.append(f"S.M.A.R.T. query failed: {str(e)}")
                         logger.warning(f"S.M.A.R.T. query failed for {drive_path}: {e}")
 
             except Exception as e:
-                drive_info["errors"].append(f"Drive check failed: {str(e)}")
+                errors_list = drive_info["errors"]
+                if isinstance(errors_list, list):
+                    errors_list.append(f"Drive check failed: {str(e)}")
                 logger.warning(f"Drive check failed for {drive_path}: {e}")
 
             drives_info.append(drive_info)
@@ -951,7 +960,12 @@ async def _analyze_drives(ssh_client, connection_info: SSHConnectionInfo) -> dic
         }
 
         # Calculate average temperature
-        temps = [d["temperature"] for d in drives_info if d["temperature"] is not None]
+        temps: list[float] = []
+        for d in drives_info:
+            temp = d["temperature"]
+            if temp is not None and isinstance(temp, (int, float)):
+                temps.append(float(temp))
+        
         if temps:
             summary["average_temperature"] = round(sum(temps) / len(temps), 1)
 
@@ -968,7 +982,7 @@ async def _analyze_drives(ssh_client, connection_info: SSHConnectionInfo) -> dic
     return drive_health
 
 
-async def _collect_processes(ssh_client, connection_info: SSHConnectionInfo) -> list:
+async def _collect_processes(ssh_client: SSHClient, connection_info: SSHConnectionInfo) -> list[dict[str, Any]]:
     """Collect top processes information."""
     processes = []
 
@@ -1051,7 +1065,7 @@ async def get_device_info(
     """
     logger.info(f"Starting comprehensive device info collection for: {device}")
 
-    analysis_start = datetime.now(timezone.utc)
+    analysis_start = datetime.now(UTC)
     results = {
         "device": device,
         "analysis_timestamp": analysis_start.isoformat(),
@@ -1086,7 +1100,7 @@ async def get_device_info(
             results["analysis_summary"] = {
                 "status": "failed",
                 "reason": "SSH connectivity failed",
-                "analysis_timestamp": datetime.now(timezone.utc).isoformat(),
+                "analysis_timestamp": datetime.now(UTC).isoformat(),
             }
             return results
 
@@ -1137,7 +1151,7 @@ async def get_device_info(
             results["processes"] = processes
 
         # 10. Generate Analysis Summary
-        analysis_end = datetime.now(timezone.utc)
+        analysis_end = datetime.now(UTC)
         analysis_duration = (analysis_end - analysis_start).total_seconds()
 
         # Determine device capabilities and tags
@@ -1194,7 +1208,7 @@ async def get_device_info(
         results["analysis_summary"] = {
             "status": "failed",
             "error": str(e),
-            "analysis_timestamp": datetime.now(timezone.utc).isoformat(),
+            "analysis_timestamp": datetime.now(UTC).isoformat(),
         }
         return results
 
@@ -1253,81 +1267,82 @@ async def _store_analysis_results(device: str, analysis_results: dict[str, Any])
             return
 
         # Initialize tags if not present
-        if not device_record.tags:
-            device_record.tags = {}
+        tags = cast(dict[str, Any], device_record.tags)
+        if not tags:
+            tags = {}
 
         # Store analysis summary and timestamp
-        device_record.tags["last_analysis"] = analysis_results["analysis_summary"]
-        device_record.tags["analysis_timestamp"] = analysis_results["analysis_summary"][
+        tags["last_analysis"] = analysis_results["analysis_summary"]
+        tags["analysis_timestamp"] = analysis_results["analysis_summary"][
             "analysis_timestamp"
         ]
 
         # Update capability tags (docker, zfs, swag, vms, gpu)
         capability_tags = analysis_results["analysis_summary"].get("capability_tags", [])
-        existing_tags = set(device_record.tags.keys())
+        existing_tags = set(tags.keys())
 
         # Remove old capability tags that are no longer detected
         old_capability_tags = {"docker", "zfs", "swag", "vms", "gpu"}
         for old_tag in old_capability_tags:
             if old_tag in existing_tags and old_tag not in capability_tags:
-                del device_record.tags[old_tag]
+                del tags[old_tag]
 
         # Add new capability tags
         for tag in capability_tags:
-            device_record.tags[tag] = True
+            tags[tag] = True
 
         # Update Docker-specific fields and paths
         if analysis_results["docker_info"].get("installed"):
-            device_record.tags["docker_version"] = analysis_results["docker_info"].get("version")
+            tags["docker_version"] = analysis_results["docker_info"].get("version")
 
             # Set primary docker_compose_path (first detected path)
             compose_paths = analysis_results["docker_info"].get("compose_base_paths", [])
             if compose_paths:
                 device_record.docker_compose_path = compose_paths[0]
-                device_record.tags["all_docker_compose_paths"] = compose_paths
+                tags["all_docker_compose_paths"] = compose_paths
 
             # Set primary docker_appdata_path (first detected path)
             appdata_paths = analysis_results["docker_info"].get("appdata_paths", [])
             if appdata_paths:
                 device_record.docker_appdata_path = appdata_paths[0]
-                device_record.tags["all_appdata_paths"] = appdata_paths
+                tags["all_appdata_paths"] = appdata_paths
 
         # Update ZFS information
         if analysis_results["storage_info"].get("zfs_available"):
             zfs_pools = analysis_results["storage_info"].get("zfs_pools", [])
-            device_record.tags["zfs_pools"] = [pool["name"] for pool in zfs_pools]
-            device_record.tags["zfs_pool_count"] = len(zfs_pools)
+            tags["zfs_pools"] = [pool["name"] for pool in zfs_pools]
+            tags["zfs_pool_count"] = len(zfs_pools)
 
         # Update SWAG/reverse proxy information
         if analysis_results["services"].get("reverse_proxy_detected"):
-            device_record.tags["swag_containers"] = analysis_results["services"].get(
+            tags["swag_containers"] = analysis_results["services"].get(
                 "swag_containers", []
             )
-            device_record.tags["swag_config_count"] = analysis_results["services"].get(
+            tags["swag_config_count"] = analysis_results["services"].get(
                 "swag_config_count", 0
             )
-            device_record.tags["swag_running"] = analysis_results["services"].get(
+            tags["swag_running"] = analysis_results["services"].get(
                 "swag_running", False
             )
 
         # Update virtualization information
         if analysis_results["virtualization"].get("virsh_available"):
             vm_list = analysis_results["virtualization"].get("vm_list", [])
-            device_record.tags["vm_count"] = len(vm_list)
-            device_record.tags["hypervisor"] = "libvirt"
+            tags["vm_count"] = len(vm_list)
+            tags["hypervisor"] = "libvirt"
 
         # Update GPU information
         if analysis_results["hardware_info"].get("gpu_detected"):
-            device_record.tags["gpu_info"] = analysis_results["hardware_info"].get("gpu_info", [])
-            device_record.tags["gpu_count"] = len(
+            tags["gpu_info"] = analysis_results["hardware_info"].get("gpu_info", [])
+            tags["gpu_count"] = len(
                 analysis_results["hardware_info"].get("gpu_info", [])
             )
 
         # Update OS information
         if analysis_results["os_info"]:
-            device_record.tags["os_name"] = analysis_results["os_info"].get("name", "unknown")
-            device_record.tags["os_version"] = analysis_results["os_info"].get("version", "unknown")
-            device_record.tags["kernel"] = analysis_results["os_info"].get("kernel", "unknown")
+            tags["os_name"] = analysis_results["os_info"].get("name", "unknown")
+            tags["os_version"] = analysis_results["os_info"].get("version", "unknown")
+            tags["kernel"] = analysis_results["os_info"].get("kernel", "unknown")
 
         # Update hardware information
         if analysis_results["hardware_info"]:
@@ -1335,17 +1350,20 @@ async def _store_analysis_results(device: str, analysis_results: dict[str, Any])
             memory_info = analysis_results["hardware_info"].get("memory", {})
 
             if cpu_info:
-                device_record.tags["cpu_model"] = cpu_info.get("model", "unknown")
-                device_record.tags["cpu_cores"] = cpu_info.get("cores", "unknown")
-                device_record.tags["cpu_architecture"] = cpu_info.get("architecture", "unknown")
+                tags["cpu_model"] = cpu_info.get("model", "unknown")
+                tags["cpu_cores"] = cpu_info.get("cores", "unknown")
+                tags["cpu_architecture"] = cpu_info.get("architecture", "unknown")
 
             if memory_info:
-                device_record.tags["memory_total"] = memory_info.get("total", "unknown")
+                tags["memory_total"] = memory_info.get("total", "unknown")
 
         # Update device status and last seen
         if analysis_results["connectivity"].get("ssh", {}).get("status") == "success":
             device_record.status = "online"
-            device_record.last_seen = datetime.now(timezone.utc)
+            device_record.last_seen = datetime.now(UTC)
+
+        # Ensure tags are properly assigned back to the device record
+        device_record.tags = tags
 
         await session.commit()
         logger.info(f"Analysis results stored for device {device} with tags: {capability_tags}")

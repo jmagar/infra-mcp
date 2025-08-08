@@ -6,19 +6,19 @@ retry logic, and result caching. Improves reliability of SSH operations
 in the infrastructure monitoring system.
 """
 
+from abc import ABC, abstractmethod
 import asyncio
+from collections.abc import Callable
+from dataclasses import dataclass, field
+from datetime import UTC, datetime, timedelta
+from enum import Enum
 import hashlib
 import json
 import logging
-from abc import ABC, abstractmethod
-from dataclasses import dataclass, field
-from enum import Enum
-from typing import Any, Optional
-from collections.abc import Callable
-from datetime import datetime, timedelta, timezone
+from typing import Any
 
-from apps.backend.src.utils.ssh_client import SSHClient, SSHConnectionInfo, SSHExecutionResult
 from apps.backend.src.core.exceptions import SSHCommandError
+from apps.backend.src.utils.ssh_client import SSHClient, SSHConnectionInfo, SSHExecutionResult
 
 logger = logging.getLogger(__name__)
 
@@ -36,10 +36,10 @@ class CommandCategory(str, Enum):
 @dataclass
 class CommandDefinition:
     """Definition of an SSH command with metadata and parsing logic"""
-    
+
     name: str
     command_template: str
-    category: CommandCategory
+    category: str | Enum
     description: str
     timeout: int = 30
     retry_count: int = 3
@@ -53,28 +53,28 @@ class CommandDefinition:
 @dataclass
 class CachedResult:
     """Cached command execution result"""
-    
+
     result: Any
     timestamp: datetime
     ttl: int
     command_hash: str
-    
+
     @property
     def is_expired(self) -> bool:
         """Check if cache entry has expired"""
         if self.ttl <= 0:
             return True
-        return datetime.now(timezone.utc) > self.timestamp + timedelta(seconds=self.ttl)
+        return datetime.now(UTC) > self.timestamp + timedelta(seconds=self.ttl)
 
 
 class CommandParser(ABC):
     """Abstract base class for command result parsers"""
-    
+
     @abstractmethod
     def parse(self, output: str) -> Any:
         """Parse command output into structured data"""
         pass
-    
+
     @abstractmethod
     def validate(self, output: str) -> bool:
         """Validate command output format"""
@@ -83,14 +83,14 @@ class CommandParser(ABC):
 
 class SystemMetricsParser(CommandParser):
     """Parser for system metrics commands"""
-    
+
     def parse(self, output: str) -> dict[str, Any]:
         """Parse system metrics output"""
         try:
             lines = output.strip().split('\n')
             if len(lines) < 5:
                 raise ValueError("Insufficient system metrics data")
-            
+
             return {
                 "cpu_usage": float(lines[0]) if lines[0] else 0.0,
                 "memory_usage": float(lines[1]) if lines[1] else 0.0,
@@ -107,7 +107,7 @@ class SystemMetricsParser(CommandParser):
                 "load_avg": ["0", "0", "0"],
                 "uptime": 0.0
             }
-    
+
     def validate(self, output: str) -> bool:
         """Validate system metrics output"""
         lines = output.strip().split('\n')
@@ -116,7 +116,7 @@ class SystemMetricsParser(CommandParser):
 
 class ContainerStatsParser(CommandParser):
     """Parser for Docker container statistics"""
-    
+
     def parse(self, output: str) -> list[dict[str, Any]]:
         """Parse Docker container stats JSON output"""
         try:
@@ -137,7 +137,7 @@ class ContainerStatsParser(CommandParser):
             logger.error(f"Failed to parse container stats output: {e}")
             logger.debug(f"Raw output: {repr(output)}")
             return []
-    
+
     def validate(self, output: str) -> bool:
         """Validate container stats JSON format"""
         try:
@@ -151,13 +151,13 @@ class ContainerStatsParser(CommandParser):
 
 class DriveHealthParser(CommandParser):
     """Parser for drive health and SMART data"""
-    
+
     def parse(self, output: str) -> list[dict[str, Any]]:
         """Parse drive listing and SMART data"""
         try:
             drives = []
             lines = output.strip().split('\n')
-            
+
             for line in lines:
                 if line.strip():
                     parts = line.split()
@@ -167,12 +167,12 @@ class DriveHealthParser(CommandParser):
                             "size": parts[1],
                             "available": True
                         })
-            
+
             return drives
         except Exception as e:
             logger.error(f"Failed to parse drive health: {e}")
             return []
-    
+
     def validate(self, output: str) -> bool:
         """Validate drive health output format"""
         lines = output.strip().split('\n')
@@ -181,7 +181,7 @@ class DriveHealthParser(CommandParser):
 
 class SSHCommandManager:
     """Enhanced SSH command manager with registry, caching, and retry logic"""
-    
+
     def __init__(self, ssh_client: SSHClient):
         self.ssh_client = ssh_client
         self.command_registry: dict[str, CommandDefinition] = {}
@@ -192,10 +192,10 @@ class SSHCommandManager:
             CommandCategory.DRIVE_HEALTH: DriveHealthParser(),
         }
         self._register_default_commands()
-    
+
     def _register_default_commands(self) -> None:
         """Register default SSH commands"""
-        
+
         # System metrics command
         self.register_command(CommandDefinition(
             name="system_metrics",
@@ -212,7 +212,7 @@ class SSHCommandManager:
             cache_ttl=60,
             parser=self.parsers[CommandCategory.SYSTEM_METRICS].parse
         ))
-        
+
         # Container listing command
         self.register_command(CommandDefinition(
             name="list_containers",
@@ -223,7 +223,7 @@ class SSHCommandManager:
             cache_ttl=30,
             parser=self.parsers[CommandCategory.CONTAINER_MANAGEMENT].parse
         ))
-        
+
         # Drive health command
         self.register_command(CommandDefinition(
             name="list_drives",
@@ -234,7 +234,7 @@ class SSHCommandManager:
             cache_ttl=300,
             parser=self.parsers[CommandCategory.DRIVE_HEALTH].parse
         ))
-        
+
         # Network interface information
         self.register_command(CommandDefinition(
             name="network_interfaces",
@@ -244,7 +244,7 @@ class SSHCommandManager:
             timeout=10,
             cache_ttl=120
         ))
-        
+
         # Memory information
         self.register_command(CommandDefinition(
             name="memory_info",
@@ -254,7 +254,7 @@ class SSHCommandManager:
             timeout=5,
             cache_ttl=60
         ))
-        
+
         # Docker container stats
         self.register_command(CommandDefinition(
             name="container_stats",
@@ -264,29 +264,31 @@ class SSHCommandManager:
             timeout=15,
             cache_ttl=10
         ))
-    
+
     def register_command(self, command_def: CommandDefinition) -> None:
         """Register a new command definition"""
         self.command_registry[command_def.name] = command_def
         logger.debug(f"Registered SSH command: {command_def.name}")
-    
-    def get_command(self, name: str) -> Optional[CommandDefinition]:
+
+    def get_command(self, name: str) -> CommandDefinition | None:
         """Get command definition by name"""
         return self.command_registry.get(name)
-    
-    def list_commands(self, category: Optional[CommandCategory] = None) -> list[CommandDefinition]:
+
+    def list_commands(self, category: str | CommandCategory | None = None) -> list[CommandDefinition]:
         """List all registered commands, optionally filtered by category"""
         commands = list(self.command_registry.values())
         if category:
-            commands = [cmd for cmd in commands if cmd.category == category]
+            # Normalize to string for comparison
+            cat_str = category.value if isinstance(category, Enum) else category
+            commands = [cmd for cmd in commands if str(cmd.category) == str(cat_str)]
         return commands
-    
+
     def _generate_cache_key(self, command: str, connection_info: SSHConnectionInfo) -> str:
         """Generate cache key for command and connection"""
         key_data = f"{connection_info.host}:{connection_info.port}:{command}"
         return hashlib.md5(key_data.encode()).hexdigest()
-    
-    def _get_cached_result(self, cache_key: str) -> Optional[Any]:
+
+    def _get_cached_result(self, cache_key: str) -> Any | None:
         """Get cached result if available and not expired"""
         if cache_key in self.cache:
             cached = self.cache[cache_key]
@@ -297,23 +299,23 @@ class SSHCommandManager:
                 # Remove expired cache entry
                 del self.cache[cache_key]
         return None
-    
+
     def _cache_result(self, cache_key: str, result: Any, ttl: int) -> None:
         """Cache command result with TTL"""
         if ttl > 0:
             self.cache[cache_key] = CachedResult(
                 result=result,
-                timestamp=datetime.now(timezone.utc),
+                timestamp=datetime.now(UTC),
                 ttl=ttl,
                 command_hash=cache_key
             )
             logger.debug(f"Cached result for key: {cache_key}, TTL: {ttl}s")
-    
+
     async def execute_command(
         self,
         command_name: str,
         connection_info: SSHConnectionInfo,
-        parameters: Optional[dict[str, Any]] = None,
+        parameters: dict[str, Any] | None = None,
         force_refresh: bool = False
     ) -> Any:
         """
@@ -335,7 +337,7 @@ class SSHCommandManager:
                 command=command_name,
                 hostname=connection_info.host
             )
-        
+
         # Format command with parameters
         parameters = parameters or {}
         try:
@@ -346,14 +348,14 @@ class SSHCommandManager:
                 command=command_def.command_template,
                 hostname=connection_info.host
             ) from e
-        
+
         # Check cache first
         cache_key = self._generate_cache_key(formatted_command, connection_info)
         if not force_refresh and command_def.cache_ttl > 0:
             cached_result = self._get_cached_result(cache_key)
             if cached_result is not None:
                 return cached_result
-        
+
         # Execute command with retry logic
         last_exception = None
         for attempt in range(command_def.retry_count):
@@ -370,17 +372,17 @@ class SSHCommandManager:
                     command_timeout=command_def.timeout,
                     max_retries=1  # We handle retries here
                 )
-                
+
                 # Execute the command
                 result = await self.ssh_client.execute_command(
                     connection_info_with_timeout,
                     formatted_command
                 )
-                
+
                 # Validate output if validator exists
                 if command_def.validator and not command_def.validator(result.stdout):
                     logger.warning(f"Command output validation failed for {command_name}")
-                
+
                 # Parse result if parser exists
                 parsed_result = result.stdout
                 if command_def.parser:
@@ -390,32 +392,32 @@ class SSHCommandManager:
                         logger.warning(f"Failed to parse command output for {command_name}: {e}")
                         # Return raw output if parsing fails
                         parsed_result = result.stdout
-                
+
                 # Cache successful result
                 self._cache_result(cache_key, parsed_result, command_def.cache_ttl)
-                
+
                 logger.debug(f"Successfully executed command {command_name} on {connection_info.host}")
                 return parsed_result
-                
+
             except Exception as e:
                 last_exception = e
                 logger.warning(
                     f"Command execution failed (attempt {attempt + 1}/{command_def.retry_count}) "
                     f"for {command_name} on {connection_info.host}: {e}"
                 )
-                
+
                 if attempt < command_def.retry_count - 1:
                     # Exponential backoff
                     delay = 2 ** attempt
                     await asyncio.sleep(delay)
-        
+
         # All retries failed
         raise SSHCommandError(
             f"Command {command_name} failed after {command_def.retry_count} attempts: {last_exception}",
             command=formatted_command,
             hostname=connection_info.host
         ) from last_exception
-    
+
     async def execute_raw_command(
         self,
         command: str,
@@ -425,7 +427,7 @@ class SSHCommandManager:
     ) -> SSHExecutionResult:
         """Execute a raw command without registry (for ad-hoc operations)"""
         last_exception = None
-        
+
         for attempt in range(retry_count):
             try:
                 # Apply timeout parameter
@@ -440,28 +442,28 @@ class SSHCommandManager:
                     command_timeout=timeout,
                     max_retries=1  # We handle retries here
                 )
-                
+
                 result = await self.ssh_client.execute_command(connection_info_with_timeout, command)
                 logger.debug(f"Successfully executed raw command on {connection_info.host}")
                 return result
-                
+
             except Exception as e:
                 last_exception = e
                 logger.warning(
                     f"Raw command execution failed (attempt {attempt + 1}/{retry_count}) "
                     f"on {connection_info.host}: {e}"
                 )
-                
+
                 if attempt < retry_count - 1:
                     await asyncio.sleep(2 ** attempt)
-        
+
         raise SSHCommandError(
             f"Raw command failed after {retry_count} attempts: {last_exception}",
             command=command,
             hostname=connection_info.host
         ) from last_exception
-    
-    def clear_cache(self, pattern: Optional[str] = None) -> int:
+
+    def clear_cache(self, pattern: str | None = None) -> int:
         """
         Clear cache entries
         
@@ -476,19 +478,19 @@ class SSHCommandManager:
             self.cache.clear()
             logger.info(f"Cleared all {count} cache entries")
             return count
-        
+
         keys_to_remove = [key for key in self.cache if pattern in key]
         for key in keys_to_remove:
             del self.cache[key]
-        
+
         logger.info(f"Cleared {len(keys_to_remove)} cache entries matching pattern: {pattern}")
         return len(keys_to_remove)
-    
+
     def get_cache_stats(self) -> dict[str, Any]:
         """Get cache statistics"""
         total_entries = len(self.cache)
         expired_entries: int = sum(1 for cached in self.cache.values() if cached.is_expired)
-        
+
         return {
             "total_entries": total_entries,
             "expired_entries": expired_entries,
@@ -498,7 +500,7 @@ class SSHCommandManager:
 
 
 # Global instance for easy access
-_ssh_command_manager: Optional[SSHCommandManager] = None
+_ssh_command_manager: SSHCommandManager | None = None
 
 
 def get_ssh_command_manager() -> SSHCommandManager:

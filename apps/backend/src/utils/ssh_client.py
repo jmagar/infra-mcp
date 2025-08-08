@@ -6,23 +6,33 @@ including connection pooling, secure authentication, command execution, and erro
 """
 
 import asyncio
-import logging
-import time
 from contextlib import asynccontextmanager
 from dataclasses import dataclass
-from pathlib import Path
-from typing import Dict, List, Optional, Union, AsyncGenerator, Any
-from urllib.parse import urlparse
-import weakref
+import logging
+import time
+
+from typing import Any, Dict, List, Optional, cast
+from collections.abc import AsyncGenerator
 
 import asyncssh
-from asyncssh import SSHClientConnection, SSHCompletedProcess
+from asyncssh import SSHClientConnection
 
 from apps.backend.src.core.config import get_settings
 
 # Configure logging
 logger = logging.getLogger(__name__)
 
+
+def _to_text(data: str | bytes | None) -> str:
+    """Normalize possible bytes/None to str for safe logging and results."""
+    if data is None:
+        return ""
+    if isinstance(data, bytes):
+        try:
+            return data.decode("utf-8", errors="replace")
+        except Exception:
+            return str(data)
+    return data
 
 @dataclass(frozen=True)
 class SSHConnectionInfo:
@@ -31,9 +41,9 @@ class SSHConnectionInfo:
     host: str
     port: int = 22
     username: str = "root"
-    password: Optional[str] = None
-    private_key_path: Optional[str] = None
-    private_key_passphrase: Optional[str] = None
+    password: str | None = None
+    private_key_path: str | None = None
+    private_key_passphrase: str | None = None
     connect_timeout: int = 30
     command_timeout: int = 120
     max_retries: int = 3
@@ -51,7 +61,7 @@ class SSHExecutionResult:
     execution_time: float
     host: str
     success: bool
-    error_message: Optional[str] = None
+    error_message: str | None = None
 
     @property
     def output(self) -> str:
@@ -78,18 +88,18 @@ class SSHConnectionPool:
         self.connection_timeout = connection_timeout
 
         # Connection pool storage
-        self._pools: Dict[str, List[SSHClientConnection]] = {}
-        self._pool_locks: Dict[str, asyncio.Lock] = {}
-        self._connection_counts: Dict[str, int] = {}
-        self._last_used: Dict[str, float] = {}
+        self._pools: dict[str, list[SSHClientConnection]] = {}
+        self._pool_locks: dict[str, asyncio.Lock] = {}
+        self._connection_counts: dict[str, int] = {}
+        self._last_used: dict[str, float] = {}
 
         # Connection cleanup tracking
-        self._cleanup_task: Optional[asyncio.Task] = None
+        self._cleanup_task: asyncio.Task | None = None
         self._shutdown = False
 
         # Cleanup task will be started lazily when first needed
 
-    def _start_cleanup_task(self):
+    def _start_cleanup_task(self) -> None:
         """Start the connection cleanup background task (lazy initialization)"""
         try:
             # Only start if there's a running event loop and task isn't already running
@@ -100,7 +110,7 @@ class SSHConnectionPool:
             # No event loop running, cleanup task will be started later when needed
             pass
 
-    async def _cleanup_connections(self):
+    async def _cleanup_connections(self) -> None:
         """Background task to cleanup idle connections"""
         while not self._shutdown:
             try:
@@ -152,13 +162,13 @@ class SSHConnectionPool:
             # Use the simplest possible AsyncSSH connection - just hostname
             # This relies entirely on SSH config (~/.ssh/config) for all connection details
             logger.debug(f"Attempting SSH connection to {connection_info.host} using SSH config")
-            
+
             # AsyncSSH connect() with minimal parameters to avoid type mismatches
             connection = await asyncssh.connect(
                 connection_info.host,
                 known_hosts=None  # Disable host key checking for infrastructure monitoring
             )
-            
+
             logger.debug(f"Created SSH connection to {connection_info.host}")
             return connection
 
@@ -231,7 +241,7 @@ class SSHConnectionPool:
 
             yield connection
 
-        except Exception as e:
+        except Exception:
             # If connection failed, clean it up
             if connection:
                 try:
@@ -251,7 +261,7 @@ class SSHConnectionPool:
                 # Connection is closed, decrease count
                 self._connection_counts[host_key] = max(0, self._connection_counts[host_key] - 1)
 
-    async def close_all_connections(self):
+    async def close_all_connections(self) -> None:
         """Close all connections in the pool"""
         self._shutdown = True
 
@@ -281,7 +291,7 @@ class SSHConnectionPool:
 
         logger.info("SSH connection pool closed")
 
-    def get_pool_stats(self) -> Dict[str, Dict[str, Any]]:
+    def get_pool_stats(self) -> dict[str, dict[str, Any]]:
         """Get connection pool statistics"""
         stats = {}
         for host_key in self._pools:
@@ -301,7 +311,7 @@ class SSHClient:
     Provides high-level interface for executing commands on remote infrastructure devices.
     """
 
-    def __init__(self, connection_pool: Optional[SSHConnectionPool] = None):
+    def __init__(self, connection_pool: SSHConnectionPool | None = None):
         """
         Initialize SSH client.
 
@@ -336,9 +346,9 @@ class SSHClient:
         self,
         connection_info: SSHConnectionInfo,
         command: str,
-        timeout: Optional[int] = None,
+        timeout: int | None = None,
         check: bool = True,
-        retries: Optional[int] = None,
+        retries: int | None = None,
     ) -> SSHExecutionResult:
         """
         Execute a single command on a remote host.
@@ -360,7 +370,7 @@ class SSHClient:
             timeout = timeout or connection_info.command_timeout or self.default_timeout
             retries = retries if retries is not None else connection_info.max_retries
 
-            last_exception = None
+            last_exception: Exception | None = None
 
             for attempt in range(retries + 1):
                 start_time = time.time()
@@ -387,22 +397,29 @@ class SSHClient:
                             "total_execution_time"
                         ] / max(self._execution_stats["total_commands"], 1)
 
+                        # Normalize outputs to text
+                        stdout_text = _to_text(result.stdout)
+                        stderr_text = _to_text(result.stderr)
+
+                        # Coerce return code to int
+                        rc = result.returncode if isinstance(result.returncode, int) else -1
+
                         # Create result object
                         ssh_result = SSHExecutionResult(
                             command=command,
-                            return_code=result.returncode,
-                            stdout=result.stdout,
-                            stderr=result.stderr,
+                            return_code=rc,
+                            stdout=stdout_text,
+                            stderr=stderr_text,
                             execution_time=execution_time,
                             host=connection_info.host,
-                            success=result.returncode == 0,
+                            success=rc == 0,
                         )
 
                         # Check for errors if requested
                         if check and result.returncode != 0:
                             error_msg = f"Command failed on {connection_info.host}: {command}"
-                            if result.stderr:
-                                error_msg += f"\nStderr: {result.stderr}"
+                            if stderr_text:
+                                error_msg += f"\nStderr: {stderr_text}"
                             ssh_result.error_message = error_msg
                             raise Exception(error_msg)
 
@@ -412,7 +429,7 @@ class SSHClient:
 
                         return ssh_result
 
-                except asyncio.TimeoutError as e:
+                except TimeoutError as e:
                     execution_time = time.time() - start_time
                     last_exception = e
                     error_msg = (
@@ -473,10 +490,10 @@ class SSHClient:
     async def execute_commands(
         self,
         connection_info: SSHConnectionInfo,
-        commands: List[str],
-        timeout: Optional[int] = None,
+        commands: list[str],
+        timeout: int | None = None,
         fail_fast: bool = True,
-    ) -> List[SSHExecutionResult]:
+    ) -> list[SSHExecutionResult]:
         """
         Execute multiple commands sequentially on a remote host.
 
@@ -538,8 +555,8 @@ class SSHClient:
         return results
 
     async def execute_parallel(
-        self, commands: List[tuple[SSHConnectionInfo, str]], timeout: Optional[int] = None
-    ) -> List[SSHExecutionResult]:
+        self, commands: list[tuple[SSHConnectionInfo, str]], timeout: int | None = None
+    ) -> list[SSHExecutionResult]:
         """
         Execute commands in parallel across multiple hosts.
 
@@ -566,7 +583,7 @@ class SSHClient:
         results = await asyncio.gather(*tasks, return_exceptions=True)
 
         # Convert exceptions to error results
-        processed_results = []
+        processed_results: list[SSHExecutionResult] = []
         for i, result in enumerate(results):
             if isinstance(result, Exception):
                 connection_info, command = commands[i]
@@ -583,7 +600,7 @@ class SSHClient:
                     )
                 )
             else:
-                processed_results.append(result)
+                processed_results.append(cast(SSHExecutionResult, result))
 
         return processed_results
 
@@ -610,22 +627,22 @@ class SSHClient:
             logger.debug(f"Connectivity test failed for {connection_info.host}: {e}")
             return False
 
-    def get_execution_stats(self) -> Dict[str, Any]:
+    def get_execution_stats(self) -> dict[str, Any]:
         """Get command execution statistics"""
         return self._execution_stats.copy()
 
-    def get_pool_stats(self) -> Dict[str, Any]:
+    def get_pool_stats(self) -> dict[str, Any]:
         """Get connection pool statistics"""
         return self.connection_pool.get_pool_stats()
 
-    async def close(self):
+    async def close(self) -> None:
         """Close SSH client and cleanup resources"""
         await self.connection_pool.close_all_connections()
         logger.info("SSH client closed")
 
 
 # Global SSH client instance
-_ssh_client: Optional[SSHClient] = None
+_ssh_client: SSHClient | None = None
 
 
 def get_ssh_client() -> SSHClient:
@@ -641,7 +658,7 @@ def get_ssh_client() -> SSHClient:
     return _ssh_client
 
 
-async def cleanup_ssh_client():
+async def cleanup_ssh_client() -> None:
     """Cleanup global SSH client"""
     global _ssh_client
     if _ssh_client is not None:
@@ -655,8 +672,8 @@ async def execute_ssh_command(
     command: str,
     username: str = "root",
     port: int = 22,
-    private_key_path: Optional[str] = None,
-    password: Optional[str] = None,
+    private_key_path: str | None = None,
+    password: str | None = None,
     timeout: int = 120,
 ) -> SSHExecutionResult:
     """
@@ -691,8 +708,8 @@ async def test_ssh_connectivity(
     host: str,
     username: str = "root",
     port: int = 22,
-    private_key_path: Optional[str] = None,
-    password: Optional[str] = None,
+    private_key_path: str | None = None,
+    password: str | None = None,
 ) -> bool:
     """
     Test SSH connectivity to a host.

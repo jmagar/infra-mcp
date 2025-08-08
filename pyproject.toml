@@ -168,7 +168,7 @@ skip-magic-trailing-comma = false
 line-ending = "auto"
 
 [tool.ruff.isort]
-known-first-party = ["src"]
+known-first-party = ["apps.backend.src"]
 force-sort-within-sections = true
 
 [tool.mypy]
@@ -185,6 +185,8 @@ warn_unused_ignores = true
 warn_no_return = true
 warn_unreachable = true
 strict_equality = true
+namespace_packages = true
+explicit_package_bases = true
 
 [[tool.mypy.overrides]]
 module = [

@@ -5,16 +5,18 @@ Handles ZFS analysis operations including reporting, optimization recommendation
 and snapshot usage analysis.
 """
 
+from datetime import UTC, datetime
 import logging
-from datetime import datetime, timezone
-from typing import Dict, Any, List
+
+from typing import Any
+
+from apps.backend.src.core.exceptions import ZFSError
 
 from .base import ZFSBaseService
-from .pool_service import ZFSPoolService
 from .dataset_service import ZFSDatasetService
-from .snapshot_service import ZFSSnapshotService
 from .health_service import ZFSHealthService
-from apps.backend.src.core.exceptions import ZFSError
+from .pool_service import ZFSPoolService
+from .snapshot_service import ZFSSnapshotService
 
 logger = logging.getLogger(__name__)
 
@@ -22,14 +24,14 @@ logger = logging.getLogger(__name__)
 class ZFSAnalysisService(ZFSBaseService):
     """Service for ZFS analysis and reporting operations"""
 
-    def __init__(self):
+    def __init__(self) -> None:
         super().__init__()
         self.pool_service = ZFSPoolService()
         self.dataset_service = ZFSDatasetService()
         self.snapshot_service = ZFSSnapshotService()
         self.health_service = ZFSHealthService()
 
-    async def generate_zfs_report(self, hostname: str, timeout: int = 120) -> Dict[str, Any]:
+    async def generate_zfs_report(self, hostname: str, timeout: int = 120) -> dict[str, Any]:
         """Generate comprehensive ZFS report"""
         try:
             # Gather all ZFS information
@@ -57,7 +59,7 @@ class ZFSAnalysisService(ZFSBaseService):
                 "snapshots": snapshots,
                 "health_check": health,
                 "arc_statistics": arc_stats,
-                "generated_at": datetime.now(timezone.utc).isoformat(),
+                "generated_at": datetime.now(UTC).isoformat(),
             }
 
         except Exception as e:
@@ -68,13 +70,13 @@ class ZFSAnalysisService(ZFSBaseService):
                 hostname=hostname,
             )
 
-    async def analyze_snapshot_usage(self, hostname: str, timeout: int = 60) -> Dict[str, Any]:
+    async def analyze_snapshot_usage(self, hostname: str, timeout: int = 60) -> dict[str, Any]:
         """Analyze snapshot space usage and provide cleanup recommendations"""
         try:
             snapshots = await self.snapshot_service.list_snapshots(hostname, None, timeout)
 
             # Analyze snapshot usage patterns
-            usage_analysis = {
+            usage_analysis: dict[str, Any] = {
                 "total_snapshots": len(snapshots),
                 "snapshots_by_dataset": {},
                 "largest_snapshots": [],
@@ -105,7 +107,7 @@ class ZFSAnalysisService(ZFSBaseService):
                         f"Dataset {dataset} has {len(dataset_snapshots)} snapshots - consider cleanup"
                     )
 
-            usage_analysis["analyzed_at"] = datetime.now(timezone.utc).isoformat()
+            usage_analysis["analyzed_at"] = datetime.now(UTC).isoformat()
             return usage_analysis
 
         except Exception as e:
@@ -116,7 +118,7 @@ class ZFSAnalysisService(ZFSBaseService):
                 hostname=hostname,
             )
 
-    async def optimize_zfs_settings(self, hostname: str, timeout: int = 60) -> Dict[str, Any]:
+    async def optimize_zfs_settings(self, hostname: str, timeout: int = 60) -> dict[str, Any]:
         """Analyze ZFS configuration and suggest optimizations"""
         try:
             # Get ARC stats for memory optimization
@@ -159,7 +161,7 @@ class ZFSAnalysisService(ZFSBaseService):
                 "current_arc_stats": arc_stats,
                 "pool_status": pools,
                 "recommendations": recommendations,
-                "analyzed_at": datetime.now(timezone.utc).isoformat(),
+                "analyzed_at": datetime.now(UTC).isoformat(),
             }
 
         except Exception as e:
@@ -172,7 +174,7 @@ class ZFSAnalysisService(ZFSBaseService):
 
     async def get_dataset_usage_trends(
         self, hostname: str, dataset_name: str, timeout: int = 60
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         """Analyze dataset usage trends and growth patterns"""
         try:
             # Get current dataset properties
@@ -189,7 +191,7 @@ class ZFSAnalysisService(ZFSBaseService):
                 "current_properties": dataset_props,
                 "snapshot_count": len(snapshots),
                 "recent_snapshots": snapshots[:5],  # Last 5 snapshots
-                "analyzed_at": datetime.now(timezone.utc).isoformat(),
+                "analyzed_at": datetime.now(UTC).isoformat(),
             }
 
         except Exception as e:
@@ -201,3 +203,36 @@ class ZFSAnalysisService(ZFSBaseService):
                 operation="get_dataset_usage_trends",
                 hostname=hostname,
             )
+
+    def _parse_size(self, size_str: str) -> int:
+        """Parse size string to bytes for comparison"""
+        if not size_str or size_str == "-":
+            return 0
+
+        size_str = size_str.strip().upper()
+        
+        # Define multipliers
+        multipliers = {
+            "B": 1,
+            "K": 1024,
+            "M": 1024**2,
+            "G": 1024**3,
+            "T": 1024**4,
+            "P": 1024**5,
+            "E": 1024**6,
+        }
+
+        # Try to extract number and unit
+        for suffix, multiplier in multipliers.items():
+            if size_str.endswith(suffix):
+                try:
+                    value = float(size_str[:-1]) if suffix != "B" else float(size_str[:-1])
+                    return int(value * multiplier)
+                except ValueError:
+                    continue
+
+        # Try to parse as plain number
+        try:
+            return int(float(size_str))
+        except ValueError:
+            return 0

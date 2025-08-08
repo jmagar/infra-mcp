@@ -4,15 +4,26 @@ This file contains comprehensive instructions for Claude to follow when working 
 
 ## 🏛️ Project Architecture
 
+**Updated: August 7, 2025** - Critical Architectural Decision Change
+
 ### Core Architecture
 - **Dual-Server Design**: FastAPI REST API + WebSocket Server (port 9101) + Independent FastMCP Server (port 9102)
 - **Database**: PostgreSQL for relational data storage (port 9100)
 - **Caching**: Redis for session storage and caching (port 9104)
-- **Communication**: All MCP operations are HTTP client calls to the REST API
+- **Communication**: Both API endpoints and MCP tools call unified data collection service directly (NOT via HTTP)
 - **Package Management**: UV package manager for modern Python dependency management
 - **Python Version**: 3.11+ with async/await throughout
 
+### Key Architectural Decision
+**IMPORTANT**: MCP tools and API endpoints both call the unified data collection service directly via Python function calls, NOT via HTTP requests. This provides:
+- Better performance (no HTTP serialization overhead)
+- Consistent caching and data handling
+- Shared audit trails and error handling
+- Simplified debugging and maintenance
+
 ### Technology Stack
+
+#### Backend
 - **Web Framework**: FastAPI with comprehensive middleware (CORS, security, rate limiting, timing)
 - **MCP Integration**: FastMCP with 27 resources across 6 categories
 - **Database**: SQLAlchemy + AsyncPG + Alembic migrations + PostgreSQL
@@ -20,6 +31,17 @@ This file contains comprehensive instructions for Claude to follow when working 
 - **Authentication**: Bearer token auth with JWT support
 - **Code Quality**: Ruff (linting/formatting) + MyPy (type checking) + Pre-commit hooks
 - **Testing**: Pytest with async support, coverage reporting (80% minimum)
+
+#### Frontend
+- **Framework**: React 19.1.1 with TypeScript 5.9.2
+- **Build Tool**: Vite 7.1.0 with hot module replacement
+- **Styling**: Tailwind CSS v4.1.11 (CSS-first configuration, @tailwindcss/vite plugin)
+- **UI Components**: shadcn/ui with Radix UI primitives
+- **State Management**: Zustand for global state
+- **Routing**: React Router v7 for navigation
+- **API Client**: Axios with interceptors and TypeScript types
+- **WebSocket**: Custom hooks for real-time data streaming
+- **Type Safety**: Shared types package with backend schema parity
 
 ### Project Structure
 ```
@@ -151,9 +173,9 @@ docker compose exec postgres psql -U postgres -d infrastructor
 
 ### MCP Server Architecture
 - **Independent Process**: Runs separately from FastAPI (apps/backend/src/mcp/server.py)
-- **HTTP Client Pattern**: All operations are HTTP calls to REST API
+- **Direct Service Integration**: All operations call unified data collection service directly
 - **Resource Integration**: Real-time access to configurations and logs
-- **Authentication**: Passes Bearer tokens through to API
+- **Shared Authentication**: Uses same authentication and database connections as API
 
 ## 🛡️ Code Quality & Standards
 
@@ -194,17 +216,42 @@ docker compose exec postgres psql -U postgres -d infrastructor
 ### Adding a New API Endpoint
 1. **Create route** in appropriate `apps/backend/src/api/{resource}.py`
 2. **Add Pydantic schemas** in `apps/backend/src/schemas/{resource}.py`
-3. **Implement service logic** in `apps/backend/src/services/{resource}_service.py`
+3. **Use unified data collection service** with collection methods pattern
 4. **Add database models** if needed in `apps/backend/src/models/{resource}.py`
 5. **Create tests** in `apps/backend/tests/test_api/test_{resource}.py`
 6. **Update OpenAPI docs** (automatic via FastAPI)
 
 ### Adding a New MCP Tool
 1. **Create tool function** in `apps/backend/src/mcp/tools/{category}.py`
-2. **Register tool** in MCP server configuration
-3. **Add authentication** if needed (Bearer token passing)
-4. **Create tests** for tool functionality
-5. **Update MCP documentation**
+2. **Use unified data collection service directly** (NOT HTTP calls to API)
+3. **Implement collection methods** for data gathering
+4. **Register tool** in MCP server configuration
+5. **Create tests** for tool functionality
+6. **Update MCP documentation**
+
+### Data Collection Pattern (Both API and MCP)
+```python
+# Correct pattern for both API endpoints and MCP tools
+async def collect_data_example():
+    # Get unified data collection service
+    unified_service = await get_unified_data_collection_service(
+        db_session_factory=db_session_factory,
+        ssh_client=ssh_client
+    )
+    
+    # Create collection method
+    async def collect_method() -> dict[str, Any]:
+        # Your data collection logic here
+        return {"data": "collected_data"}
+    
+    # Use unified service
+    result = await unified_service.collect_and_store_data(
+        collection_method=collect_method,
+        device_id=device_id,
+        data_type="data_type_name"
+    )
+    return result
+```
 
 ### Database Schema Changes
 1. **Modify models** in `apps/backend/src/models/`
@@ -255,8 +302,8 @@ REDIS_DB=0
 
 # Server Configuration  
 MCP_HOST=0.0.0.0
-MCP_PORT=9101          # Actually used by API+WebSocket server
-WEBSOCKET_PORT=9102    # Actually used by MCP server
+MCP_PORT=9101          # Corrected: Main API/WebSocket server port
+WEBSOCKET_PORT=9102    # Corrected: Independent MCP server port
 
 # Authentication
 API_KEY=your-api-key-for-authentication

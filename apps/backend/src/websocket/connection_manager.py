@@ -8,7 +8,9 @@ for real-time infrastructure monitoring.
 import asyncio
 import json
 import logging
-from typing import Any
+import time
+from datetime import datetime, UTC
+from typing import Any, Optional
 from uuid import uuid4
 
 from fastapi import WebSocket
@@ -24,11 +26,13 @@ from apps.backend.src.core.events import (
 )
 
 from .message_protocol import (
+    DataMessage,
     HeartbeatMessage,
     SubscriptionMessage,
     SubscriptionTopics,
     WebSocketMessage,
     create_error_message,
+    MessageType,
 )
 
 logger = logging.getLogger(__name__)
@@ -42,11 +46,11 @@ class WebSocketConnection:
         self.client_id = client_id
         self.subscriptions: set[str] = set()
         self.authenticated = False
-        self.user_id: str | None = None
+        self.user_id: Optional[str] = None
         self.last_heartbeat = asyncio.get_event_loop().time()
-        self.heartbeat_message: HeartbeatMessage | None = None
+        self.heartbeat_message: Optional[HeartbeatMessage] = None
 
-    async def send_message(self, message: WebSocketMessage):
+    async def send_message(self, message: WebSocketMessage) -> None:
         """Send a message to this connection"""
         try:
             # Check if WebSocket is still open before sending
@@ -77,12 +81,12 @@ class WebSocketConnection:
 
     async def send_error(
         self, error_code: str, message: str, details: dict[str, Any] | None = None
-    ):
+    ) -> None:
         """Send an error message to this connection"""
         error_msg = create_error_message(error_code, message, details)
         await self.send_message(error_msg)
 
-    def update_subscriptions(self, action: str, topics: list[str]):
+    def update_subscriptions(self, action: str, topics: list[str]) -> None:
         """Update connection subscriptions"""
         if action == "subscribe":
             self.subscriptions.update(topics)
@@ -121,177 +125,151 @@ class WebSocketConnection:
 class ConnectionManager:
     """Manages all WebSocket connections and message broadcasting"""
 
-    def __init__(self):
-        self.connections: dict[str, WebSocketConnection] = {}
-        self.heartbeat_interval = 30  # seconds
-        self.heartbeat_task: asyncio.Task | None = None
+    def __init__(self) -> None:
+        self.active_connections: dict[WebSocket, dict[str, Any]] = {}
+        self.connection_topics: dict[WebSocket, set[str]] = {}
+        self.start_time = datetime.now(UTC)
         self.event_bus = get_event_bus()
         self._event_handlers_registered = False
 
-    async def connect(self, websocket: WebSocket) -> str:
-        """Accept a new WebSocket connection"""
+    def get_connection_count(self) -> int:
+        """Get total number of active connections"""
+        return len(self.active_connections)
+
+    def get_connections_by_topic(self, topic: str) -> list[WebSocket]:
+        """Get all connections subscribed to a specific topic"""
+        return [conn for conn, topics in self.connection_topics.items() if topic in topics]
+
+    def get_topics_for_connection(self, websocket: WebSocket) -> set[str]:
+        """Get all topics a connection is subscribed to"""
+        return self.connection_topics.get(websocket, set())
+
+    async def connect(self, websocket: WebSocket, client_id: str | None = None) -> str:
+        """Accept a new WebSocket connection and initialize it"""
         await websocket.accept()
-        client_id = str(uuid4())
-        connection = WebSocketConnection(websocket, client_id)
-        self.connections[client_id] = connection
-
-        logger.info(f"New WebSocket connection: {client_id}")
-
-        # Start heartbeat task if this is the first connection
-        if len(self.connections) == 1 and not self.heartbeat_task:
-            self.heartbeat_task = asyncio.create_task(self._heartbeat_loop())
-
-        # Register event handlers if this is the first connection
-        if len(self.connections) == 1 and not self._event_handlers_registered:
-            self._register_event_handlers()
+        
+        # Generate client ID if not provided
+        if client_id is None:
+            client_id = f"client_{len(self.active_connections)}_{int(time.time())}"
+        
+        # Store connection info
+        self.active_connections[websocket] = {
+            "client_id": client_id,
+            "connected_at": datetime.now(UTC),
+            "last_ping": datetime.now(UTC)
+        }
+        self.connection_topics[websocket] = set()
+        
+        logger.info(f"WebSocket client connected: {client_id}")
+        
+        # Send welcome message
+        welcome_message = DataMessage(
+            hostname="system",
+            metric_type="connection",
+            type=MessageType.DATA,
+            data={"status": "connected", "client_id": client_id},
+            timestamp=datetime.now(UTC)
+        )
+        await self.send_personal_message(welcome_message, websocket)
 
         return client_id
 
-    async def disconnect(self, client_id: str):
-        """Remove a WebSocket connection"""
-        if client_id in self.connections:
-            self.connections.pop(client_id)
-            logger.info(f"WebSocket disconnected: {client_id}")
+    async def disconnect(self, websocket: WebSocket) -> None:
+        """Remove a WebSocket connection and clean up"""
+        if websocket in self.active_connections:
+            client_info = self.active_connections[websocket]
+            client_id = client_info.get("client_id", "unknown")
+            
+            # Clean up connection data
+            del self.active_connections[websocket]
+            if websocket in self.connection_topics:
+                del self.connection_topics[websocket]
+            
+            logger.info(f"WebSocket client disconnected: {client_id}")
 
-            # Stop heartbeat task if no connections remain
-            if not self.connections and self.heartbeat_task:
-                self.heartbeat_task.cancel()
-                self.heartbeat_task = None
-
-    async def authenticate_connection(self, client_id: str, user_id: str):
-        """Mark a connection as authenticated"""
-        if client_id in self.connections:
-            self.connections[client_id].authenticated = True
-            self.connections[client_id].user_id = user_id
-            logger.info(f"WebSocket authenticated: {client_id} for user {user_id}")
-
-    async def handle_subscription(self, client_id: str, subscription_msg: SubscriptionMessage):
-        """Handle client subscription changes"""
-        if client_id not in self.connections:
-            return
-
-        connection = self.connections[client_id]
-
-        # Require authentication for subscriptions
-        if not connection.authenticated:
-            await connection.send_error(
-                "AUTH_REQUIRED", "Authentication required for subscriptions"
-            )
-            return
-
-        connection.update_subscriptions(subscription_msg.action, subscription_msg.topics)
-
-        # Send subscription confirmation to client
+    async def send_personal_message(self, message: WebSocketMessage, websocket: WebSocket) -> None:
+        """Send a message to a specific WebSocket connection"""
         try:
-            confirmation = SubscriptionMessage(
-                action="confirmed",
-                topics=subscription_msg.topics
-            )
-            await connection.send_message(confirmation)
+            await websocket.send_text(message.model_dump_json())
         except Exception as e:
-            logger.warning(f"Failed to send subscription confirmation to {client_id}: {e}")
+            logger.error(f"Error sending personal message: {e}")
+            await self.disconnect(websocket)
 
-    async def handle_heartbeat(self, client_id: str):
-        """Handle client heartbeat"""
-        if client_id in self.connections:
-            self.connections[client_id].last_heartbeat = asyncio.get_event_loop().time()
+    async def subscribe_to_topic(self, websocket: WebSocket, topic: str) -> None:
+        """Subscribe a connection to a specific topic"""
+        if websocket in self.connection_topics:
+            self.connection_topics[websocket].add(topic)
+            client_id = self.active_connections.get(websocket, {}).get("client_id", "unknown")
+            logger.debug(f"Client {client_id} subscribed to topic: {topic}")
 
-    async def broadcast_to_topic(self, topic: str, message: WebSocketMessage):
-        """Broadcast message to all connections subscribed to a topic"""
-        if not self.connections:
-            return
+    async def unsubscribe_from_topic(self, websocket: WebSocket, topic: str) -> None:
+        """Unsubscribe a connection from a specific topic"""
+        if websocket in self.connection_topics:
+            self.connection_topics[websocket].discard(topic)
+            client_id = self.active_connections.get(websocket, {}).get("client_id", "unknown")
+            logger.debug(f"Client {client_id} unsubscribed from topic: {topic}")
 
-        # Find matching connections
-        target_connections = [
-            conn
-            for conn in self.connections.values()
-            if conn.authenticated and conn.matches_topic(topic)
-        ]
+    async def broadcast_to_topic(self, message: WebSocketMessage, topic: str) -> None:
+        """Broadcast a message to all connections subscribed to a topic"""
+        connections = self.get_connections_by_topic(topic)
+        if connections:
+            logger.debug(f"Broadcasting to {len(connections)} connections on topic: {topic}")
+            await asyncio.gather(
+                *[self.send_personal_message(message, conn) for conn in connections],
+                return_exceptions=True
+            )
 
-        if not target_connections:
-            return
+    async def broadcast_to_all(self, message: WebSocketMessage) -> None:
+        """Broadcast a message to all active connections"""
+        if self.active_connections:
+            logger.debug(f"Broadcasting to {len(self.active_connections)} connections")
+            await asyncio.gather(
+                *[self.send_personal_message(message, conn) for conn in self.active_connections],
+                return_exceptions=True
+            )
 
-        # Send to all matching connections
-        failed_connections = []
-        for connection in target_connections:
-            try:
-                await connection.send_message(message)
-            except Exception as e:
-                logger.error(f"Failed to broadcast to {connection.client_id}: {e}")
-                failed_connections.append(connection.client_id)
-
-        # Clean up failed connections
-        for client_id in failed_connections:
-            await self.disconnect(client_id)
-
-    async def broadcast_to_all(self, message: WebSocketMessage):
-        """Broadcast message to all authenticated connections"""
-        await self.broadcast_to_topic(SubscriptionTopics.ALL, message)
-
-    async def send_to_client(self, client_id: str, message: WebSocketMessage):
-        """Send message to specific client"""
-        if client_id in self.connections:
-            try:
-                await self.connections[client_id].send_message(message)
-            except Exception as e:
-                logger.error(f"Failed to send to {client_id}: {e}")
-                await self.disconnect(client_id)
+    async def handle_monitoring_event(self, event: BaseEvent) -> None:
+        """Handle incoming monitoring events and broadcast to appropriate topics"""
+        try:
+            # Convert monitoring event to WebSocket message
+            message = self._convert_event_to_websocket_message(event)
+            if not message:
+                return
+            
+            # Determine topic for routing
+            topic = self._get_topic_for_event(event)
+            
+            # Broadcast to topic subscribers
+            await self.broadcast_to_topic(message, topic)
+            
+        except Exception as e:
+            logger.error(f"Error handling monitoring event: {e}")
 
     def get_connection_stats(self) -> dict[str, Any]:
-        """Get connection statistics"""
-        total_connections = len(self.connections)
-        authenticated_connections = sum(
-            1 for conn in self.connections.values() if conn.authenticated
-        )
-
-        # Count subscriptions by topic
-        topic_counts = {}
-        for connection in self.connections.values():
-            for topic in connection.subscriptions:
+        """Get statistics about active connections"""
+        topic_counts: dict[str, int] = {}
+        for topics in self.connection_topics.values():
+            for topic in topics:
                 topic_counts[topic] = topic_counts.get(topic, 0) + 1
-
+        
         return {
-            "total_connections": total_connections,
-            "authenticated_connections": authenticated_connections,
-            "unauthenticated_connections": total_connections - authenticated_connections,
+            "total_connections": len(self.active_connections),
             "topic_subscriptions": topic_counts,
-            "heartbeat_interval": self.heartbeat_interval,
+            "uptime_seconds": (datetime.now(UTC) - self.start_time).total_seconds()
         }
 
-    async def _heartbeat_loop(self):
-        """Background task to send heartbeats and check connection health"""
-        try:
-            while self.connections:
-                current_time = asyncio.get_event_loop().time()
-                stale_connections = []
-
-                # Check for stale connections and send heartbeats
-                for client_id, connection in self.connections.items():
-                    time_since_heartbeat = current_time - connection.last_heartbeat
-
-                    if time_since_heartbeat > (self.heartbeat_interval * 3):
-                        # Connection is stale
-                        stale_connections.append(client_id)
-                    elif connection.authenticated:
-                        # Send heartbeat only to authenticated connections
-                        try:
-                            # Reuse heartbeat message to improve efficiency
-                            if connection.heartbeat_message is None:
-                                connection.heartbeat_message = HeartbeatMessage(client_id=client_id)
-                            await connection.send_message(connection.heartbeat_message)
-                        except Exception:
-                            stale_connections.append(client_id)
-
-                # Clean up stale connections
-                for client_id in stale_connections:
-                    await self.disconnect(client_id)
-
-                await asyncio.sleep(self.heartbeat_interval)
-
-        except asyncio.CancelledError:
-            logger.info("Heartbeat loop cancelled")
-        except Exception as e:
-            logger.error(f"Error in heartbeat loop: {e}")
+    async def cleanup_stale_connections(self) -> None:
+        """Remove connections that haven't responded to pings"""
+        stale_connections = []
+        current_time = datetime.now(UTC)
+        
+        for websocket, info in self.active_connections.items():
+            last_ping = info.get("last_ping", current_time)
+            if (current_time - last_ping).total_seconds() > 300:  # 5 minutes
+                stale_connections.append(websocket)
+        
+        for websocket in stale_connections:
+            await self.disconnect(websocket)
 
     def _register_event_handlers(self) -> None:
         """Register event handlers with the event bus"""
@@ -318,25 +296,24 @@ class ConnectionManager:
             topic = self._get_topic_for_event(event)
 
             # Broadcast to subscribed clients
-            await self.broadcast_to_topic(topic, websocket_message)
+            await self.broadcast_to_topic(websocket_message, topic)
 
         except Exception as e:
             logger.error(f"Error handling monitoring event {event.event_type}: {e}")
 
-    def _convert_event_to_websocket_message(self, event: BaseEvent) -> WebSocketMessage:
+    def _convert_event_to_websocket_message(self, event: BaseEvent) -> DataMessage:
         """Convert an event to a WebSocket message"""
-        from .message_protocol import DataMessage
-        
-        # Extract device_id from event
-        device_id = getattr(event, 'device_id', 'unknown')
-        
+        # Prefer human-friendly hostname for routing/identity
+        hostname = getattr(event, 'hostname', None) or 'unknown'
+
         # Determine metric type based on event type
         metric_type = self._get_metric_type_for_event(event)
 
         # Create data message with event information
         return DataMessage(
-            device_id=device_id,
+            hostname=hostname,
             metric_type=metric_type,
+            type=MessageType.DATA,
             data=event.model_dump(),
             timestamp=event.timestamp
         )
@@ -356,16 +333,55 @@ class ConnectionManager:
 
     def _get_topic_for_event(self, event: BaseEvent) -> str:
         """Determine the WebSocket topic for an event"""
+        # Prefer human-friendly hostname for topic formatting
+        device_id = getattr(event, 'hostname', None) or 'unknown'
+        
         if isinstance(event, MetricCollectedEvent):
-            return f"devices.{event.device_id}.metrics"
+            return f"devices.{device_id}.metrics"
         elif isinstance(event, DeviceStatusChangedEvent):
-            return f"devices.{event.device_id}.status"
+            return f"devices.{device_id}.status"
         elif isinstance(event, ContainerStatusEvent):
-            return f"devices.{event.device_id}.containers"
+            return f"devices.{device_id}.containers"
         elif isinstance(event, DriveHealthEvent):
-            return f"devices.{event.device_id}.drives"
+            return f"devices.{device_id}.drives"
         else:
-            return f"devices.{getattr(event, 'device_id', 'unknown')}.events"
+            return f"devices.{device_id}.events"
+
+    # --- Methods used by server.py ---
+    async def authenticate_connection(self, client_id: str, user_id: str) -> None:
+        """Record authentication info for a connected client."""
+        for ws, info in self.active_connections.items():
+            if info.get("client_id") == client_id:
+                info["user_id"] = user_id
+                info["authenticated"] = True
+                return
+
+    async def handle_subscription(self, client_id: str, msg: SubscriptionMessage) -> None:
+        """Apply subscription changes for a client."""
+        # Find websocket for client_id
+        target_ws: WebSocket | None = None
+        for ws, info in self.active_connections.items():
+            if info.get("client_id") == client_id:
+                target_ws = ws
+                break
+        if target_ws is None:
+            return
+        # Apply subscription changes
+        if msg.action == "subscribe":
+            for t in msg.topics:
+                await self.subscribe_to_topic(target_ws, t)
+        elif msg.action == "unsubscribe":
+            for t in msg.topics:
+                await self.unsubscribe_from_topic(target_ws, t)
+        elif msg.action == "replace":
+            self.connection_topics[target_ws] = set(msg.topics)
+
+    async def handle_heartbeat(self, client_id: str) -> None:
+        """Update last ping timestamp for a client."""
+        for ws, info in self.active_connections.items():
+            if info.get("client_id") == client_id:
+                info["last_ping"] = datetime.now(UTC)
+                return
 
 
 # Global connection manager instance

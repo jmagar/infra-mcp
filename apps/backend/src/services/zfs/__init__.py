@@ -9,12 +9,12 @@ Modular ZFS management services providing focused functionality for:
 - Analysis and reporting
 """
 
-from .pool_service import ZFSPoolService
-from .dataset_service import ZFSDatasetService
-from .snapshot_service import ZFSSnapshotService
-from .health_service import ZFSHealthService
 from .analysis_service import ZFSAnalysisService
 from .base import ZFSBaseService
+from .dataset_service import ZFSDatasetService
+from .health_service import ZFSHealthService
+from .pool_service import ZFSPoolService
+from .snapshot_service import ZFSSnapshotService
 
 __all__ = [
     "ZFSPoolService",

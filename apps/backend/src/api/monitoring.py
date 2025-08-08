@@ -29,7 +29,7 @@ from apps.backend.src.utils.ssh_command_manager import get_ssh_command_manager
 logger = logging.getLogger(__name__)
 
 
-def get_polling_service(request: Request):
+def get_polling_service(request: Request) -> Any:
     """Get the polling service instance from FastAPI application state."""
     return getattr(request.app.state, 'polling_service', None)
 
@@ -99,6 +99,15 @@ async def detailed_health_check(request: Request) -> dict[str, Any]:
             )
             device_stats_result = await db.execute(device_stats_query)
             device_stats = device_stats_result.first()
+
+            # Add null check for device_stats
+            if device_stats is None:
+                device_stats = type('DeviceStats', (), {
+                    'total_devices': 0,
+                    'monitored_devices': 0,
+                    'online_devices': 0,
+                    'offline_devices': 0
+                })()
 
             # Recent data collection statistics (last 24 hours)
             recent_metrics_query = select(func.count(SystemMetric.time)).where(
@@ -273,7 +282,7 @@ async def polling_health_check(request: Request) -> dict[str, Any]:
 
         # Calculate polling efficiency
         total_expected_collections = len(monitored_devices) * 12  # Assuming 12 collections per hour
-        actual_collections = sum(d["recent_metrics_1h"] for d in device_health)
+        actual_collections = sum(int(d["recent_metrics_1h"]) for d in device_health)
         efficiency = (actual_collections / max(total_expected_collections, 1)) * 100
 
         return {
@@ -298,9 +307,9 @@ async def polling_health_check(request: Request) -> dict[str, Any]:
                 "expected_collections_1h": total_expected_collections,
             },
             "health_summary": {
-                "healthy_devices": len([d for d in device_health if d["health_score"] >= 8]),
-                "warning_devices": len([d for d in device_health if 3 <= d["health_score"] < 8]),
-                "unhealthy_devices": len([d for d in device_health if d["health_score"] < 3]),
+                "healthy_devices": len([d for d in device_health if (d.get("health_score") or 0) >= 8]),
+                "warning_devices": len([d for d in device_health if 3 <= (d.get("health_score") or 0) < 8]),
+                "unhealthy_devices": len([d for d in device_health if (d.get("health_score") or 0) < 3]),
             },
             "timestamp": datetime.now(UTC).isoformat(),
         }
@@ -347,7 +356,7 @@ async def performance_metrics(request: Request) -> PerformanceMetricsResponse:
         ssh_cache_efficiency = 0
         if ssh_cache_stats["total_entries"] > 0:
             ssh_cache_efficiency = (ssh_cache_stats["active_entries"] / ssh_cache_stats["total_entries"]) * 100
-        
+
         # Enhanced Cache Manager performance metrics
         from apps.backend.src.utils.cache_manager import get_cache_manager
         cache_manager = await get_cache_manager()
@@ -359,8 +368,8 @@ async def performance_metrics(request: Request) -> PerformanceMetricsResponse:
 
         total_response_time = (time.time() - start_time) * 1000
 
-        return {
-            "performance_metrics": {
+        return PerformanceMetricsResponse(
+            performance_metrics={
                 "api_response_time_ms": round(total_response_time, 2),
                 "database_query_time_ms": round(db_query_time, 2),
                 "ssh_cache_efficiency_percent": round(ssh_cache_efficiency, 2),
@@ -368,34 +377,19 @@ async def performance_metrics(request: Request) -> PerformanceMetricsResponse:
                 "enhanced_cache_response_time_ms": round(cache_metrics.average_response_time_ms, 2),
                 "measurement_timestamp": datetime.now(UTC).isoformat(),
             },
-            "database_performance": {
+            database_performance={
                 "connection_pool": {
                     "pool_size": settings.database.db_pool_size,
                     "query_response_time_ms": round(db_query_time, 2),
                     "status": "healthy" if db_query_time < 100 else "slow",
                 }
             },
-            "ssh_performance": {
+            ssh_performance={
                 "command_cache": ssh_cache_stats,
                 "registry_size": len(ssh_cmd_manager.command_registry),
                 "cache_hit_ratio_estimate": round(ssh_cache_efficiency, 2),
             },
-            "enhanced_cache_performance": {
-                "metrics": {
-                    "hits": cache_metrics.hits,
-                    "misses": cache_metrics.misses,
-                    "evictions": cache_metrics.evictions,
-                    "hit_ratio_percent": round(cache_metrics.hit_ratio * 100, 2),
-                    "average_response_time_ms": round(cache_metrics.average_response_time_ms, 2),
-                    "cache_size": cache_metrics.cache_size,
-                    "memory_usage_mb": round(cache_metrics.memory_usage_mb, 2),
-                    "total_operations": cache_metrics.total_operations,
-                },
-                "configuration": cache_health.get("lru_config", {}),
-                "status": cache_health.get("status", "unknown"),
-                "redis_connected": cache_health.get("redis_connected", False),
-            },
-            "system_configuration": {
+            system_configuration={
                 "polling_intervals": {
                     "containers_seconds": settings.polling.polling_container_interval,
                     "metrics_seconds": settings.polling.polling_system_metrics_interval,
@@ -406,7 +400,7 @@ async def performance_metrics(request: Request) -> PerformanceMetricsResponse:
                     "default_requests_per_minute": settings.api.rate_limit_requests_per_minute
                 },
             },
-            "recommendations": [
+            recommendations=[
                 "Database queries performing well"
                 if db_query_time < 50
                 else "Consider database optimization",
@@ -424,7 +418,7 @@ async def performance_metrics(request: Request) -> PerformanceMetricsResponse:
                 if total_response_time < 200
                 else "Monitor API response times",
             ],
-        }
+        )
 
     except Exception as e:
         logger.error(f"Performance metrics collection failed: {e}", exc_info=True)
@@ -465,6 +459,14 @@ async def monitoring_dashboard_data(request: Request, hours: int = 24) -> dict[s
                 func.count(Device.id).filter(Device.monitoring_enabled).label("monitored"),
             )
             device_summary = (await db.execute(device_summary_query)).first()
+
+            # Add null check for device_summary
+            if device_summary is None:
+                device_summary = type('DeviceSummary', (), {
+                    'total': 0,
+                    'online': 0,
+                    'monitored': 0
+                })()
 
             # Data collection summary
             metrics_count_query = select(func.count(SystemMetric.time)).where(

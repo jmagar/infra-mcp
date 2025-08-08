@@ -5,8 +5,8 @@ This module defines custom exception classes for infrastructure-specific errors,
 providing structured error handling with detailed context information.
 """
 
-from typing import Optional, Dict, Any
-from datetime import datetime, timezone
+from datetime import UTC, datetime
+from typing import Any
 
 
 class InfrastructureException(Exception):
@@ -16,9 +16,9 @@ class InfrastructureException(Exception):
         self,
         message: str,
         error_code: str = "INFRASTRUCTURE_ERROR",
-        details: Optional[Dict[str, Any]] = None,
-        hostname: Optional[str] = None,
-        operation: Optional[str] = None,
+        details: dict[str, Any] | None = None,
+        hostname: str | None = None,
+        operation: str | None = None,
     ):
         super().__init__(message)
         self.message = message
@@ -26,9 +26,9 @@ class InfrastructureException(Exception):
         self.details = details or {}
         self.hostname = hostname
         self.operation = operation
-        self.timestamp = datetime.now(timezone.utc)
+        self.timestamp = datetime.now(UTC)
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         """Convert exception to dictionary for JSON serialization"""
         return {
             "error_code": self.error_code,
@@ -44,7 +44,7 @@ class DatabaseConnectionError(InfrastructureException):
     """Raised when database connection fails"""
 
     def __init__(
-        self, message: str = "Database connection failed", details: Optional[Dict[str, Any]] = None
+        self, message: str = "Database connection failed", details: dict[str, Any] | None = None
     ):
         super().__init__(message=message, error_code="DATABASE_CONNECTION_ERROR", details=details)
 
@@ -52,7 +52,7 @@ class DatabaseConnectionError(InfrastructureException):
 class DatabaseOperationError(InfrastructureException):
     """Raised when database operation fails"""
 
-    def __init__(self, message: str, operation: str, details: Optional[Dict[str, Any]] = None):
+    def __init__(self, message: str, operation: str, details: dict[str, Any] | None = None):
         super().__init__(
             message=message,
             error_code="DATABASE_OPERATION_ERROR",
@@ -65,7 +65,7 @@ class SSHConnectionError(InfrastructureException):
     """Raised when SSH connection to device fails"""
 
     def __init__(
-        self, message: str, hostname: Optional[str] = None, details: Optional[Dict[str, Any]] = None
+        self, message: str, hostname: str | None = None, details: dict[str, Any] | None = None
     ):
         super().__init__(
             message=message,
@@ -83,9 +83,9 @@ class SSHCommandError(InfrastructureException):
         self,
         message: str,
         command: str,
-        hostname: Optional[str] = None,
-        exit_code: Optional[int] = None,
-        stderr: Optional[str] = None,
+        hostname: str | None = None,
+        exit_code: int | None = None,
+        stderr: str | None = None,
     ):
         details = {"command": command, "exit_code": exit_code, "stderr": stderr}
 
@@ -104,9 +104,9 @@ class SSHTimeoutError(InfrastructureException):
     def __init__(
         self,
         message: str = "SSH operation timed out",
-        hostname: Optional[str] = None,
-        timeout_seconds: Optional[int] = None,
-        operation: Optional[str] = None,
+        hostname: str | None = None,
+        timeout_seconds: int | None = None,
+        operation: str | None = None,
     ):
         details = {}
         if timeout_seconds:
@@ -139,7 +139,7 @@ class DeviceNotFoundError(InfrastructureException):
 class DeviceOfflineError(InfrastructureException):
     """Raised when attempting to access offline device"""
 
-    def __init__(self, hostname: str, last_seen: Optional[datetime] = None):
+    def __init__(self, hostname: str, last_seen: datetime | None = None):
         message = f"Device is offline: {hostname}"
         details = {}
         if last_seen:
@@ -161,7 +161,7 @@ class AuthenticationError(InfrastructureException):
         self,
         message: str = "Authentication failed",
         auth_type: str = "unknown",
-        details: Optional[Dict[str, Any]] = None,
+        details: dict[str, Any] | None = None,
     ):
         details = details or {}
         details["auth_type"] = auth_type
@@ -180,8 +180,8 @@ class AuthorizationError(InfrastructureException):
     def __init__(
         self,
         message: str = "Insufficient permissions",
-        required_permission: Optional[str] = None,
-        resource: Optional[str] = None,
+        required_permission: str | None = None,
+        resource: str | None = None,
     ):
         details = {}
         if required_permission:
@@ -203,9 +203,9 @@ class RateLimitError(InfrastructureException):
     def __init__(
         self,
         message: str = "Rate limit exceeded",
-        limit: Optional[int] = None,
-        window_seconds: Optional[int] = None,
-        retry_after: Optional[int] = None,
+        limit: int | None = None,
+        window_seconds: int | None = None,
+        retry_after: int | None = None,
     ):
         details = {}
         if limit:
@@ -229,8 +229,8 @@ class ValidationError(InfrastructureException):
     def __init__(
         self,
         message: str,
-        field: Optional[str] = None,
-        value: Optional[Any] = None,
+        field: str | None = None,
+        value: Any | None = None,
         validation_type: str = "schema",
     ):
         details = {"validation_type": validation_type}
@@ -253,8 +253,8 @@ class ServiceUnavailableError(InfrastructureException):
     def __init__(
         self,
         service_name: str,
-        message: Optional[str] = None,
-        details: Optional[Dict[str, Any]] = None,
+        message: str | None = None,
+        details: dict[str, Any] | None = None,
     ):
         message = message or f"Service unavailable: {service_name}"
         details = details or {}
@@ -274,9 +274,9 @@ class ContainerError(InfrastructureException):
     def __init__(
         self,
         message: str,
-        container_name: Optional[str] = None,
-        container_id: Optional[str] = None,
-        hostname: Optional[str] = None,
+        container_name: str | None = None,
+        container_id: str | None = None,
+        hostname: str | None = None,
         operation: str = "container_operation",
     ):
         details = {}
@@ -300,9 +300,9 @@ class ZFSError(InfrastructureException):
     def __init__(
         self,
         message: str,
-        pool_name: Optional[str] = None,
-        dataset_name: Optional[str] = None,
-        hostname: Optional[str] = None,
+        pool_name: str | None = None,
+        dataset_name: str | None = None,
+        hostname: str | None = None,
         operation: str = "zfs_operation",
     ):
         details = {}
@@ -326,9 +326,9 @@ class NetworkError(InfrastructureException):
     def __init__(
         self,
         message: str,
-        interface_name: Optional[str] = None,
-        network_name: Optional[str] = None,
-        hostname: Optional[str] = None,
+        interface_name: str | None = None,
+        network_name: str | None = None,
+        hostname: str | None = None,
         operation: str = "network_operation",
     ):
         details = {}
@@ -352,9 +352,9 @@ class BackupError(InfrastructureException):
     def __init__(
         self,
         message: str,
-        backup_name: Optional[str] = None,
-        backup_type: Optional[str] = None,
-        hostname: Optional[str] = None,
+        backup_name: str | None = None,
+        backup_type: str | None = None,
+        hostname: str | None = None,
         operation: str = "backup_operation",
     ):
         details = {}
@@ -376,7 +376,7 @@ class ConfigurationError(InfrastructureException):
     """Raised when configuration is invalid or missing"""
 
     def __init__(
-        self, message: str, config_key: Optional[str] = None, config_file: Optional[str] = None
+        self, message: str, config_key: str | None = None, config_file: str | None = None
     ):
         details = {}
         if config_key:
@@ -398,9 +398,9 @@ class TimeoutError(InfrastructureException):
     def __init__(
         self,
         message: str = "Operation timed out",
-        timeout_seconds: Optional[int] = None,
-        operation: Optional[str] = None,
-        hostname: Optional[str] = None,
+        timeout_seconds: int | None = None,
+        operation: str | None = None,
+        hostname: str | None = None,
     ):
         details = {}
         if timeout_seconds:
@@ -421,9 +421,9 @@ class PermissionError(InfrastructureException):
     def __init__(
         self,
         message: str,
-        resource_path: Optional[str] = None,
-        required_permission: Optional[str] = None,
-        hostname: Optional[str] = None,
+        resource_path: str | None = None,
+        required_permission: str | None = None,
+        hostname: str | None = None,
     ):
         details = {}
         if resource_path:
@@ -447,8 +447,8 @@ class ResourceNotFoundError(InfrastructureException):
         self,
         message: str,
         resource_type: str,
-        resource_id: Optional[str] = None,
-        hostname: Optional[str] = None,
+        resource_id: str | None = None,
+        hostname: str | None = None,
     ):
         details = {"resource_type": resource_type}
         if resource_id:
@@ -470,8 +470,8 @@ class ResourceConflictError(InfrastructureException):
         self,
         message: str,
         resource_type: str,
-        conflicting_value: Optional[str] = None,
-        existing_resource_id: Optional[str] = None,
+        conflicting_value: str | None = None,
+        existing_resource_id: str | None = None,
     ):
         details = {"resource_type": resource_type}
         if conflicting_value:
@@ -493,14 +493,14 @@ class BusinessLogicError(InfrastructureException):
     def __init__(
         self,
         message: str,
-        rule_name: Optional[str] = None,
-        context: Optional[Dict[str, Any]] = None,
+        rule_name: str | None = None,
+        context: dict[str, Any] | None = None,
     ):
         details = {}
         if rule_name:
             details["rule_name"] = rule_name
         if context:
-            details["context"] = context
+            details.update(context)
 
         super().__init__(
             message=message,
@@ -517,15 +517,15 @@ class ExternalServiceError(InfrastructureException):
         self,
         message: str,
         service_name: str,
-        service_url: Optional[str] = None,
-        status_code: Optional[int] = None,
-        response_body: Optional[str] = None,
+        service_url: str | None = None,
+        status_code: int | None = None,
+        response_body: str | None = None,
     ):
         details = {"service_name": service_name}
         if service_url:
             details["service_url"] = service_url
         if status_code:
-            details["status_code"] = status_code
+            details["status_code"] = str(status_code)
         if response_body:
             details["response_body"] = response_body[:1000]  # Limit response body size
 
@@ -543,9 +543,9 @@ class SystemMonitoringError(InfrastructureException):
     def __init__(
         self,
         message: str,
-        hostname: Optional[str] = None,
+        hostname: str | None = None,
         operation: str = "system_monitoring",
-        details: Optional[Dict[str, Any]] = None,
+        details: dict[str, Any] | None = None,
     ):
         super().__init__(
             message=message,
@@ -562,10 +562,10 @@ class DataCollectionError(InfrastructureException):
     def __init__(
         self,
         message: str,
-        data_type: Optional[str] = None,
-        hostname: Optional[str] = None,
+        data_type: str | None = None,
+        hostname: str | None = None,
         operation: str = "data_collection",
-        details: Optional[Dict[str, Any]] = None,
+        details: dict[str, Any] | None = None,
     ):
         details = details or {}
         if data_type:
@@ -586,9 +586,9 @@ class CacheOperationError(InfrastructureException):
     def __init__(
         self,
         message: str,
-        cache_key: Optional[str] = None,
+        cache_key: str | None = None,
         operation: str = "cache_operation",
-        details: Optional[Dict[str, Any]] = None,
+        details: dict[str, Any] | None = None,
     ):
         details = details or {}
         if cache_key:

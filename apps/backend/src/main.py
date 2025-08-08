@@ -6,76 +6,56 @@ and MCP tools from a single codebase with streamable HTTP transport.
 """
 
 import asyncio
-import logging
-import time
 from contextlib import asynccontextmanager
-from datetime import datetime, timezone
-from typing import Dict, Any, Optional
+from datetime import UTC, datetime
+import logging
+from uuid import uuid4
+from pathlib import Path
+import time
+from typing import Any, AsyncGenerator, cast
+from collections.abc import Awaitable
 
-import uvicorn
-from fastapi import FastAPI, Request, Response, HTTPException, Depends
+from fastapi import Depends, FastAPI, HTTPException, Request
+from fastapi.responses import Response
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.trustedhost import TrustedHostMiddleware
 from fastapi.responses import JSONResponse
-from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
-from starlette.exceptions import HTTPException as StarletteHTTPException
-from sqlalchemy import text
-from sqlalchemy.exc import SQLAlchemyError
+from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from pydantic import ValidationError
 from slowapi import Limiter, _rate_limit_exceeded_handler
-from slowapi.util import get_remote_address
 from slowapi.errors import RateLimitExceeded
+from slowapi.util import get_remote_address
+from sqlalchemy import Boolean, and_, select
+from sqlalchemy.exc import SQLAlchemyError
+from starlette.exceptions import HTTPException as StarletteHTTPException
+from starlette.websockets import WebSocket
+import uvicorn
 
-from apps.backend.src.core.config import get_settings
-from apps.backend.src.core.database import (
-    init_database,
-    close_database,
-    check_database_health,
-)
-from apps.backend.src.core.events import initialize_event_bus, shutdown_event_bus
-from apps.backend.src.utils.ssh_client import cleanup_ssh_client, get_ssh_client, SSHConnectionInfo
-from apps.backend.src.schemas.common import HealthCheckResponse
-from apps.backend.src.services.polling_service import PollingService
-from apps.backend.src.services.configuration_monitoring import get_configuration_monitoring_service
-from apps.backend.src.services.unified_data_collection import get_unified_data_collection_service
-from apps.backend.src.core.database import get_async_session_factory
-from apps.backend.src.models.device import Device
-from sqlalchemy import select
-from sqlalchemy.ext.asyncio import async_sessionmaker, AsyncSession
-from apps.backend.src.core.exceptions import (
-    InfrastructureException,
-    DatabaseConnectionError,
-    DatabaseOperationError,
-    SSHConnectionError,
-    SSHCommandError,
-    SSHTimeoutError,
-    DeviceNotFoundError,
-    DeviceOfflineError,
-    AuthenticationError,
-    AuthorizationError,
-    RateLimitError,
-    ValidationError as CustomValidationError,
-    ServiceUnavailableError,
-    ContainerError,
-    ZFSError,
-    NetworkError,
-    BackupError,
-    ConfigurationError,
-    TimeoutError as CustomTimeoutError,
-    PermissionError as CustomPermissionError,
-    ResourceNotFoundError,
-    ResourceConflictError,
-    BusinessLogicError,
-    ExternalServiceError,
-)
 from apps.backend.src.api import api_router
 from apps.backend.src.api.monitoring import router as monitoring_router
-from apps.backend.src.websocket import websocket_router
-
-# Configure logging
-logging.basicConfig(
-    level=logging.INFO, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+from apps.backend.src.core.config import get_settings
+from apps.backend.src.core.database import (
+    check_database_health,
+    close_database,
+    get_async_session_factory,
+    init_database,
 )
+from apps.backend.src.core.events import initialize_event_bus, shutdown_event_bus
+from apps.backend.src.core.exceptions import (
+    InfrastructureException,
+    ServiceUnavailableError,
+)
+from apps.backend.src.models.device import Device
+from apps.backend.src.schemas.common import HealthCheckResponse
+from apps.backend.src.services.configuration_monitoring import get_configuration_monitoring_service
+from apps.backend.src.services.polling_service import PollingService
+from apps.backend.src.services.unified_data_collection import get_unified_data_collection_service
+from apps.backend.src.utils.ssh_client import cleanup_ssh_client, get_ssh_client
+from apps.backend.src.websocket import websocket_router
+from apps.backend.src.core.logging import setup_logging, set_request_id, get_request_id
+
+# Configure structured logging
+setup_logging(level=logging.INFO)
 
 # Reduce SSH logging spam - set asyncssh to WARNING level only
 logging.getLogger("asyncssh").setLevel(logging.WARNING)
@@ -102,7 +82,7 @@ security = HTTPBearer(auto_error=False)
 
 
 @asynccontextmanager
-async def lifespan(app: FastAPI):
+async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     """Application lifespan manager for startup and shutdown tasks"""
     global polling_service, config_monitoring_service
     logger.info("Starting Infrastructure Management API Server...")
@@ -127,28 +107,53 @@ async def lifespan(app: FastAPI):
             app.state.polling_service = None
             logger.info("Polling service disabled via configuration")
 
-        # Set up SWAG device monitoring (only if SWAG devices are found)
-        try:
-            db_session_factory = get_async_session_factory()
-            ssh_client = get_ssh_client()
-            unified_data_service = await get_unified_data_collection_service(
-                db_session_factory=db_session_factory,
-                ssh_client=ssh_client
-            )
-            
-            config_monitoring_service = await _setup_swag_monitoring(
-                db_session_factory, ssh_client, unified_data_service
-            )
-            app.state.config_monitoring_service = config_monitoring_service
-            
-            if config_monitoring_service:
-                logger.info("SWAG device monitoring set up successfully")
-            else:
-                logger.info("No SWAG devices found - configuration monitoring not needed")
-                
-        except Exception as e:
-            logger.error(f"Failed to set up SWAG monitoring: {e}")
-            app.state.config_monitoring_service = None
+        # Initialize configuration monitoring in background (non-blocking)
+        logger.info("Starting configuration monitoring setup in background...")
+        app.state.config_monitoring_service = None  # Initialize to None
+
+        # Start background task for configuration monitoring setup
+        async def setup_configuration_monitoring() -> None:
+            """Background task to set up SWAG/Docker monitoring without blocking startup"""
+            try:
+                logger.info("Background: Starting configuration monitoring setup...")
+                db_session_factory = get_async_session_factory()
+                ssh_client = get_ssh_client()
+                unified_data_service = await get_unified_data_collection_service(
+                    db_session_factory=db_session_factory,
+                    ssh_client=ssh_client
+                )
+
+                # Set up SWAG monitoring
+                logger.info("Background: Setting up SWAG monitoring...")
+                swag_monitoring_service = await _setup_swag_monitoring(
+                    db_session_factory, ssh_client, unified_data_service
+                )
+
+                # Set up Docker monitoring
+                logger.info("Background: Setting up Docker monitoring...")
+                docker_monitoring_service = await _setup_docker_monitoring(
+                    db_session_factory, ssh_client, unified_data_service
+                )
+
+                # Use whichever service was successfully created (or merge them later)
+                config_monitoring_service = swag_monitoring_service or docker_monitoring_service
+                app.state.config_monitoring_service = config_monitoring_service
+
+                if swag_monitoring_service:
+                    logger.info("Background: SWAG configuration monitoring set up successfully")
+                if docker_monitoring_service:
+                    logger.info("Background: Docker configuration monitoring set up successfully")
+                if not config_monitoring_service:
+                    logger.info("Background: No SWAG or Docker devices found - configuration monitoring not needed")
+
+                logger.info("Background: Configuration monitoring setup completed")
+
+            except Exception as e:
+                logger.error(f"Background: Failed to set up configuration monitoring: {e}")
+                app.state.config_monitoring_service = None
+
+        # Start the background task without waiting for it
+        asyncio.create_task(setup_configuration_monitoring())
 
         # Log configuration
         logger.info(f"Environment: {settings.environment}")
@@ -157,6 +162,8 @@ async def lifespan(app: FastAPI):
             f"Database: {settings.database.postgres_host}:{settings.database.postgres_port}"
         )
         logger.info(f"API Server: {settings.api.api_host}:{settings.api.api_port}")
+
+        logger.info("✅ API Server startup completed - Ready to accept HTTP requests")
 
         yield
 
@@ -200,7 +207,7 @@ async def lifespan(app: FastAPI):
         logger.info("Shutdown complete")
 
 
-async def _setup_swag_monitoring(db_session_factory, ssh_client, unified_data_service):
+async def _setup_swag_monitoring(db_session_factory: Any, ssh_client: Any, unified_data_service: Any) -> Any:
     """
     Detect SWAG devices and set up monitoring only if found.
     
@@ -209,56 +216,35 @@ async def _setup_swag_monitoring(db_session_factory, ssh_client, unified_data_se
     """
     try:
         async with db_session_factory() as session:
-            # Get all monitoring-enabled devices
+            # Query for devices with SWAG capability and running SWAG container
             result = await session.execute(
-                select(Device).where(Device.monitoring_enabled == True)
+                select(Device).where(
+                    and_(
+                        Device.monitoring_enabled == True,
+                        Device.tags.op("?")("swag_running"),  # Check if swag_running key exists
+                        Device.tags["swag_running"].astext.cast(Boolean) == True  # And it's true
+                    )
+                )
             )
             devices = result.scalars().all()
-            
+
             swag_devices_found = []
-            
+
             for device in devices:
-                try:
-                    # Check for running SWAG container AND nginx directory
-                    swag_check_cmd = (
-                        "docker ps --format '{{.Names}}' | grep -i swag && "
-                        "find /*/swag/nginx/ -type d 2>/dev/null | head -1 || "
-                        "find /mnt/*/swag/nginx/ -type d 2>/dev/null | head -1"
-                    )
-                    
-                    connection_info = SSHConnectionInfo(
-                        host=device.hostname,
-                        port=device.ssh_port,
-                        username=device.ssh_username,
-                        password=device.ssh_password,
-                        private_key_path=device.ssh_private_key_path,
-                        connect_timeout=10,
-                    )
-                    
-                    result = await ssh_client.execute_command(
-                        connection_info, swag_check_cmd, timeout=15
-                    )
-                    
-                    if result.return_code == 0 and result.stdout.strip():
-                        lines = result.stdout.strip().split('\n')
-                        has_running_container = any('swag' in line.lower() for line in lines if not line.startswith('/'))
-                        has_nginx_dir = any(line.startswith('/') and 'swag/nginx' in line for line in lines)
-                        
-                        if has_running_container and has_nginx_dir:
-                            # Found SWAG device
-                            nginx_dir = next((line for line in lines if line.startswith('/') and 'swag/nginx' in line), None)
-                            if nginx_dir:
-                                proxy_conf_dir = f"{nginx_dir.rstrip('/')}/proxy-confs"
-                                swag_devices_found.append({
-                                    'device': device,
-                                    'proxy_conf_dir': proxy_conf_dir
-                                })
-                                logger.info(f"Found SWAG device: {device.hostname} at {proxy_conf_dir}")
-                        
-                except Exception as e:
-                    logger.debug(f"Could not check SWAG on device {device.hostname}: {e}")
-                    continue
-            
+                # Use the actual SWAG config path from device analysis or fall back to defaults
+                # Check for swag_config_path in tags first, then use common defaults
+                if "swag_config_path" in device.tags:
+                    proxy_conf_dir = device.tags["swag_config_path"]
+                else:
+                    # Try common paths
+                    proxy_conf_dir = "/mnt/appdata/swag/nginx/proxy-confs"
+
+                swag_devices_found.append({
+                    'device': device,
+                    'proxy_conf_dir': proxy_conf_dir
+                })
+                logger.info(f"Found SWAG device from database: {device.hostname} with running SWAG container")
+
             # Only initialize ConfigurationMonitoringService if we found SWAG devices
             if swag_devices_found:
                 config_monitoring_service = get_configuration_monitoring_service(
@@ -266,24 +252,24 @@ async def _setup_swag_monitoring(db_session_factory, ssh_client, unified_data_se
                     ssh_client=ssh_client,
                     unified_data_service=unified_data_service
                 )
-                
+
                 # Set up monitoring for each SWAG device found
                 successful_setups = 0
                 for swag_device in swag_devices_found:
                     device = swag_device['device']
                     proxy_conf_dir = swag_device['proxy_conf_dir']
-                    
+
                     success = await config_monitoring_service.setup_device_monitoring(
                         device_id=device.id,
                         custom_watch_paths=[proxy_conf_dir]
                     )
-                    
+
                     if success:
                         successful_setups += 1
                         logger.info(f"Started file watching for SWAG device {device.hostname} at {proxy_conf_dir}")
                     else:
                         logger.warning(f"Failed to start file watching for SWAG device {device.hostname}")
-                
+
                 if successful_setups > 0:
                     logger.info(f"Successfully set up SWAG monitoring for {successful_setups}/{len(swag_devices_found)} device(s)")
                     return config_monitoring_service
@@ -293,9 +279,110 @@ async def _setup_swag_monitoring(db_session_factory, ssh_client, unified_data_se
             else:
                 logger.info("No SWAG devices found - configuration monitoring not needed")
                 return None
-                
+
     except Exception as e:
         logger.error(f"Failed to set up SWAG monitoring: {e}")
+        return None
+
+
+async def _setup_docker_monitoring(db_session_factory: Any, ssh_client: Any, unified_data_service: Any) -> Any:
+    """
+    Detect Docker devices and set up monitoring for docker-compose files.
+    
+    Returns:
+        ConfigurationMonitoringService if Docker devices found, None otherwise
+    """
+    try:
+        async with db_session_factory() as session:
+            # Get all monitoring-enabled devices with Docker capability
+            from sqlalchemy import and_
+            # Query for devices with Docker capability
+            result = await session.execute(
+                select(Device).where(
+                    and_(
+                        Device.monitoring_enabled == True,
+                        Device.tags.op("?")("docker")  # JSONB contains "docker" key
+                    )
+                )
+            )
+            devices = result.scalars().all()
+
+            docker_devices_found = []
+            for device in devices:
+                # For Docker devices, monitor common docker-compose locations
+                # We'll scan for actual compose files during bulk scan
+                compose_dirs = [
+                    "/opt",
+                    "/srv",
+                    "/home/docker",
+                    "/docker"
+                ]
+
+                # Also check if device has custom compose paths stored (but validate them)
+                stored_paths = device.tags.get("all_docker_compose_paths", [])
+                if stored_paths:
+                    # Filter out obviously wrong paths like Go modules
+                    valid_paths = []
+                    for path in stored_paths:
+                        # Skip paths in Go modules, node_modules, etc.
+                        if not any(exclude in path for exclude in [
+                            "/go/pkg/mod/",
+                            "/node_modules/",
+                            "/.git/",
+                            "/.cache/",
+                            "/vendor/"
+                        ]):
+                            valid_paths.append(str(Path(path).parent))
+
+                    if valid_paths:
+                        compose_dirs.extend(valid_paths)
+
+                # Remove duplicates
+                compose_dirs = list(set(compose_dirs))
+
+                docker_devices_found.append({
+                    'device': device,
+                    'compose_dirs': compose_dirs
+                })
+                logger.info(f"Found Docker device: {device.hostname} - will scan for compose files in: {compose_dirs}")
+
+            # Only initialize ConfigurationMonitoringService if we found Docker devices
+            if docker_devices_found:
+                config_monitoring_service = get_configuration_monitoring_service(
+                    db_session_factory=db_session_factory,
+                    ssh_client=ssh_client,
+                    unified_data_service=unified_data_service
+                )
+
+                # Set up monitoring for each Docker device found
+                successful_setups = 0
+                for docker_device in docker_devices_found:
+                    device = docker_device['device']
+                    compose_dirs = docker_device['compose_dirs']
+
+                    success = await config_monitoring_service.setup_device_monitoring(
+                        device_id=device.id,
+                        custom_watch_paths=compose_dirs
+                    )
+
+                    if success:
+                        successful_setups += 1
+                        logger.info(f"Started file watching for Docker device {device.hostname} at {compose_dirs}")
+                    else:
+                        logger.warning(f"Failed to start file watching for Docker device {device.hostname}")
+
+                if successful_setups > 0:
+                    logger.info(f"Successfully set up Docker monitoring for {successful_setups}/{len(docker_devices_found)} device(s)")
+                    return config_monitoring_service
+                else:
+                    logger.error("Failed to set up monitoring for any Docker devices")
+                    return None
+            else:
+                logger.info("No Docker devices found - Docker configuration monitoring not needed")
+                return None
+
+    except Exception as e:
+        logger.error(f"Failed to set up Docker monitoring: {e}")
         return None
 
 
@@ -312,7 +399,15 @@ app = FastAPI(
 
 # Add rate limiter state to app
 app.state.limiter = limiter
-app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
+
+# Wrapper for rate limit exception handler to fix type compatibility
+def rate_limit_handler(request: Request, exc: Exception) -> Response:
+    """Wrapper for slowapi rate limit handler with proper typing"""
+    if isinstance(exc, RateLimitExceeded):
+        return _rate_limit_exceeded_handler(request, exc)
+    return JSONResponse({"error": "Rate limit exceeded"}, status_code=429)
+
+app.add_exception_handler(RateLimitExceeded, rate_limit_handler)
 
 # Add trusted host middleware
 app.add_middleware(
@@ -329,17 +424,39 @@ app.add_middleware(
 )
 
 
+# Correlation ID middleware (request-scoped request_id)
+@app.middleware("http")
+async def correlation_middleware(request: Request, call_next: Any) -> Response:
+    request_id = request.headers.get("X-Request-ID") or str(uuid4())
+    set_request_id(request_id)
+    try:
+        response = cast(Response, await call_next(request))
+    finally:
+        # Ensure context var cleared for next request in same worker
+        set_request_id(None)
+    # Echo back the request ID
+    response.headers["X-Request-ID"] = request_id
+    return response
+
+
 # Custom middleware for request timing and logging
 @app.middleware("http")
-async def timing_middleware(request: Request, call_next):
+async def timing_middleware(request: Request, call_next: Any) -> Response:
     """Add request timing and basic logging"""
     start_time = time.time()
 
     # Log request
-    logger.info(f"{request.method} {request.url.path} - Start")
+    logger.info(
+        "request.start",
+        extra={
+            "method": request.method,
+            "path": str(request.url.path),
+            "client": request.client.host if request.client else None,
+        },
+    )
 
     try:
-        response = await call_next(request)
+        response = cast(Response, await call_next(request))
 
         # Calculate processing time
         process_time = time.time() - start_time
@@ -349,9 +466,13 @@ async def timing_middleware(request: Request, call_next):
 
         # Log response
         logger.info(
-            f"{request.method} {request.url.path} - "
-            f"Status: {response.status_code} - "
-            f"Time: {process_time:.3f}s"
+            "request.end",
+            extra={
+                "method": request.method,
+                "path": str(request.url.path),
+                "status_code": response.status_code,
+                "duration_ms": int(process_time * 1000),
+            },
         )
 
         return response
@@ -359,17 +480,24 @@ async def timing_middleware(request: Request, call_next):
     except Exception as e:
         process_time = time.time() - start_time
         logger.error(
-            f"{request.method} {request.url.path} - Error: {str(e)} - Time: {process_time:.3f}s"
+            "request.error",
+            exc_info=True,
+            extra={
+                "method": request.method,
+                "path": str(request.url.path),
+                "duration_ms": int(process_time * 1000),
+                "exception_type": type(e).__name__,
+            },
         )
         raise
 
 
 @app.middleware("http")
-async def security_middleware(request: Request, call_next):
+async def security_middleware(request: Request, call_next: Any) -> Response:
     """Security and validation middleware"""
 
     # Security headers
-    response = await call_next(request)
+    response = cast(Response, await call_next(request))
 
     # Add security headers
     response.headers["X-Content-Type-Options"] = "nosniff"
@@ -394,7 +522,7 @@ async def security_middleware(request: Request, call_next):
 
 
 # Authentication dependency
-async def get_current_user(credentials: HTTPAuthorizationCredentials = Depends(security)):
+async def get_current_user(credentials: HTTPAuthorizationCredentials = Depends(security)) -> dict[str, Any] | None:
     """Authentication dependency for protected endpoints"""
     if not credentials:
         if settings.auth.api_key:  # API key required
@@ -420,7 +548,7 @@ async def get_current_user(credentials: HTTPAuthorizationCredentials = Depends(s
 
 # Global exception handlers
 @app.exception_handler(StarletteHTTPException)
-async def http_exception_handler(request: Request, exc: StarletteHTTPException):
+async def http_exception_handler(request: Request, exc: StarletteHTTPException) -> JSONResponse:
     """Handle HTTP exceptions with consistent error format"""
     logger.warning(
         f"HTTP {exc.status_code} error on {request.method} {request.url.path}: {exc.detail}"
@@ -432,7 +560,7 @@ async def http_exception_handler(request: Request, exc: StarletteHTTPException):
             "error": {
                 "code": f"HTTP_{exc.status_code}",
                 "message": exc.detail,
-                "timestamp": datetime.now(timezone.utc).isoformat(),
+                "timestamp": datetime.now(UTC).isoformat(),
                 "path": str(request.url.path),
                 "method": request.method,
             }
@@ -441,7 +569,7 @@ async def http_exception_handler(request: Request, exc: StarletteHTTPException):
 
 
 @app.exception_handler(ValidationError)
-async def validation_exception_handler(request: Request, exc: ValidationError):
+async def validation_exception_handler(request: Request, exc: ValidationError) -> JSONResponse:
     """Handle Pydantic validation errors"""
     logger.warning(
         f"Validation error on {request.method} {request.url.path}: {exc.error_count()} errors"
@@ -466,7 +594,7 @@ async def validation_exception_handler(request: Request, exc: ValidationError):
             "error": {
                 "code": "VALIDATION_ERROR",
                 "message": "Request validation failed",
-                "timestamp": datetime.now(timezone.utc).isoformat(),
+                "timestamp": datetime.now(UTC).isoformat(),
                 "path": str(request.url.path),
                 "method": request.method,
                 "details": {"error_count": exc.error_count(), "errors": errors},
@@ -476,7 +604,7 @@ async def validation_exception_handler(request: Request, exc: ValidationError):
 
 
 @app.exception_handler(InfrastructureException)
-async def infrastructure_exception_handler(request: Request, exc: InfrastructureException):
+async def infrastructure_exception_handler(request: Request, exc: InfrastructureException) -> JSONResponse:
     """Handle custom infrastructure exceptions"""
     logger.error(
         f"Infrastructure error on {request.method} {request.url.path}: "
@@ -524,7 +652,7 @@ async def infrastructure_exception_handler(request: Request, exc: Infrastructure
             "error": {
                 "code": exc.error_code,
                 "message": exc.message,
-                "timestamp": datetime.now(timezone.utc).isoformat(),
+                "timestamp": datetime.now(UTC).isoformat(),
                 "path": str(request.url.path),
                 "method": request.method,
                 "details": exc.details,
@@ -536,7 +664,7 @@ async def infrastructure_exception_handler(request: Request, exc: Infrastructure
 
 
 @app.exception_handler(SQLAlchemyError)
-async def sqlalchemy_exception_handler(request: Request, exc: SQLAlchemyError):
+async def sqlalchemy_exception_handler(request: Request, exc: SQLAlchemyError) -> JSONResponse:
     """Handle SQLAlchemy database errors"""
     logger.error(
         f"Database error on {request.method} {request.url.path}: {str(exc)}", exc_info=True
@@ -559,7 +687,7 @@ async def sqlalchemy_exception_handler(request: Request, exc: SQLAlchemyError):
             "error": {
                 "code": error_code,
                 "message": message,
-                "timestamp": datetime.now(timezone.utc).isoformat(),
+                "timestamp": datetime.now(UTC).isoformat(),
                 "path": str(request.url.path),
                 "method": request.method,
                 "details": {
@@ -571,7 +699,7 @@ async def sqlalchemy_exception_handler(request: Request, exc: SQLAlchemyError):
 
 
 @app.exception_handler(asyncio.TimeoutError)
-async def timeout_exception_handler(request: Request, exc: asyncio.TimeoutError):
+async def timeout_exception_handler(request: Request, exc: asyncio.TimeoutError) -> JSONResponse:
     """Handle asyncio timeout errors"""
     logger.error(f"Timeout error on {request.method} {request.url.path}: Operation timed out")
 
@@ -581,7 +709,7 @@ async def timeout_exception_handler(request: Request, exc: asyncio.TimeoutError)
             "error": {
                 "code": "OPERATION_TIMEOUT",
                 "message": "Operation timed out",
-                "timestamp": datetime.now(timezone.utc).isoformat(),
+                "timestamp": datetime.now(UTC).isoformat(),
                 "path": str(request.url.path),
                 "method": request.method,
                 "details": {"timeout_type": "asyncio_timeout"},
@@ -591,7 +719,7 @@ async def timeout_exception_handler(request: Request, exc: asyncio.TimeoutError)
 
 
 @app.exception_handler(ConnectionError)
-async def connection_exception_handler(request: Request, exc: ConnectionError):
+async def connection_exception_handler(request: Request, exc: ConnectionError) -> JSONResponse:
     """Handle connection errors (network, SSH, etc.)"""
     logger.error(f"Connection error on {request.method} {request.url.path}: {str(exc)}")
 
@@ -601,7 +729,7 @@ async def connection_exception_handler(request: Request, exc: ConnectionError):
             "error": {
                 "code": "CONNECTION_ERROR",
                 "message": "Connection failed",
-                "timestamp": datetime.now(timezone.utc).isoformat(),
+                "timestamp": datetime.now(UTC).isoformat(),
                 "path": str(request.url.path),
                 "method": request.method,
                 "details": {
@@ -613,7 +741,7 @@ async def connection_exception_handler(request: Request, exc: ConnectionError):
 
 
 @app.exception_handler(PermissionError)
-async def permission_exception_handler(request: Request, exc: PermissionError):
+async def permission_exception_handler(request: Request, exc: PermissionError) -> JSONResponse:
     """Handle permission errors"""
     logger.warning(f"Permission error on {request.method} {request.url.path}: {str(exc)}")
 
@@ -623,7 +751,7 @@ async def permission_exception_handler(request: Request, exc: PermissionError):
             "error": {
                 "code": "PERMISSION_DENIED",
                 "message": "Permission denied",
-                "timestamp": datetime.now(timezone.utc).isoformat(),
+                "timestamp": datetime.now(UTC).isoformat(),
                 "path": str(request.url.path),
                 "method": request.method,
                 "details": {
@@ -635,7 +763,7 @@ async def permission_exception_handler(request: Request, exc: PermissionError):
 
 
 @app.exception_handler(FileNotFoundError)
-async def file_not_found_exception_handler(request: Request, exc: FileNotFoundError):
+async def file_not_found_exception_handler(request: Request, exc: FileNotFoundError) -> JSONResponse:
     """Handle file not found errors"""
     logger.warning(f"File not found error on {request.method} {request.url.path}: {str(exc)}")
 
@@ -645,7 +773,7 @@ async def file_not_found_exception_handler(request: Request, exc: FileNotFoundEr
             "error": {
                 "code": "FILE_NOT_FOUND",
                 "message": "Requested file not found",
-                "timestamp": datetime.now(timezone.utc).isoformat(),
+                "timestamp": datetime.now(UTC).isoformat(),
                 "path": str(request.url.path),
                 "method": request.method,
                 "details": {"file_error": str(exc) if settings.debug else "File not found"},
@@ -655,7 +783,7 @@ async def file_not_found_exception_handler(request: Request, exc: FileNotFoundEr
 
 
 @app.exception_handler(OSError)
-async def os_exception_handler(request: Request, exc: OSError):
+async def os_exception_handler(request: Request, exc: OSError) -> JSONResponse:
     """Handle OS-level errors"""
     logger.error(f"OS error on {request.method} {request.url.path}: {str(exc)}")
 
@@ -676,7 +804,7 @@ async def os_exception_handler(request: Request, exc: OSError):
             "error": {
                 "code": "SYSTEM_ERROR",
                 "message": "System operation failed",
-                "timestamp": datetime.now(timezone.utc).isoformat(),
+                "timestamp": datetime.now(UTC).isoformat(),
                 "path": str(request.url.path),
                 "method": request.method,
                 "details": {
@@ -689,7 +817,7 @@ async def os_exception_handler(request: Request, exc: OSError):
 
 
 @app.exception_handler(Exception)
-async def general_exception_handler(request: Request, exc: Exception):
+async def general_exception_handler(request: Request, exc: Exception) -> JSONResponse:
     """Handle unexpected exceptions"""
     logger.error(
         f"Unhandled exception on {request.method} {request.url.path}: {str(exc)}",
@@ -707,7 +835,7 @@ async def general_exception_handler(request: Request, exc: Exception):
             "error": {
                 "code": "INTERNAL_SERVER_ERROR",
                 "message": "An unexpected error occurred",
-                "timestamp": datetime.now(timezone.utc).isoformat(),
+                "timestamp": datetime.now(UTC).isoformat(),
                 "path": str(request.url.path),
                 "method": request.method,
                 "details": {
@@ -722,7 +850,7 @@ async def general_exception_handler(request: Request, exc: Exception):
 # Health check endpoint
 @app.get("/health", response_model=HealthCheckResponse)
 @limiter.limit("10/minute")  # More generous limit for health checks
-async def health_check(request: Request):
+async def health_check(request: Request) -> HealthCheckResponse:
     """Application health check endpoint with comprehensive system status"""
     try:
         # Test database connection and get detailed health info
@@ -741,7 +869,7 @@ async def health_check(request: Request):
                 "ssh_client": "healthy",
                 "api_server": "healthy",
             },
-            timestamp=datetime.now(timezone.utc),
+            timestamp=datetime.now(UTC),
         )
 
         return response
@@ -760,7 +888,7 @@ async def health_check(request: Request):
 # Root endpoint
 @app.get("/")
 @limiter.limit("30/minute")  # Standard limit for root endpoint
-async def root(request: Request):
+async def root(request: Request) -> dict[str, Any]:
     """Root endpoint with API information"""
     return {
         "name": "Infrastructure Management API",
@@ -768,7 +896,7 @@ async def root(request: Request):
         "description": "Centralized monitoring and management system for self-hosted infrastructure",
         "endpoints": {"rest_api": "/api", "health": "/health", "documentation": "/docs"},
         "external_services": {"mcp_server": "Independent MCP server via mcp_server.py"},
-        "timestamp": datetime.now(timezone.utc).isoformat(),
+        "timestamp": datetime.now(UTC).isoformat(),
     }
 
 

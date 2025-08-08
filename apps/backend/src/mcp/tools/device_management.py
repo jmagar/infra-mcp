@@ -5,25 +5,25 @@ This module implements MCP tools for device registry management,
 monitoring status checks, and device information retrieval.
 """
 
+from datetime import UTC, datetime
 import logging
 import time
-from datetime import datetime, timezone
 from typing import Any
-# UUID import removed - now using hostname-only approach
+from uuid import UUID
 
-from sqlalchemy import select, func
-from sqlalchemy.ext.asyncio import AsyncSession
+# UUID import removed - now using hostname-only approach
+from sqlalchemy import func, select
 
 from apps.backend.src.core.database import get_async_session
-from apps.backend.src.models.device import Device
 from apps.backend.src.core.exceptions import (
-    DeviceNotFoundError,
     DatabaseOperationError,
+    DeviceNotFoundError,
     ValidationError,
 )
+from apps.backend.src.models.device import Device
 from apps.backend.src.utils.ssh_client import (
-    get_ssh_client,
     SSHConnectionInfo,
+    get_ssh_client,
     test_ssh_connectivity,
 )
 
@@ -71,6 +71,7 @@ async def add_device(
         DatabaseOperationError: If device creation fails
     """
     import httpx
+
     from apps.backend.src.core.config import get_settings
 
     logger.info(f"Adding new device: {hostname}")
@@ -102,7 +103,7 @@ async def add_device(
         # Make HTTP request to the API endpoint
         api_url = f"http://localhost:{settings.mcp_server.mcp_port}/api/devices"
         headers = {
-            "Authorization": f"Bearer {settings.api_key}",
+            "Authorization": f"Bearer {settings.auth.api_key}",
             "Content-Type": "application/json",
         }
 
@@ -129,7 +130,7 @@ async def add_device(
                         "Use other MCP tools to manage containers, check system metrics, etc.",
                         "Update device configuration via update_device tool if needed",
                     ],
-                    "timestamp": datetime.now(timezone.utc).isoformat(),
+                    "timestamp": datetime.now(UTC).isoformat(),
                 }
 
             elif response.status_code == 409:
@@ -220,7 +221,7 @@ async def list_devices(
             if device_type:
                 filters.append(Device.device_type == device_type)
             if status:
-                filters.append(Device.status == DeviceStatus(status))
+                filters.append(Device.status == status)
             if monitoring_enabled is not None:
                 filters.append(Device.monitoring_enabled == monitoring_enabled)
             if location:
@@ -260,7 +261,7 @@ async def list_devices(
                     "hostname": device.hostname,
                     "ip_address": device.ip_address,
                     "device_type": device.device_type,
-                    "status": device.status.value,
+                    "status": device.status,
                     "location": device.location,
                     "description": device.description,
                     "monitoring_enabled": device.monitoring_enabled,
@@ -269,13 +270,17 @@ async def list_devices(
                     "ssh_config": {
                         "port": device.ssh_port,
                         "username": device.ssh_username,
-                        "key_based_auth": bool(device.ssh_private_key_path),
+                        "key_based_auth": bool(getattr(device, 'ssh_private_key_path', None)),
                     },
                 }
                 device_list.append(device_info)
 
-                # Count statuses
-                status_counts[device.status.value] += 1
+                # Count statuses - handle both string and enum values
+                device_status = device.status
+                if hasattr(device_status, 'value'):
+                    device_status = device_status.value
+                if device_status in status_counts:
+                    status_counts[device_status] += 1
 
             # Prepare response
             response = {
@@ -285,7 +290,7 @@ async def list_devices(
                     "returned_count": len(device_list),
                     "limit": limit,
                     "offset": offset,
-                    "has_more": offset + len(device_list) < total_count,
+                    "has_more": (offset + len(device_list)) < (total_count or 0),
                 },
                 "filters_applied": {
                     "device_type": device_type,
@@ -302,7 +307,7 @@ async def list_devices(
                     "monitoring_enabled": sum(1 for d in device_list if d["monitoring_enabled"]),
                 },
                 "query_info": {
-                    "timestamp": datetime.now(timezone.utc).isoformat(),
+                    "timestamp": datetime.now(UTC).isoformat(),
                     "execution_time_ms": 0,  # Database queries are typically fast
                 },
             }
@@ -313,6 +318,7 @@ async def list_devices(
     except Exception as e:
         logger.error(f"Error listing devices: {e}")
         raise DatabaseOperationError(
+            message=f"Failed to list devices: {str(e)}",
             operation="list_devices",
             details={
                 "error": str(e),
@@ -378,7 +384,7 @@ async def get_device_info(
                 "hostname": device_record.hostname,
                 "ip_address": device_record.ip_address,
                 "device_type": device_record.device_type,
-                "status": device_record.status.value,
+                "status": device_record.status,
                 "location": device_record.location,
                 "description": device_record.description,
                 "monitoring_enabled": device_record.monitoring_enabled,
@@ -387,16 +393,16 @@ async def get_device_info(
                 "last_seen": device_record.last_seen.isoformat()
                 if device_record.last_seen
                 else None,
-                "metadata": device_record.metadata or {},
+                "metadata": getattr(device_record, 'metadata', {}) or {},
             }
 
             # SSH configuration
             ssh_config = {
                 "port": device_record.ssh_port,
                 "username": device_record.ssh_username,
-                "password_auth": bool(device_record.ssh_password),
-                "key_based_auth": bool(device_record.ssh_private_key_path),
-                "private_key_path": device_record.ssh_private_key_path,
+                "password_auth": bool(getattr(device_record, 'ssh_password', None)),
+                "key_based_auth": bool(getattr(device_record, 'ssh_private_key_path', None)),
+                "private_key_path": getattr(device_record, 'ssh_private_key_path', None),
                 "connect_timeout": 30,
                 "command_timeout": 120,
             }
@@ -408,7 +414,7 @@ async def get_device_info(
                 "ssh_accessible": False,
                 "response_time_ms": None,
                 "error_message": None,
-                "last_test": datetime.now(timezone.utc).isoformat(),
+                "last_test": datetime.now(UTC).isoformat(),
             }
 
             # System info (only available if connected)
@@ -420,22 +426,21 @@ async def get_device_info(
                     start_time = time.time()
 
                     connection_info = SSHConnectionInfo(
-                        host=device_record.hostname,
-                        port=device_record.ssh_port,
-                        username=device_record.ssh_username,
-                        password=device_record.ssh_password,
-                        private_key_path=device_record.ssh_private_key_path,
+                        host=str(device_record.hostname),
+                        port=int(device_record.ssh_port or 22),
+                        username=str(device_record.ssh_username or 'root'),
+                        password=getattr(device_record, 'ssh_password', None),
+                        private_key_path=getattr(device_record, 'ssh_private_key_path', None),
                         connect_timeout=timeout,
                     )
 
                     # Test basic connectivity
                     is_connected = await test_ssh_connectivity(
-                        host=device_record.hostname,
-                        port=device_record.ssh_port,
-                        username=device_record.ssh_username,
-                        password=device_record.ssh_password,
-                        private_key_path=device_record.ssh_private_key_path,
-                        timeout=timeout,
+                        host=str(device_record.hostname),
+                        port=int(device_record.ssh_port or 22),
+                        username=str(device_record.ssh_username or 'root'),
+                        password=getattr(device_record, 'ssh_password', None),
+                        private_key_path=getattr(device_record, 'ssh_private_key_path', None),
                     )
 
                     connectivity_info["is_reachable"] = is_connected
@@ -476,12 +481,12 @@ async def get_device_info(
                             "memory_usage": free_result.stdout.strip()
                             if free_result.return_code == 0
                             else None,
-                            "timestamp": datetime.now(timezone.utc).isoformat(),
+                            "timestamp": datetime.now(UTC).isoformat(),
                         }
 
                         # Update device last_seen in database
-                        device_record.last_seen = datetime.now(timezone.utc)
-                        device_record.status = DeviceStatus.online
+                        device_record.last_seen = datetime.now(UTC)
+                        device_record.status = "online"
                         await db.commit()
 
                 except Exception as e:
@@ -504,7 +509,7 @@ async def get_device_info(
                 "last_check": device_record.last_seen.isoformat()
                 if device_record.last_seen
                 else None,
-                "status": device_record.status.value,
+                "status": device_record.status,
                 "health_checks": [],  # Could be expanded with specific health checks
             }
 
@@ -521,12 +526,12 @@ async def get_device_info(
                     "found_by": "uuid"
                     if (device.count("-") == 4 and len(device) == 36)
                     else "hostname_or_ip",
-                    "timestamp": datetime.now(timezone.utc).isoformat(),
+                    "timestamp": datetime.now(UTC).isoformat(),
                 },
             }
 
             logger.info(
-                f"Retrieved device info for {device_record.hostname} (Status: {device_record.status.value})"
+                f"Retrieved device info for {device_record.hostname} (Status: {device_record.status})"
             )
             return response
 
@@ -536,7 +541,9 @@ async def get_device_info(
     except Exception as e:
         logger.error(f"Error getting device info for {device}: {e}")
         raise DatabaseOperationError(
-            operation="get_device_info", details={"device": device, "error": str(e)}
+            message=f"Failed to get device info: {str(e)}",
+            operation="get_device_info", 
+            details={"device": device, "error": str(e)}
         )
 
 
@@ -594,7 +601,7 @@ async def get_device_summary(device: str, timeout: int = 30) -> dict[str, Any]:
                 "ip_address": device_record.ip_address,
                 "device_type": device_record.device_type,
                 "location": device_record.location,
-                "status": device_record.status.value,
+                "status": device_record.status,
             }
 
             # Initialize health status
@@ -603,7 +610,7 @@ async def get_device_summary(device: str, timeout: int = 30) -> dict[str, Any]:
                 "health_score": 0,
                 "issues": [],
                 "warnings": [],
-                "last_assessment": datetime.now(timezone.utc).isoformat(),
+                "last_assessment": datetime.now(UTC).isoformat(),
             }
 
             # Initialize connectivity status
@@ -649,22 +656,21 @@ async def get_device_summary(device: str, timeout: int = 30) -> dict[str, Any]:
                     start_time = time.time()
 
                     connection_info = SSHConnectionInfo(
-                        host=device_record.hostname,
-                        port=device_record.ssh_port,
-                        username=device_record.ssh_username,
-                        password=device_record.ssh_password,
-                        private_key_path=device_record.ssh_private_key_path,
+                        host=str(device_record.hostname),
+                        port=int(device_record.ssh_port or 22),
+                        username=str(device_record.ssh_username or 'root'),
+                        password=getattr(device_record, 'ssh_password', None),
+                        private_key_path=getattr(device_record, 'ssh_private_key_path', None),
                         connect_timeout=timeout,
                     )
 
                     # Test SSH connectivity
                     is_connected = await test_ssh_connectivity(
-                        host=device_record.hostname,
-                        port=device_record.ssh_port,
-                        username=device_record.ssh_username,
-                        password=device_record.ssh_password,
-                        private_key_path=device_record.ssh_private_key_path,
-                        timeout=timeout,
+                        host=str(device_record.hostname),
+                        port=int(device_record.ssh_port or 22),
+                        username=str(device_record.ssh_username or 'root'),
+                        password=getattr(device_record, 'ssh_password', None),
+                        private_key_path=getattr(device_record, 'ssh_private_key_path', None),
                     )
 
                     connectivity_status["is_online"] = is_connected
@@ -683,9 +689,8 @@ async def get_device_summary(device: str, timeout: int = 30) -> dict[str, Any]:
                                 timeout=10,
                             )
                             if cpu_result.return_code == 0 and cpu_result.stdout.strip():
-                                system_summary["cpu_usage_percent"] = float(
-                                    cpu_result.stdout.strip()
-                                )
+                                cpu_usage = float(cpu_result.stdout.strip())
+                                system_summary["cpu_usage_percent"] = cpu_usage
                         except Exception:
                             pass
 
@@ -697,9 +702,8 @@ async def get_device_summary(device: str, timeout: int = 30) -> dict[str, Any]:
                                 timeout=10,
                             )
                             if mem_result.return_code == 0 and mem_result.stdout.strip():
-                                system_summary["memory_usage_percent"] = float(
-                                    mem_result.stdout.strip()
-                                )
+                                memory_usage = float(mem_result.stdout.strip())
+                                system_summary["memory_usage_percent"] = memory_usage
                         except Exception:
                             pass
 
@@ -711,9 +715,8 @@ async def get_device_summary(device: str, timeout: int = 30) -> dict[str, Any]:
                                 timeout=10,
                             )
                             if disk_result.return_code == 0 and disk_result.stdout.strip():
-                                system_summary["disk_usage_percent"] = int(
-                                    disk_result.stdout.strip()
-                                )
+                                disk_usage = int(disk_result.stdout.strip())
+                                system_summary["disk_usage_percent"] = disk_usage
                         except Exception:
                             pass
 
@@ -725,7 +728,8 @@ async def get_device_summary(device: str, timeout: int = 30) -> dict[str, Any]:
                                 timeout=10,
                             )
                             if load_result.return_code == 0 and load_result.stdout.strip():
-                                system_summary["load_average"] = float(load_result.stdout.strip())
+                                load_avg = float(load_result.stdout.strip())
+                                system_summary["load_average"] = load_avg
                         except Exception:
                             pass
 
@@ -745,9 +749,8 @@ async def get_device_summary(device: str, timeout: int = 30) -> dict[str, Any]:
                                 connection_info, "ps aux | wc -l", timeout=10
                             )
                             if proc_result.return_code == 0 and proc_result.stdout.strip():
-                                system_summary["processes_count"] = (
-                                    int(proc_result.stdout.strip()) - 1
-                                )  # Subtract header
+                                proc_count = int(proc_result.stdout.strip()) - 1  # Subtract header
+                                system_summary["processes_count"] = proc_count
                         except Exception:
                             pass
 
@@ -771,8 +774,8 @@ async def get_device_summary(device: str, timeout: int = 30) -> dict[str, Any]:
                                         if line.strip():
                                             parts = line.strip().split(None, 1)
                                             if len(parts) == 2:
-                                                count, status = parts
-                                                count = int(count)
+                                                count_str, status = parts
+                                                count = int(count_str)
                                                 docker_summary["containers_total"] += count
                                                 if status.startswith("Up"):
                                                     docker_summary["containers_running"] += count
@@ -784,15 +787,14 @@ async def get_device_summary(device: str, timeout: int = 30) -> dict[str, Any]:
                                     connection_info, "docker images -q | wc -l", timeout=10
                                 )
                                 if images_result.return_code == 0 and images_result.stdout.strip():
-                                    docker_summary["images_count"] = int(
-                                        images_result.stdout.strip()
-                                    )
+                                    image_count = int(images_result.stdout.strip())
+                                    docker_summary["images_count"] = image_count
                         except Exception:
                             pass
 
                         # Update device status
-                        device_record.last_seen = datetime.now(timezone.utc)
-                        device_record.status = DeviceStatus.online
+                        device_record.last_seen = datetime.now(UTC)
+                        device_record.status = "online"
                         await db.commit()
 
                         # Calculate health score
@@ -801,42 +803,27 @@ async def get_device_summary(device: str, timeout: int = 30) -> dict[str, Any]:
                         warnings = []
 
                         # Check system metrics for issues
-                        if (
-                            system_summary["cpu_usage_percent"]
-                            and system_summary["cpu_usage_percent"] > 90
-                        ):
+                        cpu_usage = system_summary.get("cpu_usage_percent")
+                        if cpu_usage is not None and cpu_usage > 90:
                             issues.append("High CPU usage")
                             health_score -= 20
-                        elif (
-                            system_summary["cpu_usage_percent"]
-                            and system_summary["cpu_usage_percent"] > 70
-                        ):
+                        elif cpu_usage is not None and cpu_usage > 70:
                             warnings.append("Elevated CPU usage")
                             health_score -= 10
 
-                        if (
-                            system_summary["memory_usage_percent"]
-                            and system_summary["memory_usage_percent"] > 90
-                        ):
+                        memory_usage = system_summary.get("memory_usage_percent")
+                        if memory_usage is not None and memory_usage > 90:
                             issues.append("High memory usage")
                             health_score -= 20
-                        elif (
-                            system_summary["memory_usage_percent"]
-                            and system_summary["memory_usage_percent"] > 75
-                        ):
+                        elif memory_usage is not None and memory_usage > 75:
                             warnings.append("Elevated memory usage")
                             health_score -= 10
 
-                        if (
-                            system_summary["disk_usage_percent"]
-                            and system_summary["disk_usage_percent"] > 90
-                        ):
+                        disk_usage = system_summary.get("disk_usage_percent")
+                        if disk_usage is not None and disk_usage > 90:
                             issues.append("High disk usage")
                             health_score -= 25
-                        elif (
-                            system_summary["disk_usage_percent"]
-                            and system_summary["disk_usage_percent"] > 80
-                        ):
+                        elif disk_usage is not None and disk_usage > 80:
                             warnings.append("Elevated disk usage")
                             health_score -= 10
 
@@ -894,7 +881,7 @@ async def get_device_summary(device: str, timeout: int = 30) -> dict[str, Any]:
                 "query_info": {
                     "queried_identifier": device,
                     "monitoring_enabled": device_record.monitoring_enabled,
-                    "timestamp": datetime.now(timezone.utc).isoformat(),
+                    "timestamp": datetime.now(UTC).isoformat(),
                 },
             }
 
@@ -911,7 +898,9 @@ async def get_device_summary(device: str, timeout: int = 30) -> dict[str, Any]:
     except Exception as e:
         logger.error(f"Error getting device summary for {device}: {e}")
         raise DatabaseOperationError(
-            operation="get_device_summary", details={"device": device, "error": str(e)}
+            message=f"Failed to get device summary: {str(e)}",
+            operation="get_device_summary", 
+            details={"device": device, "error": str(e)}
         )
 
 

@@ -5,25 +5,21 @@ SQLAlchemy models for storing SWAG reverse proxy configurations
 with TimescaleDB integration for change tracking.
 """
 
-from datetime import datetime
-from typing import Dict, Any, Optional
 from sqlalchemy import (
+    JSON,
+    Boolean,
+    CheckConstraint,
     Column,
+    DateTime,
+    ForeignKey,
+    Index,
     Integer,
     String,
     Text,
-    DateTime,
-    Boolean,
-    JSON,
-    ForeignKey,
-    Index,
-    CheckConstraint,
     UniqueConstraint,
 )
 from sqlalchemy.orm import relationship, validates
-from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.sql import func
-import uuid
 
 from apps.backend.src.core.database import Base
 
@@ -101,7 +97,7 @@ class ProxyConfig(Base):
     )
 
     @validates("service_name", "subdomain")
-    def validate_names(self, key, value):
+    def validate_names(self, key, value) -> list[str] | None:
         """Validate service and subdomain names"""
         if not value or not value.strip():
             raise ValueError(f"{key} cannot be empty")
@@ -115,7 +111,7 @@ class ProxyConfig(Base):
         return value.strip().lower()
 
     @validates("file_path")
-    def validate_file_path(self, key, value):
+    def validate_file_path(self, key, value) -> str:
         """Validate file path format"""
         if not value or not value.strip():
             raise ValueError("file_path cannot be empty")
@@ -129,7 +125,7 @@ class ProxyConfig(Base):
 
         return value.strip()
 
-    def __repr__(self):
+    def __repr__(self) -> str:
         return f"<ProxyConfig(id={self.id}, service='{self.service_name}', subdomain='{self.subdomain}')>"
 
 
@@ -185,7 +181,7 @@ class ProxyConfigChange(Base):
         Index("ix_proxy_config_changes_type_time", "change_type", "time"),
     )
 
-    def __repr__(self):
+    def __repr__(self) -> str:
         return f"<ProxyConfigChange(id={self.id}, config_id={self.config_id}, type='{self.change_type}')>"
 
 
@@ -234,14 +230,14 @@ class ProxyConfigTemplate(Base):
     )
 
     @validates("name")
-    def validate_name(self, key, value):
+    def validate_name(self, key: str, value: str) -> str:
         """Validate template name"""
         if not value or not value.strip():
             raise ValueError("Template name cannot be empty")
 
         return value.strip()
 
-    def __repr__(self):
+    def __repr__(self) -> str:
         return f"<ProxyConfigTemplate(id={self.id}, name='{self.name}', type='{self.config_type}')>"
 
 
@@ -284,7 +280,7 @@ class ProxyConfigValidation(Base):
         Index("ix_proxy_validations_valid", "is_valid", "validated_at"),
     )
 
-    def __repr__(self):
+    def __repr__(self) -> str:
         return f"<ProxyConfigValidation(id={self.id}, config_id={self.config_id}, valid={self.is_valid})>"
 
 

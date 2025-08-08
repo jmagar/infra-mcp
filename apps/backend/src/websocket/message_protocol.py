@@ -10,7 +10,7 @@ from enum import Enum
 from typing import Any
 from zoneinfo import ZoneInfo
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator, AliasChoices
 
 
 class MessageType(str, Enum):
@@ -39,8 +39,14 @@ class DataMessage(WebSocketMessage):
     """Real-time data streaming message"""
 
     type: MessageType = MessageType.DATA
-    device_id: str
+    hostname: str = Field(validation_alias=AliasChoices("hostname", "device_id", "device"))
     metric_type: str  # 'system_metrics', 'container_snapshots', 'drive_health'
+
+    # Coerce hostname to string to handle UUID and other types gracefully
+    @field_validator("hostname", mode="before")
+    @classmethod
+    def _coerce_hostname(cls, v: Any) -> str:
+        return str(v) if v is not None else "unknown"
 
 
 class EventMessage(WebSocketMessage):
@@ -48,7 +54,7 @@ class EventMessage(WebSocketMessage):
 
     type: MessageType = MessageType.EVENT
     event_type: str
-    device_id: str | None = None
+    hostname: str | None = Field(default=None, validation_alias=AliasChoices("hostname", "device_id", "device"))
     severity: str = "info"  # info, warning, error, critical
 
 
@@ -82,6 +88,11 @@ class AuthMessage(WebSocketMessage):
     type: MessageType = MessageType.AUTH
     token: str
     action: str = "authenticate"  # 'authenticate', 'refresh'
+
+
+def create_error_message(error_code: str, message: str, details: dict[str, Any] | None = None) -> ErrorMessage:
+    """Helper to create error messages"""
+    return ErrorMessage(error_code=error_code, message=message, details=details)
 
 
 # Subscription topic patterns
@@ -121,25 +132,33 @@ class SubscriptionTopics:
         return "events"
 
 
-def create_data_message(device_id: str, metric_type: str, data: dict[str, Any]) -> DataMessage:
-    """Helper to create data messages"""
-    return DataMessage(device_id=device_id, metric_type=metric_type, data=data)
+def create_data_message(
+    hostname: str | None = None,
+    metric_type: str = "",
+    data: dict[str, Any] | None = None,
+    *,
+    device_id: str | None = None,
+    device: str | None = None,
+) -> DataMessage:
+    """Helper to create data messages.
+
+    Prefer hostname. For backward compatibility, supports legacy parameter names
+    via keyword-only args device_id/device.
+    """
+    resolved_host = hostname or device or device_id or "unknown"
+    return DataMessage(hostname=resolved_host, metric_type=metric_type, data=data or {})
 
 
 def create_event_message(
-    event_type: str, message: str, device_id: str | None = None, severity: str = "info", **kwargs
+    event_type: str, message: str, hostname: str | None = None, severity: str = "info", **kwargs: Any
 ) -> EventMessage:
     """Helper to create event messages"""
     return EventMessage(
         event_type=event_type,
-        device_id=device_id,
+        hostname=hostname,
         severity=severity,
         data={"message": message, **kwargs},
     )
 
 
-def create_error_message(
-    error_code: str, message: str, details: dict[str, Any] | None = None
-) -> ErrorMessage:
-    """Helper to create error messages"""
-    return ErrorMessage(error_code=error_code, message=message, details=details)
+ 

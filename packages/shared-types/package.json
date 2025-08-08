@@ -1,0 +1,15 @@
+{
+  "name": "@infrastructor/shared-types",
+  "version": "1.0.0",
+  "description": "Shared TypeScript types between frontend and backend",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "scripts": {
+    "build": "tsc",
+    "watch": "tsc --watch",
+    "clean": "rm -rf dist"
+  },
+  "devDependencies": {
+    "typescript": "^5.9.2"
+  }
+}

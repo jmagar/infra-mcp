@@ -5,24 +5,23 @@ This module implements MCP tools for system resource and health monitoring
 across infrastructure devices using SSH communication.
 """
 
+from datetime import UTC, datetime
 import json
 import logging
 import re
-from datetime import datetime, timezone
-from typing import Dict, List, Optional, Any
+
+from typing import Any, Dict, List, Optional
 # UUID import removed - now using hostname-only approach
 
-from apps.backend.src.utils.ssh_client import SSHConnectionInfo, get_ssh_client
 from apps.backend.src.core.exceptions import (
     DeviceNotFoundError,
-    SSHConnectionError,
-    SSHCommandError,
 )
+from apps.backend.src.utils.ssh_client import SSHConnectionInfo, get_ssh_client
 
 logger = logging.getLogger(__name__)
 
 
-async def get_system_info(device: str, timeout: int = 60) -> Dict[str, Any]:
+async def get_system_info(device: str, timeout: int = 60) -> dict[str, Any]:
     """
     Collect system resource metrics from a specific device.
 
@@ -126,7 +125,7 @@ async def get_system_info(device: str, timeout: int = 60) -> Dict[str, Any]:
         # Prepare response
         response = {
             "device": device,
-            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "timestamp": datetime.now(UTC).isoformat(),
             **parsed_metrics,
         }
 
@@ -148,7 +147,7 @@ async def get_system_info(device: str, timeout: int = 60) -> Dict[str, Any]:
         # Return error response
         return {
             "device": device,
-            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "timestamp": datetime.now(UTC).isoformat(),
             "error": f"Failed to collect system metrics: {str(e)}",
             "cpu_usage_percent": 0,
             "memory": {"total": 0, "used": 0, "free": 0, "percent": 0},
@@ -159,7 +158,7 @@ async def get_system_info(device: str, timeout: int = 60) -> Dict[str, Any]:
         }
 
 
-def _parse_cpu_usage(cpu_output: Optional[str]) -> float:
+def _parse_cpu_usage(cpu_output: str | None) -> float:
     """
     Parse CPU usage from top command output.
 
@@ -197,7 +196,7 @@ def _parse_cpu_usage(cpu_output: Optional[str]) -> float:
         return 0.0
 
 
-def _parse_memory_usage(memory_output: Optional[str]) -> Dict[str, Any]:
+def _parse_memory_usage(memory_output: str | None) -> dict[str, Any]:
     """
     Parse memory usage from free command output.
 
@@ -245,7 +244,7 @@ def _parse_memory_usage(memory_output: Optional[str]) -> Dict[str, Any]:
         return {"total": 0, "used": 0, "free": 0, "percent": 0}
 
 
-def _parse_disk_usage(disk_output: Optional[str]) -> List[Dict[str, Any]]:
+def _parse_disk_usage(disk_output: str | None) -> list[dict[str, Any]]:
     """
     Parse disk usage from df command output.
 
@@ -303,7 +302,7 @@ def _parse_disk_usage(disk_output: Optional[str]) -> List[Dict[str, Any]]:
         return []
 
 
-def _parse_uptime(uptime_output: Optional[str]) -> Dict[str, Any]:
+def _parse_uptime(uptime_output: str | None) -> dict[str, Any]:
     """
     Parse uptime and load averages from uptime command output.
 
@@ -347,7 +346,7 @@ def _parse_uptime(uptime_output: Optional[str]) -> Dict[str, Any]:
         return {"uptime": "unknown", "load_average": {"1min": 0.0, "5min": 0.0, "15min": 0.0}}
 
 
-def _parse_process_count(process_output: Optional[str]) -> int:
+def _parse_process_count(process_output: str | None) -> int:
     """
     Parse process count from wc output.
     """
@@ -362,8 +361,8 @@ def _parse_process_count(process_output: Optional[str]) -> int:
 
 
 async def get_drive_health(
-    device: str, drive: Optional[str] = None, timeout: int = 120
-) -> Dict[str, Any]:
+    device: str, drive: str | None = None, timeout: int = 120
+) -> dict[str, Any]:
     """
     Collect drive health and SMART data from a specific device.
 
@@ -460,7 +459,7 @@ async def get_drive_health(
         # Prepare response
         response = {
             "device": device,
-            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "timestamp": datetime.now(UTC).isoformat(),
             "drives": drive_health_data,
             "summary": {
                 "total_drives": total_drives,
@@ -486,7 +485,7 @@ async def get_drive_health(
         # Return error response
         return {
             "device": device,
-            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "timestamp": datetime.now(UTC).isoformat(),
             "drives": [],
             "summary": {"total_drives": 0, "healthy_drives": 0, "warning_drives": 0},
             "error": f"Failed to collect drive health: {str(e)}",
@@ -495,7 +494,7 @@ async def get_drive_health(
 
 async def _collect_single_drive_health(
     ssh_client, connection_info: SSHConnectionInfo, device: str, drive_name: str
-) -> Optional[Dict[str, Any]]:
+) -> dict[str, Any] | None:
     """
     Collect health data for a single drive.
 
@@ -590,7 +589,7 @@ async def _collect_single_drive_health(
         }
 
 
-def _parse_smart_info(smart_output: str) -> Dict[str, Any]:
+def _parse_smart_info(smart_output: str) -> dict[str, Any]:
     """
     Parse basic drive information from smartctl -i output.
 
@@ -638,7 +637,7 @@ def _parse_smart_info(smart_output: str) -> Dict[str, Any]:
     return info
 
 
-def _parse_smart_attributes(smart_output: str, is_nvme: bool = False) -> Dict[str, Any]:
+def _parse_smart_attributes(smart_output: str, is_nvme: bool = False) -> dict[str, Any]:
     """
     Parse SMART attributes from smartctl -A output.
 
@@ -665,7 +664,7 @@ def _parse_smart_attributes(smart_output: str, is_nvme: bool = False) -> Dict[st
     return attributes
 
 
-def _parse_nvme_attributes(smart_output: str) -> Dict[str, Any]:
+def _parse_nvme_attributes(smart_output: str) -> dict[str, Any]:
     """Parse NVMe SMART attributes."""
     attributes = {}
 
@@ -703,7 +702,7 @@ def _parse_nvme_attributes(smart_output: str) -> Dict[str, Any]:
     return attributes
 
 
-def _parse_traditional_smart_attributes(smart_output: str) -> Dict[str, Any]:
+def _parse_traditional_smart_attributes(smart_output: str) -> dict[str, Any]:
     """Parse traditional SATA/SAS SMART attributes."""
     attributes = {}
 
@@ -782,7 +781,7 @@ def _parse_traditional_smart_attributes(smart_output: str) -> Dict[str, Any]:
     return attributes
 
 
-def _parse_smart_health(smart_output: str) -> Dict[str, Any]:
+def _parse_smart_health(smart_output: str) -> dict[str, Any]:
     """
     Parse overall SMART health status.
 
@@ -816,7 +815,7 @@ def _parse_smart_health(smart_output: str) -> Dict[str, Any]:
     return health_info
 
 
-def _calculate_health_percentage(drive_info: Dict[str, Any]) -> int:
+def _calculate_health_percentage(drive_info: dict[str, Any]) -> int:
     """
     Calculate overall drive health percentage based on SMART attributes.
 
@@ -875,12 +874,12 @@ def _calculate_health_percentage(drive_info: Dict[str, Any]) -> int:
 
 async def get_system_logs(
     device: str,
-    service: Optional[str] = None,
-    since: Optional[str] = None,
+    service: str | None = None,
+    since: str | None = None,
     timeout: int = 60,
     limit: int = 100,
-    priority: Optional[str] = None,
-) -> Dict[str, Any]:
+    priority: str | None = None,
+) -> dict[str, Any]:
     """
     Retrieve system logs from a specific device using OS-appropriate commands.
 
@@ -920,18 +919,19 @@ async def get_system_logs(
 
     try:
         # First, get device OS type from database
-        from apps.backend.src.core.database import get_async_session
         from sqlalchemy import select
+
+        from apps.backend.src.core.database import get_async_session
         from apps.backend.src.models.device import Device
-        
+
         async with get_async_session() as db:
             result = await db.execute(select(Device.tags).where(Device.hostname == device))
             device_record = result.scalar_one_or_none()
-            
+
         os_name = "unknown"
         if device_record and device_record.get('os_name'):
             os_name = device_record['os_name'].lower()
-            
+
         # Create SSH connection info
         connection_info = SSHConnectionInfo(host=device, command_timeout=timeout)
 
@@ -952,7 +952,7 @@ async def get_system_logs(
         if service and log_source == "journalctl":
             cmd_parts.append(f"--unit={service}")
 
-        # Add time range filter (only for journalctl)  
+        # Add time range filter (only for journalctl)
         if since and log_source == "journalctl":
             cmd_parts.append(f"--since={since}")
 
@@ -980,12 +980,12 @@ async def get_system_logs(
 
             # Check for common errors
             error_msg = result.stderr.lower() if result.stderr else ""
-            
+
             if log_source == "journalctl":
                 if "unit" in error_msg and "not found" in error_msg:
                     return {
                         "device": device,
-                        "timestamp": datetime.now(timezone.utc).isoformat(),
+                        "timestamp": datetime.now(UTC).isoformat(),
                         "os_type": os_name,
                         "log_source": log_source,
                         "service_filter": service,
@@ -997,7 +997,7 @@ async def get_system_logs(
                 elif "invalid" in error_msg and "time" in error_msg:
                     return {
                         "device": device,
-                        "timestamp": datetime.now(timezone.utc).isoformat(),
+                        "timestamp": datetime.now(UTC).isoformat(),
                         "os_type": os_name,
                         "log_source": log_source,
                         "service_filter": service,
@@ -1010,7 +1010,7 @@ async def get_system_logs(
                 if "no such file" in error_msg or "cannot open" in error_msg:
                     return {
                         "device": device,
-                        "timestamp": datetime.now(timezone.utc).isoformat(),
+                        "timestamp": datetime.now(UTC).isoformat(),
                         "os_type": os_name,
                         "log_source": log_source,
                         "service_filter": service,
@@ -1019,10 +1019,10 @@ async def get_system_logs(
                         "logs": [],
                         "error": "Syslog file not found or not accessible",
                     }
-                    
+
             return {
                     "device": device,
-                    "timestamp": datetime.now(timezone.utc).isoformat(),
+                    "timestamp": datetime.now(UTC).isoformat(),
                     "service_filter": service,
                     "since_filter": since,
                     "log_count": 0,
@@ -1049,7 +1049,7 @@ async def get_system_logs(
                     except Exception as e:
                         logger.debug(f"Error processing log entry: {e}")
                         continue
-        
+
         elif log_source == "syslog":
             # Parse plain text syslog entries
             for line in lines:
@@ -1068,7 +1068,7 @@ async def get_system_logs(
         # Prepare response
         response = {
             "device": device,
-            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "timestamp": datetime.now(UTC).isoformat(),
             "os_type": os_name,
             "log_source": log_source,
             "service_filter": service,
@@ -1095,7 +1095,7 @@ async def get_system_logs(
         # Return error response
         return {
             "device": device,
-            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "timestamp": datetime.now(UTC).isoformat(),
             "service_filter": service,
             "since_filter": since,
             "log_count": 0,
@@ -1104,7 +1104,7 @@ async def get_system_logs(
         }
 
 
-def _parse_journalctl_json_entry(log_data: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+def _parse_journalctl_json_entry(log_data: dict[str, Any]) -> dict[str, Any] | None:
     """
     Parse a single journalctl JSON log entry into SystemLogEntry format.
 
@@ -1120,11 +1120,11 @@ def _parse_journalctl_json_entry(log_data: Dict[str, Any]) -> Optional[Dict[str,
         if timestamp_us:
             # Convert microseconds to seconds and create datetime
             timestamp_s = int(timestamp_us) / 1000000
-            dt = datetime.fromtimestamp(timestamp_s, tz=timezone.utc)
+            dt = datetime.fromtimestamp(timestamp_s, tz=UTC)
             timestamp = dt.isoformat()
         else:
             # Fallback to current time if no timestamp
-            timestamp = datetime.now(timezone.utc).isoformat()
+            timestamp = datetime.now(UTC).isoformat()
 
         # Extract hostname
         hostname = log_data.get("_HOSTNAME", "unknown")
@@ -1171,7 +1171,7 @@ def _parse_journalctl_json_entry(log_data: Dict[str, Any]) -> Optional[Dict[str,
         return None
 
 
-def _parse_syslog_line(line: str) -> Optional[Dict[str, Any]]:
+def _parse_syslog_line(line: str) -> dict[str, Any] | None:
     """
     Parse a single syslog line into SystemLogEntry format.
     
@@ -1185,40 +1185,40 @@ def _parse_syslog_line(line: str) -> Optional[Dict[str, Any]]:
         Parsed log entry dict or None if parsing fails
     """
     try:
+        from datetime import datetime
         import re
-        from datetime import datetime, timezone
-        
+
         # Regex to parse standard syslog format
         # Month Day Time Hostname Service[PID]: Message
         syslog_pattern = r'^(\w{3}\s+\d{1,2}\s+\d{2}:\d{2}:\d{2})\s+(\S+)\s+([^:\[]+)(?:\[(\d+)\])?:\s*(.+)$'
-        
+
         match = re.match(syslog_pattern, line.strip())
         if not match:
             # Fallback for lines that don't match standard format
             return {
-                "timestamp": datetime.now(timezone.utc).isoformat(),
+                "timestamp": datetime.now(UTC).isoformat(),
                 "hostname": "unknown",
                 "service": "unknown",
                 "priority": "info",
                 "message": line.strip(),
                 "pid": None,
             }
-            
+
         date_str, hostname, service, pid, message = match.groups()
-        
+
         # Parse timestamp (add current year since syslog doesn't include it)
         try:
             current_year = datetime.now().year
             full_date_str = f"{current_year} {date_str}"
             dt = datetime.strptime(full_date_str, "%Y %b %d %H:%M:%S")
-            dt = dt.replace(tzinfo=timezone.utc)
+            dt = dt.replace(tzinfo=UTC)
             timestamp = dt.isoformat()
         except ValueError:
-            timestamp = datetime.now(timezone.utc).isoformat()
-        
+            timestamp = datetime.now(UTC).isoformat()
+
         # Extract PID if present
         pid_int = int(pid) if pid else None
-        
+
         return {
             "timestamp": timestamp,
             "hostname": hostname.strip(),
@@ -1227,7 +1227,7 @@ def _parse_syslog_line(line: str) -> Optional[Dict[str, Any]]:
             "message": message.strip(),
             "pid": pid_int,
         }
-        
+
     except Exception as e:
         logger.debug(f"Error parsing syslog entry: {e}")
         return None

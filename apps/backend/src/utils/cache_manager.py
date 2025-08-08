@@ -6,11 +6,11 @@ implementing intelligent cache management with LRU eviction, performance metrics
 and memory-aware cache operations.
 """
 
+from datetime import UTC, datetime
 import json
 import logging
 import time
-from datetime import datetime, timezone, timedelta
-from typing import Dict, Any, Optional, Union, NamedTuple
+from typing import Any, Dict, List, Optional, NamedTuple
 from uuid import UUID
 
 import redis.asyncio as redis
@@ -67,22 +67,22 @@ class CacheManager:
         self.max_cache_size = max_cache_size
         self.max_memory_mb = max_memory_mb
         self.eviction_batch_size = eviction_batch_size
-        self.redis_client: Optional[redis.Redis] = None
+        self.redis_client: redis.Redis | None = None
         self.logger = logging.getLogger(f"{__name__}.{self.__class__.__name__}")
-        
+
         # LRU tracking key names
         self.lru_zset_key = f"{key_prefix}lru_tracker"
         self.metrics_key = f"{key_prefix}metrics"
-        
+
         # Performance metrics
         self._metrics = {
             "hits": 0,
-            "misses": 0, 
+            "misses": 0,
             "evictions": 0,
             "total_operations": 0,
             "total_response_time_ms": 0.0,
         }
-        
+
     async def connect(self) -> None:
         """Establish Redis connection"""
         try:
@@ -102,7 +102,7 @@ class CacheManager:
             self.logger.error("Failed to connect to Redis: %s", str(e))
             self.redis_client = None
             raise CacheOperationError(f"Redis connection failed: {str(e)}") from e
-    
+
     async def disconnect(self) -> None:
         """Close Redis connection"""
         if self.redis_client:
@@ -113,7 +113,7 @@ class CacheManager:
                 self.logger.warning("Error closing Redis connection: %s", str(e))
             finally:
                 self.redis_client = None
-    
+
     def _build_cache_key(self, data_type: str, device_id: UUID, additional_key: str = "") -> str:
         """
         Build a standardized cache key.
@@ -130,13 +130,13 @@ class CacheManager:
         if additional_key:
             key_parts.append(additional_key)
         return ":".join(key_parts)
-    
+
     async def get(
         self,
         data_type: str,
         device_id: UUID,
         additional_key: str = "",
-    ) -> Optional[Dict[str, Any]]:
+    ) -> dict[str, Any] | None:
         """
         Retrieve data from cache with LRU tracking.
         
@@ -149,51 +149,51 @@ class CacheManager:
             Cached data if found, None otherwise
         """
         start_time = time.time()
-        
+
         if not self.redis_client:
             self.logger.warning("Redis client not connected, skipping cache get")
             return None
-            
+
         cache_key = self._build_cache_key(data_type, device_id, additional_key)
-        
+
         try:
             cached_data = await self.redis_client.get(cache_key)
             if cached_data:
                 data = json.loads(cached_data)
-                
+
                 # Update LRU tracker with current timestamp
                 await self._update_lru_access(cache_key)
-                
+
                 # Update metrics
                 await self._update_metrics("hit", time.time() - start_time)
-                
+
                 self.logger.debug(
                     "Cache hit for key %s, data age: %s",
                     cache_key,
                     self._calculate_data_age(data)
                 )
-                return data
+                return dict(data)  # Explicit cast to ensure proper return type
             else:
                 # Update metrics for miss
                 await self._update_metrics("miss", time.time() - start_time)
-                
+
                 self.logger.debug("Cache miss for key %s", cache_key)
                 return None
-                
-        except (RedisError, json.JSONDecodeError, KeyError) as e:
+
+        except (RedisError, json.JSONDecodeError) as e:
             self.logger.warning(
                 "Failed to retrieve from cache (key: %s): %s",
                 cache_key, str(e)
             )
             await self._update_metrics("miss", time.time() - start_time)
             return None
-    
+
     async def set(
         self,
         data_type: str,
         device_id: UUID,
-        data: Dict[str, Any],
-        ttl: Optional[int] = None,
+        data: dict[str, Any],
+        ttl: int | None = None,
         additional_key: str = "",
     ) -> bool:
         """
@@ -212,51 +212,51 @@ class CacheManager:
         if not self.redis_client:
             self.logger.warning("Redis client not connected, skipping cache set")
             return False
-            
+
         cache_key = self._build_cache_key(data_type, device_id, additional_key)
         cache_ttl = ttl if ttl is not None else self.default_ttl
-        
+
         try:
             # Check if we need to evict before adding new data
             await self._enforce_cache_limits()
-            
+
             # Add cache metadata to the data
             cached_data = {
                 **data,
                 "_cache_metadata": {
-                    "cached_at": datetime.now(timezone.utc).isoformat(),
+                    "cached_at": datetime.now(UTC).isoformat(),
                     "data_type": data_type,
                     "device_id": str(device_id),
                     "ttl": cache_ttl,
                 }
             }
-            
+
             serialized_data = json.dumps(cached_data, default=str)
-            
+
             # Use pipeline for atomic operations
             async with self.redis_client.pipeline() as pipe:
                 # Store the data
                 await pipe.setex(cache_key, cache_ttl, serialized_data)
-                
+
                 # Update LRU tracker
                 await pipe.zadd(self.lru_zset_key, {cache_key: time.time()})
-                
+
                 # Execute pipeline
                 await pipe.execute()
-            
+
             self.logger.debug(
                 "Cached data for key %s with TTL %ds",
                 cache_key, cache_ttl
             )
             return True
-            
-        except (RedisError, json.JSONEncodeError) as e:
+
+        except (RedisError, json.JSONDecodeError) as e:
             self.logger.error(
                 "Failed to cache data (key: %s): %s",
                 cache_key, str(e)
             )
             return False
-    
+
     async def delete(
         self,
         data_type: str,
@@ -277,35 +277,35 @@ class CacheManager:
         if not self.redis_client:
             self.logger.warning("Redis client not connected, skipping cache delete")
             return False
-            
+
         cache_key = self._build_cache_key(data_type, device_id, additional_key)
-        
+
         try:
             # Use pipeline for atomic operations
             async with self.redis_client.pipeline() as pipe:
                 # Delete the cache entry
                 await pipe.delete(cache_key)
-                
+
                 # Remove from LRU tracker
                 await pipe.zrem(self.lru_zset_key, cache_key)
-                
+
                 # Execute pipeline
                 results = await pipe.execute()
-                
+
             deleted_count = results[0]  # Result from delete operation
             self.logger.debug(
                 "Deleted cache key %s (existed: %s)",
                 cache_key, deleted_count > 0
             )
             return True
-            
+
         except RedisError as e:
             self.logger.error(
                 "Failed to delete from cache (key: %s): %s",
                 cache_key, str(e)
             )
             return False
-    
+
     async def exists(
         self,
         data_type: str,
@@ -325,9 +325,9 @@ class CacheManager:
         """
         if not self.redis_client:
             return False
-            
+
         cache_key = self._build_cache_key(data_type, device_id, additional_key)
-        
+
         try:
             exists = await self.redis_client.exists(cache_key)
             return bool(exists)
@@ -337,13 +337,13 @@ class CacheManager:
                 cache_key, str(e)
             )
             return False
-    
+
     async def get_ttl(
         self,
         data_type: str,
         device_id: UUID,
         additional_key: str = "",
-    ) -> Optional[int]:
+    ) -> int | None:
         """
         Get remaining TTL for cached data.
         
@@ -357,9 +357,9 @@ class CacheManager:
         """
         if not self.redis_client:
             return None
-            
+
         cache_key = self._build_cache_key(data_type, device_id, additional_key)
-        
+
         try:
             ttl = await self.redis_client.ttl(cache_key)
             return ttl if ttl > 0 else None
@@ -369,7 +369,7 @@ class CacheManager:
                 cache_key, str(e)
             )
             return None
-    
+
     async def clear_device_cache(self, device_id: UUID) -> int:
         """
         Clear all cached data for a specific device.
@@ -382,18 +382,18 @@ class CacheManager:
         """
         if not self.redis_client:
             return 0
-            
+
         pattern = self._build_cache_key("*", device_id)
-        
+
         try:
             keys = await self.redis_client.keys(pattern)
             if keys:
                 deleted_count = await self.redis_client.delete(*keys)
                 self.logger.info(
                     "Cleared %d cache entries for device %s",
-                    deleted_count, device_id
+                    int(deleted_count), device_id
                 )
-                return deleted_count
+                return int(deleted_count)
             return 0
         except RedisError as e:
             self.logger.error(
@@ -401,7 +401,7 @@ class CacheManager:
                 device_id, str(e)
             )
             return 0
-    
+
     async def clear_data_type_cache(self, data_type: str) -> int:
         """
         Clear all cached data for a specific data type.
@@ -414,18 +414,18 @@ class CacheManager:
         """
         if not self.redis_client:
             return 0
-            
+
         pattern = f"{self.key_prefix}{data_type}:*"
-        
+
         try:
             keys = await self.redis_client.keys(pattern)
             if keys:
                 deleted_count = await self.redis_client.delete(*keys)
                 self.logger.info(
                     "Cleared %d cache entries for data type %s",
-                    deleted_count, data_type
+                    int(deleted_count), data_type
                 )
-                return deleted_count
+                return int(deleted_count)
             return 0
         except RedisError as e:
             self.logger.error(
@@ -433,7 +433,7 @@ class CacheManager:
                 data_type, str(e)
             )
             return 0
-    
+
     async def _update_lru_access(self, cache_key: str) -> None:
         """
         Update LRU access time for a cache key.
@@ -453,18 +453,18 @@ class CacheManager:
         """
         if not self.redis_client:
             return
-            
+
         try:
             # Check cache size limit
             cache_size = await self.redis_client.zcard(self.lru_zset_key)
-            
+
             if cache_size > self.max_cache_size:
                 evict_count = cache_size - self.max_cache_size + self.eviction_batch_size
                 await self._evict_lru_items(evict_count)
-                
+
             # TODO: Check memory limit (requires Redis memory inspection)
             # For now, we rely on cache size as a proxy for memory usage
-                
+
         except RedisError as e:
             self.logger.error("Failed to enforce cache limits: %s", str(e))
 
@@ -478,38 +478,41 @@ class CacheManager:
         Returns:
             Number of items actually evicted
         """
+        if not self.redis_client:
+            return 0
+            
         try:
             # Get the oldest items from the sorted set
             oldest_keys = await self.redis_client.zrange(self.lru_zset_key, 0, count - 1)
-            
+
             if not oldest_keys:
                 return 0
-                
+
             # Remove both the cached data and LRU entries
             async with self.redis_client.pipeline() as pipe:
                 # Delete actual cache entries
                 for key in oldest_keys:
                     await pipe.delete(key)
-                
+
                 # Remove from LRU tracker
                 await pipe.zrem(self.lru_zset_key, *oldest_keys)
-                
+
                 await pipe.execute()
-            
+
             # Update metrics
             await self._update_metrics("eviction", 0, len(oldest_keys))
-            
+
             self.logger.info("Evicted %d LRU cache items", len(oldest_keys))
             return len(oldest_keys)
-            
+
         except RedisError as e:
             self.logger.error("Failed to evict LRU items: %s", str(e))
             return 0
 
     async def _update_metrics(
-        self, 
-        operation_type: str, 
-        response_time: float, 
+        self,
+        operation_type: str,
+        response_time: float,
         eviction_count: int = 0
     ) -> None:
         """
@@ -527,14 +530,14 @@ class CacheManager:
                 self._metrics["misses"] += 1
             elif operation_type == "eviction":
                 self._metrics["evictions"] += eviction_count
-                
+
             self._metrics["total_operations"] += 1
             self._metrics["total_response_time_ms"] += response_time * 1000
-            
+
             # Periodically persist metrics to Redis (every 10 operations)
             if self._metrics["total_operations"] % 10 == 0:
                 await self._persist_metrics()
-                
+
         except Exception as e:
             self.logger.warning("Failed to update metrics: %s", str(e))
 
@@ -564,13 +567,13 @@ class CacheManager:
                     for key, value in persisted_metrics.items():
                         if key in self._metrics:
                             self._metrics[key] = max(self._metrics[key], value)
-            
+
             # Calculate derived metrics
             total_ops = self._metrics["total_operations"]
             hits = self._metrics["hits"]
             hit_ratio = (hits / total_ops) if total_ops > 0 else 0.0
             avg_response = (self._metrics["total_response_time_ms"] / total_ops) if total_ops > 0 else 0.0
-            
+
             # Get current cache size
             cache_size = 0
             memory_usage = 0.0
@@ -578,24 +581,24 @@ class CacheManager:
                 cache_size = await self.redis_client.zcard(self.lru_zset_key)
                 # Estimate memory usage (rough approximation)
                 memory_usage = cache_size * 2.0  # Assume ~2KB per cache entry on average
-            
+
             return CacheMetrics(
-                hits=hits,
-                misses=self._metrics["misses"],
-                evictions=self._metrics["evictions"],
-                total_operations=total_ops,
+                hits=int(hits),
+                misses=int(self._metrics["misses"]),
+                evictions=int(self._metrics["evictions"]),
+                total_operations=int(total_ops),
                 average_response_time_ms=avg_response,
                 hit_ratio=hit_ratio,
-                cache_size=cache_size,
+                cache_size=int(cache_size),
                 memory_usage_mb=memory_usage / 1024,
             )
-            
+
         except Exception as e:
             self.logger.error("Failed to get metrics: %s", str(e))
             # Return empty metrics on error
             return CacheMetrics(0, 0, 0, 0, 0.0, 0.0, 0, 0.0)
 
-    async def health_check(self) -> Dict[str, Any]:
+    async def health_check(self) -> dict[str, Any]:
         """
         Perform health check of the cache system including LRU metrics.
         
@@ -604,7 +607,7 @@ class CacheManager:
         """
         health_status = {
             "service": "EnhancedCacheManager",
-            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "timestamp": datetime.now(UTC).isoformat(),
             "redis_connected": False,
             "redis_info": {},
             "cache_metrics": {},
@@ -614,20 +617,20 @@ class CacheManager:
                 "eviction_batch_size": self.eviction_batch_size,
             }
         }
-        
+
         if not self.redis_client:
             health_status["status"] = "disconnected"
             health_status["message"] = "Redis client not initialized"
             return health_status
-        
+
         try:
             # Test basic operations
             await self.redis_client.ping()
             info = await self.redis_client.info()
-            
+
             # Get cache metrics
             cache_metrics = await self.get_metrics()
-            
+
             health_status["redis_connected"] = True
             health_status["redis_info"] = {
                 "version": info.get("redis_version"),
@@ -646,14 +649,14 @@ class CacheManager:
             }
             health_status["status"] = "healthy"
             health_status["message"] = "Enhanced cache system operational with LRU eviction"
-            
+
         except RedisError as e:
             health_status["status"] = "unhealthy"
             health_status["message"] = f"Redis error: {str(e)}"
-        
+
         return health_status
-    
-    def _calculate_data_age(self, data: Dict[str, Any]) -> Optional[str]:
+
+    def _calculate_data_age(self, data: dict[str, Any]) -> str | None:
         """
         Calculate how old cached data is.
         
@@ -666,30 +669,30 @@ class CacheManager:
         try:
             cache_metadata = data.get("_cache_metadata", {})
             cached_at_str = cache_metadata.get("cached_at")
-            
+
             if not cached_at_str:
                 return None
-                
+
             cached_at = datetime.fromisoformat(cached_at_str.replace("Z", "+00:00"))
             if cached_at.tzinfo is None:
-                cached_at = cached_at.replace(tzinfo=timezone.utc)
-                
-            age = datetime.now(timezone.utc) - cached_at
-            
+                cached_at = cached_at.replace(tzinfo=UTC)
+
+            age = datetime.now(UTC) - cached_at
+
             if age.total_seconds() < 60:
                 return f"{int(age.total_seconds())}s"
             elif age.total_seconds() < 3600:
                 return f"{int(age.total_seconds() / 60)}m"
             else:
                 return f"{int(age.total_seconds() / 3600)}h"
-                
+
         except (ValueError, TypeError, KeyError) as e:
             self.logger.debug("Failed to calculate data age: %s", str(e))
             return None
 
 
 # Global cache manager instance
-_cache_manager: Optional[CacheManager] = None
+_cache_manager: CacheManager | None = None
 
 
 async def get_cache_manager(
@@ -715,7 +718,7 @@ async def get_cache_manager(
     global _cache_manager
     if _cache_manager is None:
         _cache_manager = CacheManager(
-            redis_url=redis_url, 
+            redis_url=redis_url,
             default_ttl=default_ttl,
             max_cache_size=max_cache_size,
             max_memory_mb=max_memory_mb,

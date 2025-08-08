@@ -6,25 +6,23 @@ over SSH connections with comprehensive error handling, JSON parsing, and
 structured response formatting for all container management operations.
 """
 
+from dataclasses import dataclass
+from enum import Enum
 import json
 import logging
 import re
-from dataclasses import dataclass
-from enum import Enum
-from typing import Dict, List, Optional, Any, Union, Callable
-from uuid import UUID
+from typing import Any
 
+from apps.backend.src.core.exceptions import (
+    ContainerError,
+    SSHCommandError,
+    SSHConnectionError,
+)
 from apps.backend.src.utils.ssh_client import (
     SSHClient,
     SSHConnectionInfo,
     SSHExecutionResult,
     get_ssh_client,
-)
-from apps.backend.src.core.exceptions import (
-    ContainerError,
-    SSHConnectionError,
-    SSHCommandError,
-    DeviceNotFoundError,
 )
 
 logger = logging.getLogger(__name__)
@@ -49,8 +47,8 @@ class DockerExecutionResult:
     command: str
     command_type: DockerCommandType
     raw_result: SSHExecutionResult
-    parsed_data: Optional[Union[Dict, List]] = None
-    error_category: Optional[str] = None
+    parsed_data: dict[str, Any] | list[Any] | None = None
+    error_category: str | None = None
 
     @property
     def success(self) -> bool:
@@ -58,7 +56,7 @@ class DockerExecutionResult:
         return self.raw_result.success and self.error_category is None
 
     @property
-    def error_message(self) -> Optional[str]:
+    def error_message(self) -> str | None:
         """Get formatted error message"""
         if self.raw_result.error_message:
             return self.raw_result.error_message
@@ -73,7 +71,7 @@ class DockerClient:
     and response parsing for infrastructure monitoring operations.
     """
 
-    def __init__(self, ssh_client: Optional[SSHClient] = None):
+    def __init__(self, ssh_client: SSHClient | None = None):
         """
         Initialize Docker client.
 
@@ -113,7 +111,7 @@ class DockerClient:
             "volume_error": [r"volume (.+) not found", r"No such volume: (.+)"],
         }
 
-    def _categorize_error(self, stderr: str, command_type: DockerCommandType) -> Optional[str]:
+    def _categorize_error(self, stderr: str, command_type: DockerCommandType) -> str | None:
         """
         Categorize Docker command errors based on stderr output.
 
@@ -143,7 +141,7 @@ class DockerClient:
 
     def _parse_json_output(
         self, output: str, command_type: DockerCommandType
-    ) -> Optional[Union[Dict, List]]:
+    ) -> dict[str, Any] | list[Any] | None:
         """
         Parse output from Docker commands (JSON or custom format).
 
@@ -167,7 +165,7 @@ class DockerClient:
                 ]
 
                 for block in container_blocks:
-                    container = {}
+                    container: dict[str, Any] = {}
                     lines = [line.strip() for line in block.split("\n") if line.strip()]
 
                     for line in lines:
@@ -215,7 +213,7 @@ class DockerClient:
             logger.debug(f"Raw output: {output[:500]}...")
             return None
 
-    def _build_command(self, command_type: DockerCommandType, flags: str = "", **kwargs) -> str:
+    def _build_command(self, command_type: DockerCommandType, flags: str = "", **kwargs: Any) -> str:
         """
         Build Docker command avoiding string formatting issues with JSON templates.
 
@@ -282,9 +280,9 @@ class DockerClient:
         connection_info: SSHConnectionInfo,
         command_type: DockerCommandType,
         flags: str = "",
-        timeout: Optional[int] = None,
+        timeout: int | None = None,
         parse_json: bool = True,
-        **kwargs,
+        **kwargs: Any,
     ) -> DockerExecutionResult:
         """
         Execute a Docker command with standardized error handling and parsing.
@@ -407,7 +405,7 @@ class DockerClient:
         self,
         connection_info: SSHConnectionInfo,
         all_containers: bool = True,
-        timeout: Optional[int] = None,
+        timeout: int | None = None,
     ) -> DockerExecutionResult:
         """
         List Docker containers on remote host.
@@ -430,7 +428,7 @@ class DockerClient:
         )
 
     async def inspect_container(
-        self, connection_info: SSHConnectionInfo, container_id: str, timeout: Optional[int] = None
+        self, connection_info: SSHConnectionInfo, container_id: str, timeout: int | None = None
     ) -> DockerExecutionResult:
         """
         Inspect a specific Docker container.
@@ -456,8 +454,8 @@ class DockerClient:
         connection_info: SSHConnectionInfo,
         container_id: str,
         lines: int = 100,
-        since: Optional[str] = None,
-        timeout: Optional[int] = None,
+        since: str | None = None,
+        timeout: int | None = None,
     ) -> DockerExecutionResult:
         """
         Get logs from a Docker container.
@@ -488,7 +486,7 @@ class DockerClient:
         )
 
     async def list_networks(
-        self, connection_info: SSHConnectionInfo, timeout: Optional[int] = None
+        self, connection_info: SSHConnectionInfo, timeout: int | None = None
     ) -> DockerExecutionResult:
         """
         List Docker networks.
@@ -510,7 +508,7 @@ class DockerClient:
         )
 
     async def list_volumes(
-        self, connection_info: SSHConnectionInfo, timeout: Optional[int] = None
+        self, connection_info: SSHConnectionInfo, timeout: int | None = None
     ) -> DockerExecutionResult:
         """
         List Docker volumes.
@@ -532,7 +530,7 @@ class DockerClient:
         )
 
     async def get_system_info(
-        self, connection_info: SSHConnectionInfo, timeout: Optional[int] = None
+        self, connection_info: SSHConnectionInfo, timeout: int | None = None
     ) -> DockerExecutionResult:
         """
         Get Docker system information.
@@ -553,7 +551,7 @@ class DockerClient:
             parse_json=True,
         )
 
-    def raise_docker_exception(self, result: DockerExecutionResult, operation: str):
+    def raise_docker_exception(self, result: DockerExecutionResult, operation: str) -> None:
         """
         Raise appropriate exception based on Docker execution result.
 
@@ -573,20 +571,12 @@ class DockerClient:
             if result.error_category == "ssh_connection_error":
                 raise SSHConnectionError(
                     message=f"SSH connection failed during {operation}",
-                    device_id="unknown",
                     hostname=result.raw_result.host,
-                    details={"original_error": error_msg},
                 )
             elif result.error_category in ["container_not_found", "network_error", "volume_error"]:
                 raise ContainerError(
                     message=error_msg,
-                    container_id="unknown",
                     operation=operation,
-                    details={
-                        "error_category": result.error_category,
-                        "stderr": result.raw_result.stderr,
-                        "command": result.command,
-                    },
                 )
             else:
                 raise SSHCommandError(
@@ -594,13 +584,12 @@ class DockerClient:
                     command=result.command,
                     exit_code=result.raw_result.return_code,
                     stderr=result.raw_result.stderr,
-                    device_id="unknown",
                     hostname=result.raw_result.host,
                 )
 
 
 # Global Docker client instance
-_docker_client: Optional[DockerClient] = None
+_docker_client: DockerClient | None = None
 
 
 def get_docker_client() -> DockerClient:
@@ -623,10 +612,10 @@ async def execute_docker_command_simple(
     flags: str = "",
     username: str = "root",
     port: int = 22,
-    private_key_path: Optional[str] = None,
-    password: Optional[str] = None,
+    private_key_path: str | None = None,
+    password: str | None = None,
     timeout: int = 120,
-    **kwargs,
+    **kwargs: Any,
 ) -> DockerExecutionResult:
     """
     Convenience function to execute a Docker command.
@@ -668,8 +657,8 @@ async def test_docker_connectivity(
     host: str,
     username: str = "root",
     port: int = 22,
-    private_key_path: Optional[str] = None,
-    password: Optional[str] = None,
+    private_key_path: str | None = None,
+    password: str | None = None,
 ) -> bool:
     """
     Test Docker connectivity on a remote host.

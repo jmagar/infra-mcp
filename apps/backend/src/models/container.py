@@ -2,8 +2,8 @@
 Container-related models for snapshots and metrics.
 """
 
-from sqlalchemy import Column, DateTime, ForeignKey, String, BigInteger, Numeric, Boolean, Integer
-from sqlalchemy.dialects.postgresql import UUID, JSONB
+from sqlalchemy import BigInteger, Boolean, Column, DateTime, ForeignKey, Integer, Numeric, String
+from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import relationship
 
 from apps.backend.src.core.database import Base

@@ -2,37 +2,35 @@
 Service layer for device-related business logic.
 """
 
+from datetime import UTC, datetime
 import logging
-import time
-from datetime import datetime, timezone
-from typing import List, Optional
 from uuid import UUID
+from typing import Optional, cast
 
-from sqlalchemy import select, func, and_, or_
-from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy import and_, func, or_, select
 from sqlalchemy.exc import IntegrityError
+from sqlalchemy.ext.asyncio import AsyncSession
 
-from apps.backend.src.models.device import Device
 from apps.backend.src.core.exceptions import (
-    DeviceNotFoundError,
     DatabaseOperationError,
-    SSHConnectionError,
+    DeviceNotFoundError,
+)
+from apps.backend.src.core.exceptions import (
     ValidationError as CustomValidationError,
 )
-from apps.backend.src.schemas.device import (
-    DeviceCreate,
-    DeviceUpdate,
-    DeviceResponse,
-    DeviceList,
-    DeviceSummary,
-    DeviceHealth,
-    DeviceConnectionTest,
-    DeviceMetricsOverview,
-)
-from apps.backend.src.schemas.common import OperationResult, PaginationParams, DeviceStatus
-from apps.backend.src.utils.ssh_client import test_ssh_connectivity_simple
 from apps.backend.src.mcp.tools.device_info import get_device_info
+from apps.backend.src.models.device import Device
+from apps.backend.src.schemas.common import DeviceStatus, PaginationParams
+from apps.backend.src.schemas.device import (
+    DeviceConnectionTest,
+    DeviceCreate,
+    DeviceList,
+    DeviceResponse,
+    DeviceSummary,
+    DeviceUpdate,
+)
 from apps.backend.src.services.configuration_monitoring import get_configuration_monitoring_service
+from apps.backend.src.utils.ssh_client import test_ssh_connectivity_simple
 
 logger = logging.getLogger(__name__)
 
@@ -63,7 +61,7 @@ class DeviceService:
         device = Device(
             **device_data.model_dump(),
             status=connectivity_status,
-            last_seen=datetime.now(timezone.utc) if connectivity_status == "online" else None,
+            last_seen=datetime.now(UTC) if connectivity_status == "online" else None,
         )
 
         try:
@@ -71,15 +69,15 @@ class DeviceService:
             await self.db.commit()
             await self.db.refresh(device)
             logger.info(f"Created device: {device.hostname} ({device.id})")
-            
+
             # Trigger automatic device analysis if the device is online and monitoring is enabled
             if connectivity_status == "online" and device_data.monitoring_enabled:
                 try:
-                    await self._trigger_device_analysis(device.hostname)
+                    await self._trigger_device_analysis(cast(str, device.hostname))
                 except Exception as e:
                     # Analysis failure should not fail device creation
                     logger.warning(f"Device analysis failed for {device.hostname}: {e}")
-            
+
             return device
         except IntegrityError as e:
             await self.db.rollback()
@@ -97,11 +95,11 @@ class DeviceService:
     async def list_devices(
         self,
         pagination: PaginationParams,
-        device_type: Optional[str] = None,
-        status: Optional[DeviceStatus] = None,
-        monitoring_enabled: Optional[bool] = None,
-        location: Optional[str] = None,
-        search: Optional[str] = None,
+        device_type: str | None = None,
+        status: DeviceStatus | None = None,
+        monitoring_enabled: bool | None = None,
+        location: str | None = None,
+        search: str | None = None,
     ) -> DeviceList:
         query = select(Device)
         count_query = select(func.count(Device.id))
@@ -127,6 +125,7 @@ class DeviceService:
 
         total_result = await self.db.execute(count_query)
         total = total_result.scalar()
+        total_int: int = int(total or 0)
 
         query = (
             query.order_by(Device.hostname)
@@ -138,11 +137,11 @@ class DeviceService:
         devices = result.scalars().all()
 
         device_responses = [DeviceResponse.model_validate(device) for device in devices]
-        total_pages = (total + pagination.page_size - 1) // pagination.page_size
+        total_pages = (total_int + pagination.page_size - 1) // pagination.page_size
 
         return DeviceList(
             items=device_responses,
-            total_count=total,
+            total_count=total_int,
             page=pagination.page,
             page_size=pagination.page_size,
             total_pages=total_pages,
@@ -184,15 +183,15 @@ class DeviceService:
         if retest_connectivity and device.monitoring_enabled:
             try:
                 # Use hostname directly - SSH config will handle IP, port, username
-                is_connected = await test_ssh_connectivity_simple(device.hostname)
-                device.status = "online" if is_connected else "offline"
+                is_connected = await test_ssh_connectivity_simple(cast(str, device.hostname))
+                setattr(device, "status", "online" if is_connected else "offline")
                 if is_connected:
-                    device.last_seen = datetime.now(timezone.utc)
+                    setattr(device, "last_seen", datetime.now(UTC))
             except Exception as e:
                 logger.warning(f"SSH connectivity test failed for {device.hostname}: {e}")
-                device.status = "offline"
+                setattr(device, "status", "offline")
 
-        device.updated_at = datetime.now(timezone.utc)
+        setattr(device, "updated_at", datetime.now(UTC))
 
         try:
             await self.db.commit()
@@ -239,9 +238,9 @@ class DeviceService:
     async def _get_device_status_common(
         self, device: Device, test_connectivity: bool
     ) -> DeviceConnectionTest:
-        connection_status = device.status
-        response_time_ms = None
-        error_message = None
+        connection_status = cast(str, device.status)
+        response_time_ms: Optional[float] = None
+        error_message: Optional[str] = None
 
         if test_connectivity and device.monitoring_enabled:
             try:
@@ -250,15 +249,15 @@ class DeviceService:
                 start_time = time.time()
 
                 # Use hostname directly - SSH config will handle IP, port, username
-                is_connected = await test_ssh_connectivity_simple(device.hostname)
+                is_connected = await test_ssh_connectivity_simple(cast(str, device.hostname))
 
                 response_time_ms = (time.time() - start_time) * 1000
                 connection_status = "online" if is_connected else "offline"
 
                 if device.status != connection_status:
-                    device.status = connection_status
+                    setattr(device, "status", connection_status)
                     if is_connected:
-                        device.last_seen = datetime.now(timezone.utc)
+                        setattr(device, "last_seen", datetime.now(UTC))
                     await self.db.commit()
 
             except Exception as e:
@@ -267,10 +266,10 @@ class DeviceService:
                 error_message = str(e)
 
         return DeviceConnectionTest(
-            device_id=device.id,
-            hostname=device.hostname,
-            ip_address=device.ip_address,
-            ssh_port=device.ssh_port,
+            device_id=cast(UUID, device.id),
+            hostname=cast(str, device.hostname),
+            ip_address=cast(Optional[str], device.ip_address),
+            ssh_port=cast(Optional[int], device.ssh_port),
             connection_status=connection_status,
             response_time_ms=response_time_ms,
             error_message=error_message,
@@ -301,25 +300,24 @@ class DeviceService:
         """
         try:
             logger.info(f"Triggering automatic device analysis for {hostname}")
-            
+
             # Use the comprehensive device analysis tool
             # This will collect system info, Docker containers, ZFS pools, etc.
             # and automatically store the results in the device registry
             analysis_result = await get_device_info(
                 device=hostname,
-                test_connectivity=True,
-                timeout=60  # Reasonable timeout for initial analysis
+                timeout=60,  # Reasonable timeout for initial analysis
             )
-            
+
             logger.info(
                 f"Device analysis completed for {hostname}: "
                 f"connectivity={analysis_result.get('connectivity', {}).get('ssh_accessible', 'unknown')}"
             )
-            
+
             # After successful device analysis, set up configuration monitoring
             # This will use discovered paths from the analysis results
             await self._setup_configuration_monitoring(hostname)
-            
+
         except Exception as e:
             # Don't let analysis failures break device creation
             logger.error(f"Device analysis failed for {hostname}: {e}")
@@ -338,26 +336,37 @@ class DeviceService:
         """
         try:
             logger.info(f"Setting up configuration monitoring for {hostname}")
-            
+
             # Get the device from the database to access analysis results
             device = await self.get_device_by_hostname(hostname)
-            
+
             # Get the configuration monitoring service
             config_service = get_configuration_monitoring_service()
-            
+
             # Set up monitoring using discovered paths from device analysis
             # The service will extract paths from device.tags automatically
             monitoring_started = await config_service.setup_device_monitoring(
-                device_id=device.id,
+                device_id=cast(UUID, device.id),
                 custom_watch_paths=None  # Let it use discovered paths
             )
-            
+
             if monitoring_started:
                 logger.info(f"Configuration monitoring started successfully for {hostname}")
             else:
                 logger.warning(f"Configuration monitoring failed to start for {hostname}")
-                
+
         except Exception as e:
             # Configuration monitoring failure should not fail device creation
             logger.error(f"Configuration monitoring setup failed for {hostname}: {e}")
             # Continue - this is not critical for device creation
+
+
+# Convenience helper to centralize common pattern usage without manual service wiring
+async def get_device_by_hostname(db_session: AsyncSession, hostname: str) -> Device:
+    """Fetch a `Device` by hostname or raise `DeviceNotFoundError`.
+
+    This centralizes the repeated query pattern:
+        select(Device).where(Device.hostname == hostname)
+    """
+    service = DeviceService(db_session)
+    return await service.get_device_by_hostname(hostname)

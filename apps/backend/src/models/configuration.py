@@ -7,8 +7,9 @@ monitoring functionality.
 """
 
 from uuid import uuid4
-from sqlalchemy import Column, String, Text, DateTime, Index, ForeignKey
-from sqlalchemy.dialects.postgresql import UUID, JSONB
+
+from sqlalchemy import Column, DateTime, ForeignKey, Index, String, Text
+from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
 

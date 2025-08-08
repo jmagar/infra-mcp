@@ -5,11 +5,12 @@ This module provides comprehensive error classification, retry logic, and specia
 error handling for SSH operations in infrastructure monitoring environments.
 """
 
-import re
-import logging
-from enum import Enum
-from typing import Dict, List, Optional, Type, Union, Pattern
 from dataclasses import dataclass
+from enum import Enum
+import logging
+import re
+from re import Pattern
+from typing import Any
 
 import asyncssh
 
@@ -75,7 +76,7 @@ class SSHErrorInfo:
     is_retryable: bool
     retry_delay: float
     max_retries: int
-    recovery_suggestion: Optional[str] = None
+    recovery_suggestion: str | None = None
     escalation_required: bool = False
 
 
@@ -88,7 +89,7 @@ class SSHErrorClassifier:
     """
 
     # Error pattern mappings
-    ERROR_PATTERNS: Dict[SSHErrorType, List[Pattern[str]]] = {
+    ERROR_PATTERNS: dict[SSHErrorType, list[Pattern[str]]] = {
         SSHErrorType.CONNECTION_REFUSED: [
             re.compile(r"connection refused", re.IGNORECASE),
             re.compile(r"no route to host", re.IGNORECASE),
@@ -183,7 +184,7 @@ class SSHErrorClassifier:
     }
 
     # Error handling configurations
-    ERROR_CONFIGS: Dict[SSHErrorType, SSHErrorInfo] = {
+    ERROR_CONFIGS: dict[SSHErrorType, SSHErrorInfo] = {
         SSHErrorType.CONNECTION_REFUSED: SSHErrorInfo(
             error_type=SSHErrorType.CONNECTION_REFUSED,
             is_retryable=True,
@@ -335,10 +336,10 @@ class SSHErrorClassifier:
     @classmethod
     def classify_error(
         cls,
-        exception: Optional[Exception] = None,
-        stderr: Optional[str] = None,
-        return_code: Optional[int] = None,
-        command: Optional[str] = None,
+        exception: Exception | None = None,
+        stderr: str | None = None,
+        return_code: int | None = None,
+        command: str | None = None,
     ) -> SSHErrorInfo:
         """
         Classify an SSH error and return handling information.
@@ -407,7 +408,7 @@ class SSHErrorClassifier:
 
     @classmethod
     def _classify_by_return_code(
-        cls, return_code: int, command: Optional[str] = None
+        cls, return_code: int, command: str | None = None
     ) -> SSHErrorType:
         """Classify error based on command return code"""
         # Common return codes
@@ -476,7 +477,7 @@ class SSHHealthChecker:
     """
 
     @staticmethod
-    def create_diagnostic_commands() -> Dict[str, List[str]]:
+    def create_diagnostic_commands() -> dict[str, list[str]]:
         """Get diagnostic commands for different system aspects"""
         return {
             "connectivity": [
@@ -509,8 +510,8 @@ class SSHHealthChecker:
 
     @staticmethod
     async def diagnose_connection_failure(
-        ssh_client, connection_info, original_error: Exception
-    ) -> Dict[str, any]:
+        ssh_client: Any, connection_info: Any, original_error: Exception
+    ) -> dict[str, Any]:
         """
         Diagnose SSH connection failure and suggest solutions.
 
@@ -550,39 +551,40 @@ class SSHHealthChecker:
 
         # Add suggestions based on error type
         error_info = diagnosis["error_type"]
-        if error_info.recovery_suggestion:
+        if hasattr(error_info, 'recovery_suggestion') and error_info.recovery_suggestion:
             diagnosis["suggestions"].append(error_info.recovery_suggestion)
 
         # Add specific diagnostic suggestions
-        if error_info.error_type == SSHErrorType.CONNECTION_REFUSED:
-            diagnosis["suggestions"].extend(
-                [
-                    "Verify SSH service is running: systemctl status sshd",
-                    f"Check if port {connection_info.port} is open",
-                    "Check firewall rules on target host",
-                ]
-            )
-        elif error_info.error_type == SSHErrorType.AUTH_FAILED:
-            diagnosis["suggestions"].extend(
-                [
-                    "Verify SSH username and credentials",
-                    "Check SSH key file permissions (should be 600)",
-                    "Verify user exists on target system",
-                ]
-            )
-        elif error_info.error_type == SSHErrorType.DNS_RESOLUTION_FAILED:
-            diagnosis["suggestions"].extend(
-                [
-                    f"Try using IP address instead of hostname: {connection_info.host}",
-                    "Check DNS configuration",
-                    "Verify hostname spelling",
-                ]
-            )
+        if hasattr(error_info, 'error_type'):
+            if error_info.error_type == SSHErrorType.CONNECTION_REFUSED:
+                diagnosis["suggestions"].extend(
+                    [
+                        "Verify SSH service is running: systemctl status sshd",
+                        f"Check if port {getattr(connection_info, 'port', 22)} is open",
+                        "Check firewall rules on target host",
+                    ]
+                )
+            elif error_info.error_type == SSHErrorType.AUTH_FAILED:
+                diagnosis["suggestions"].extend(
+                    [
+                        "Verify SSH username and credentials",
+                        "Check SSH key file permissions (should be 600)",
+                        "Verify user exists on target system",
+                    ]
+                )
+            elif error_info.error_type == SSHErrorType.DNS_RESOLUTION_FAILED:
+                diagnosis["suggestions"].extend(
+                    [
+                        f"Try using IP address instead of hostname: {getattr(connection_info, 'host', 'unknown')}",
+                        "Check DNS configuration",
+                        "Verify hostname spelling",
+                    ]
+                )
 
         return diagnosis
 
 
-def get_common_ssh_errors() -> Dict[str, str]:
+def get_common_ssh_errors() -> dict[str, str]:
     """Get common SSH errors and their descriptions"""
     return {
         error_type.value: config.recovery_suggestion or "No specific guidance available"

@@ -4,12 +4,13 @@ ZFS Pool Management Service
 Handles ZFS pool operations including listing, status checks, and pool properties.
 """
 
+from datetime import datetime, UTC
 import logging
-from datetime import datetime
-from typing import List, Dict, Any
+from typing import Any
+
+from apps.backend.src.core.exceptions import ZFSError
 
 from .base import ZFSBaseService
-from apps.backend.src.core.exceptions import ZFSError
 
 logger = logging.getLogger(__name__)
 
@@ -17,7 +18,7 @@ logger = logging.getLogger(__name__)
 class ZFSPoolService(ZFSBaseService):
     """Service for ZFS pool management operations"""
 
-    async def list_pools(self, hostname: str, timeout: int = 30) -> List[Dict[str, Any]]:
+    async def list_pools(self, hostname: str, timeout: int = 30) -> list[dict[str, Any]]:
         """List all ZFS pools on a device"""
         try:
             # Get basic pool list
@@ -55,7 +56,7 @@ class ZFSPoolService(ZFSBaseService):
 
     async def get_pool_status(
         self, hostname: str, pool_name: str, timeout: int = 30
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         """Get detailed status for a specific ZFS pool"""
         try:
             # Get detailed pool status
@@ -79,7 +80,7 @@ class ZFSPoolService(ZFSBaseService):
                 "pool_name": pool_name,
                 "status_output": status_output,
                 "properties": properties,
-                "timestamp": datetime.now(timezone.utc).isoformat(),
+                "timestamp": datetime.now(UTC).isoformat(),
             }
 
         except Exception as e:
@@ -92,7 +93,7 @@ class ZFSPoolService(ZFSBaseService):
 
     async def get_pool_properties(
         self, hostname: str, pool_name: str, timeout: int = 30
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         """Get all properties for a specific pool"""
         try:
             output = await self._execute_zfs_command(
@@ -109,7 +110,7 @@ class ZFSPoolService(ZFSBaseService):
             return {
                 "pool_name": pool_name,
                 "properties": properties,
-                "timestamp": datetime.now(timezone.utc).isoformat(),
+                "timestamp": datetime.now(UTC).isoformat(),
             }
 
         except Exception as e:

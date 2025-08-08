@@ -1,17 +1,18 @@
 """Service layer for sending notifications via external services like Gotify."""
 
-import logging
+from datetime import UTC, datetime
 import json
-from datetime import datetime, timezone
-from typing import List, Optional, Dict, Any
-from uuid import UUID
+import logging
+
+from typing import Any
 from enum import Enum
+from uuid import UUID
 
 import httpx
 from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from apps.backend.src.core.config import get_settings, ExternalIntegrationSettings
+from apps.backend.src.core.config import ExternalIntegrationSettings, get_settings
 from apps.backend.src.core.exceptions import ExternalServiceError
 
 logger = logging.getLogger(__name__)
@@ -45,14 +46,14 @@ class NotificationMessage(BaseModel):
     message: str
     severity: NotificationSeverity = NotificationSeverity.INFO
     category: NotificationCategory = NotificationCategory.SYSTEM
-    device_id: Optional[UUID] = None
-    device_hostname: Optional[str] = None
-    metadata: Dict[str, Any] = {}
-    timestamp: datetime = None
+    device_id: UUID | None = None
+    device_hostname: str | None = None
+    metadata: dict[str, Any] = {}
+    timestamp: datetime | None = None
 
-    def __init__(self, **kwargs):
+    def __init__(self, **kwargs: Any) -> None:
         if "timestamp" not in kwargs:
-            kwargs["timestamp"] = datetime.now(timezone.utc)
+            kwargs["timestamp"] = datetime.now(UTC)
         super().__init__(**kwargs)
 
 
@@ -65,10 +66,10 @@ class NotificationService:
         self.integration_settings = ExternalIntegrationSettings()
         self.client = httpx.AsyncClient(timeout=30.0)
 
-    async def __aenter__(self):
+    async def __aenter__(self) -> "NotificationService":
         return self
 
-    async def __aexit__(self, exc_type, exc_val, exc_tb):
+    async def __aexit__(self, exc_type: Any, exc_val: Any, exc_tb: Any) -> None:
         await self.client.aclose()
 
     def is_gotify_configured(self) -> bool:
@@ -102,7 +103,7 @@ class NotificationService:
     async def _send_gotify_notification(self, notification: NotificationMessage) -> None:
         """Send notification to Gotify server"""
         if not self.is_gotify_configured():
-            raise ExternalServiceError("Gotify is not configured")
+            raise ExternalServiceError("Gotify is not configured", service_name="gotify")
 
         # Map severity to Gotify priority
         priority_map = {
@@ -120,7 +121,7 @@ class NotificationService:
         # Add metadata as extras
         extras = {
             "category": notification.category.value,
-            "timestamp": notification.timestamp.isoformat(),
+            "timestamp": notification.timestamp.isoformat() if notification.timestamp else datetime.now(UTC).isoformat(),
             "severity": notification.severity.value,
         }
 
@@ -139,18 +140,23 @@ class NotificationService:
         }
 
         # Send to Gotify
+        if not self.integration_settings.gotify_url:
+            raise ExternalServiceError("Gotify URL is not configured", service_name="gotify")
+        
         url = f"{self.integration_settings.gotify_url.rstrip('/')}/message"
-        headers = {
-            "X-Gotify-Key": self.integration_settings.gotify_token,
+        headers: dict[str, str] = {
             "Content-Type": "application/json",
         }
+        
+        if self.integration_settings.gotify_token:
+            headers["X-Gotify-Key"] = self.integration_settings.gotify_token
 
         try:
             response = await self.client.post(url, json=gotify_payload, headers=headers)
             response.raise_for_status()
 
         except httpx.HTTPError as e:
-            raise ExternalServiceError(f"Failed to send Gotify notification: {e}")
+            raise ExternalServiceError(f"Failed to send Gotify notification: {e}", service_name="gotify")
 
     def _log_notification(self, notification: NotificationMessage) -> None:
         """Log notification locally when external services are unavailable"""
@@ -160,7 +166,7 @@ class NotificationService:
             "severity": notification.severity.value,
             "category": notification.category.value,
             "device_hostname": notification.device_hostname,
-            "timestamp": notification.timestamp.isoformat(),
+            "timestamp": notification.timestamp.isoformat() if notification.timestamp else datetime.now(UTC).isoformat(),
             "metadata": notification.metadata,
         }
 
@@ -248,7 +254,7 @@ class NotificationService:
         hostname: str,
         drive_name: str,
         health_status: str,
-        details: Optional[str] = None,
+        details: str | None = None,
     ) -> None:
         """Send drive health alert notification"""
         severity = (
@@ -355,9 +361,9 @@ class NotificationService:
         message: str,
         severity: NotificationSeverity = NotificationSeverity.INFO,
         category: NotificationCategory = NotificationCategory.SYSTEM,
-        device_id: Optional[UUID] = None,
-        device_hostname: Optional[str] = None,
-        metadata: Optional[Dict[str, Any]] = None,
+        device_id: UUID | None = None,
+        device_hostname: str | None = None,
+        metadata: dict[str, Any] | None = None,
     ) -> None:
         """Send a custom notification with arbitrary content"""
         notification = NotificationMessage(
@@ -371,9 +377,9 @@ class NotificationService:
         )
         await self.send_notification(notification)
 
-    async def test_notification_channels(self) -> Dict[str, bool]:
+    async def test_notification_channels(self) -> dict[str, bool]:
         """Test all configured notification channels"""
-        results = {}
+        results: dict[str, bool] = {}
 
         # Test Gotify
         if self.is_gotify_configured():

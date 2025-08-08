@@ -6,16 +6,17 @@ devices by making HTTP calls to the FastAPI REST endpoints. This eliminates
 code duplication and ensures consistency between MCP and REST interfaces.
 """
 
+from datetime import UTC, datetime
+import json
 import logging
 import re
-import json
-from datetime import datetime, timezone
-from typing import Dict, List, Optional, Any
+
+from typing import Any, Dict, List, Optional
 
 from apps.backend.src.core.config import get_settings
 from apps.backend.src.core.exceptions import ContainerError, DeviceNotFoundError, SSHConnectionError
-from apps.backend.src.utils.ssh_client import execute_ssh_command_simple, SSHConnectionInfo
 from apps.backend.src.utils.docker_client import get_docker_client
+from apps.backend.src.utils.ssh_client import SSHConnectionInfo, execute_ssh_command_simple
 
 logger = logging.getLogger(__name__)
 settings = get_settings()
@@ -29,12 +30,12 @@ settings = get_settings()
 
 async def list_containers(
     device: str,
-    status: Optional[str] = None,
+    status: str | None = None,
     all_containers: bool = True,
     timeout: int = 60,
-    limit: Optional[int] = None,
+    limit: int | None = None,
     offset: int = 0,
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """
     List Docker containers on a specific device using direct SSH.
 
@@ -98,7 +99,7 @@ async def list_containers(
                 "query_info": {
                     "status_filter": status,
                     "include_stopped": all_containers,
-                    "timestamp": datetime.now(timezone.utc).isoformat(),
+                    "timestamp": datetime.now(UTC).isoformat(),
                     "execution_time_ms": 0,
                 },
             }
@@ -223,7 +224,7 @@ async def list_containers(
             "query_info": {
                 "status_filter": status,
                 "include_stopped": all_containers,
-                "timestamp": datetime.now(timezone.utc).isoformat(),
+                "timestamp": datetime.now(UTC).isoformat(),
                 "execution_time_ms": int(result.execution_time * 1000),
             },
         }
@@ -241,7 +242,7 @@ async def list_containers(
         ) from e
 
 
-async def get_container_info(device: str, container_name: str, timeout: int = 60) -> Dict[str, Any]:
+async def get_container_info(device: str, container_name: str, timeout: int = 60) -> dict[str, Any]:
     """
     Get detailed information about a specific Docker container.
 
@@ -327,7 +328,7 @@ async def get_container_info(device: str, container_name: str, timeout: int = 60
         mounts = container_data.get("Mounts", [])
 
         # Parse timestamps
-        def parse_docker_timestamp(timestamp_str):
+        def parse_docker_timestamp(timestamp_str: str | None) -> datetime | str | None:
             """Parse Docker timestamp format"""
             if not timestamp_str or timestamp_str == "0001-01-01T00:00:00Z":
                 return None
@@ -454,7 +455,7 @@ async def get_container_info(device: str, container_name: str, timeout: int = 60
             },
             "query_info": {
                 "container_identifier": container_name,
-                "timestamp": datetime.now(timezone.utc).isoformat(),
+                "timestamp": datetime.now(UTC).isoformat(),
                 "execution_time_ms": int(result.raw_result.execution_time * 1000),
             },
         }
@@ -484,10 +485,10 @@ async def get_container_info(device: str, container_name: str, timeout: int = 60
 async def get_container_logs(
     device: str,
     container_name: str,
-    since: Optional[str] = None,
+    since: str | None = None,
     tail: int = 100,
     timeout: int = 60,
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """
     Get logs from a specific Docker container.
 
@@ -609,7 +610,7 @@ async def get_container_logs(
 
         # Calculate log statistics
         total_lines = len(log_entries)
-        log_levels = {}
+        log_levels: dict[str, int] = {}
         for entry in log_entries:
             level = entry.get("log_level", "unknown")
             log_levels[level] = log_levels.get(level, 0) + 1
@@ -621,7 +622,7 @@ async def get_container_logs(
 
         if timestamped_entries:
             try:
-                timestamps = [datetime.fromisoformat(e["timestamp"]) for e in timestamped_entries]
+                timestamps = [datetime.fromisoformat(str(e["timestamp"])) for e in timestamped_entries]
                 first_timestamp = min(timestamps).isoformat()
                 last_timestamp = max(timestamps).isoformat()
             except Exception as e:
@@ -653,7 +654,7 @@ async def get_container_logs(
                 "container_identifier": container_name,
                 "since_filter": since,
                 "tail_lines": tail,
-                "timestamp": datetime.now(timezone.utc).isoformat(),
+                "timestamp": datetime.now(UTC).isoformat(),
                 "execution_time_ms": int(result.raw_result.execution_time * 1000),
             },
         }
@@ -692,7 +693,7 @@ async def get_container_logs(
 
 async def get_service_dependencies(
     device: str, container_name: str, timeout: int = 60
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """
     Analyze and map dependencies between Docker Compose services.
 
@@ -787,8 +788,8 @@ async def get_service_dependencies(
         # Collect all containers and their details for dependency analysis
         containers_data = containers_result.parsed_data or []
         service_containers = {}
-        network_mappings = {}
-        volume_mappings = {}
+        network_mappings: dict[str, list[str]] = {}
+        volume_mappings: dict[str, list[str]] = {}
 
         # Analyze all containers to build service mapping
         for container_info in containers_data:
@@ -810,7 +811,7 @@ async def get_service_dependencies(
                     )
                     continue
 
-                container_data = detail_result.parsed_data[0]
+                container_data = detail_result.parsed_data[0] if detail_result.parsed_data else {}
                 config = container_data.get("Config", {})
                 labels = config.get("Labels") or {}
                 network_settings = container_data.get("NetworkSettings", {})
@@ -953,7 +954,7 @@ async def get_service_dependencies(
                 "query_info": {
                     "container_identifier": container_name,
                     "analysis_type": "standalone_container",
-                    "timestamp": datetime.now(timezone.utc).isoformat(),
+                    "timestamp": datetime.now(UTC).isoformat(),
                     "execution_time_ms": int(
                         (
                             containers_result.raw_result.execution_time
@@ -1022,7 +1023,7 @@ async def get_service_dependencies(
                     "container_name": service["container_name"],
                     "container_id": service["container_id"],
                     "running": service["running"],
-                    "networks": service["networks"],
+                    "networks": service["networknetwork"],
                     "volume_count": len(service["volumes"]),
                 }
                 for service in project_services
@@ -1122,7 +1123,7 @@ async def get_service_dependencies(
                 "container_identifier": container_name,
                 "analysis_type": "compose_service",
                 "containers_analyzed": len(containers_data),
-                "timestamp": datetime.now(timezone.utc).isoformat(),
+                "timestamp": datetime.now(UTC).isoformat(),
                 "execution_time_ms": int(
                     (
                         containers_result.raw_result.execution_time
@@ -1155,7 +1156,7 @@ async def get_service_dependencies(
         ) from e
 
 
-async def start_container(device: str, container_name: str, timeout: int = 60) -> Dict[str, Any]:
+async def start_container(device: str, container_name: str, timeout: int = 60) -> dict[str, Any]:
     """
     Start a Docker container on a specific device.
 
@@ -1190,7 +1191,7 @@ async def start_container(device: str, container_name: str, timeout: int = 60) -
             "device": device,
             "success": True,
             "output": result.stdout,
-            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "timestamp": datetime.now(UTC).isoformat(),
             "execution_time_ms": int(result.execution_time * 1000),
         }
 
@@ -1208,7 +1209,7 @@ async def start_container(device: str, container_name: str, timeout: int = 60) -
 
 async def stop_container(
     device: str, container_name: str, timeout: int = 10, force: bool = False, ssh_timeout: int = 60
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """
     Stop a Docker container on a specific device.
 
@@ -1254,7 +1255,7 @@ async def stop_container(
             "force": force,
             "timeout": timeout,
             "output": result.stdout,
-            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "timestamp": datetime.now(UTC).isoformat(),
             "execution_time_ms": int(result.execution_time * 1000),
         }
 
@@ -1272,7 +1273,7 @@ async def stop_container(
 
 async def restart_container(
     device: str, container_name: str, timeout: int = 10, ssh_timeout: int = 60
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """
     Restart a Docker container on a specific device.
 
@@ -1310,7 +1311,7 @@ async def restart_container(
             "success": True,
             "timeout": timeout,
             "output": result.stdout,
-            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "timestamp": datetime.now(UTC).isoformat(),
             "execution_time_ms": int(result.execution_time * 1000),
         }
 
@@ -1332,7 +1333,7 @@ async def remove_container(
     force: bool = False,
     remove_volumes: bool = False,
     timeout: int = 60,
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """
     Remove a Docker container on a specific device.
 
@@ -1381,7 +1382,7 @@ async def remove_container(
             "force": force,
             "remove_volumes": remove_volumes,
             "output": result.stdout,
-            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "timestamp": datetime.now(UTC).isoformat(),
             "execution_time_ms": int(result.execution_time * 1000),
         }
 

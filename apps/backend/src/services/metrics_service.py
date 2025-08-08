@@ -2,41 +2,36 @@
 Service layer for metrics-related business logic.
 """
 
-import asyncio
+from datetime import UTC, datetime, timedelta
 import json
 import logging
-import re
-from datetime import datetime, timedelta, timezone
-from typing import List, Optional, Dict, Any, Union
-from uuid import UUID, uuid4
 
-from sqlalchemy import select, and_, or_, desc, func
+U
+from uuid import UUID
+
+from sqlalchemy import desc, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from apps.backend.src.core.database import get_async_session
-from apps.backend.src.core.config import get_settings
-from apps.backend.src.utils.ssh_client import get_ssh_client, SSHConnectionInfo, execute_ssh_command
-from apps.backend.src.models.device import Device
-from apps.backend.src.models.metrics import SystemMetric, DriveHealth
-from apps.backend.src.schemas.system_metrics import SystemMetricResponse, SystemMetricsList
-from apps.backend.src.schemas.drive_health import (
-    DriveHealthResponse,
-    DriveHealthList,
-    DriveInventory,
-)
-from apps.backend.src.schemas.zfs import ZFSStatusResponse, ZFSSnapshotList
-from apps.backend.src.schemas.network import NetworkInterfaceResponse
-from apps.backend.src.schemas.vm import VMStatusResponse, VMStatusList
-from apps.backend.src.schemas.logs import SystemLogResponse
-from apps.backend.src.schemas.backup import BackupStatusResponse
-from apps.backend.src.schemas.updates import UpdateSummary
-from apps.backend.src.schemas.common import PaginationParams, HealthStatus
 from apps.backend.src.core.exceptions import (
     DeviceNotFoundError,
-    SSHConnectionError,
     SSHCommandError,
-    DatabaseOperationError,
 )
+from apps.backend.src.models.device import Device
+from apps.backend.src.models.metrics import DriveHealth, SystemMetric
+from apps.backend.src.schemas.backup import BackupStatusResponse
+from apps.backend.src.schemas.common import PaginationParams
+from apps.backend.src.schemas.drive_health import (
+    DriveHealthList,
+    DriveHealthResponse,
+    DriveInventory,
+)
+from apps.backend.src.schemas.logs import SystemLogResponse
+from apps.backend.src.schemas.network import NetworkInterfaceResponse
+from apps.backend.src.schemas.system_metrics import SystemMetricResponse, SystemMetricsList
+from apps.backend.src.schemas.updates import UpdateSummary
+from apps.backend.src.schemas.vm import VMStatusList, VMStatusResponse
+from apps.backend.src.schemas.zfs import ZFSSnapshotList, ZFSStatusResponse
+from apps.backend.src.utils.ssh_client import SSHConnectionInfo, execute_ssh_command, get_ssh_client
 
 logger = logging.getLogger(__name__)
 
@@ -62,9 +57,9 @@ class MetricsService:
         self,
         device_id: UUID,
         live: bool = False,
-        time_range: Optional[str] = None,
-        pagination: Optional[PaginationParams] = None,
-    ) -> Union[SystemMetricResponse, SystemMetricsList]:
+        time_range: str | None = None,
+        pagination: PaginationParams | None = None,
+    ) -> SystemMetricResponse | SystemMetricsList:
         """Get system metrics for a device"""
         device = await self.get_device_by_id(device_id)
 
@@ -106,7 +101,7 @@ class MetricsService:
                     load_average_5m=float(load_avg[1]) if len(load_avg) > 1 else 0.0,
                     load_average_15m=float(load_avg[2]) if len(load_avg) > 2 else 0.0,
                     uptime_seconds=0,  # Could parse uptime_result for actual value
-                    timestamp=datetime.now(timezone.utc),
+                    timestamp=datetime.now(UTC),
                 )
 
             except Exception as e:
@@ -119,7 +114,7 @@ class MetricsService:
 
             if time_range:
                 time_delta = self._parse_time_range(time_range)
-                since = datetime.now(timezone.utc) - time_delta
+                since = datetime.now(UTC) - time_delta
                 query = query.where(SystemMetric.time >= since)
 
             query = query.order_by(desc(SystemMetric.time))
@@ -146,9 +141,9 @@ class MetricsService:
         self,
         device_id: UUID,
         live: bool = False,
-        drive_name: Optional[str] = None,
-        pagination: Optional[PaginationParams] = None,
-    ) -> Union[DriveInventory, DriveHealthList]:
+        drive_name: str | None = None,
+        pagination: PaginationParams | None = None,
+    ) -> DriveInventory | DriveHealthList:
         """Get drive health and inventory for a device"""
         device = await self.get_device_by_id(device_id)
 
@@ -193,7 +188,7 @@ class MetricsService:
                     total_drives=len(drives),
                     healthy_drives=0,
                     failed_drives=0,
-                    last_updated=datetime.now(timezone.utc),
+                    last_updated=datetime.now(UTC),
                 )
 
             except Exception as e:
@@ -228,8 +223,8 @@ class MetricsService:
     async def get_device_network(
         self,
         device_id: UUID,
-        interface_name: Optional[str] = None,
-    ) -> List[NetworkInterfaceResponse]:
+        interface_name: str | None = None,
+    ) -> list[NetworkInterfaceResponse]:
         """Get network interfaces and statistics"""
         device = await self.get_device_by_id(device_id)
         ssh_info = self.create_ssh_connection_info(device)
@@ -258,7 +253,7 @@ class MetricsService:
                         tx_bytes=0,
                         rx_packets=0,
                         tx_packets=0,
-                        timestamp=datetime.now(timezone.utc),
+                        timestamp=datetime.now(UTC),
                     )
                 )
 
@@ -271,8 +266,8 @@ class MetricsService:
     async def get_device_zfs_status(
         self,
         device_id: UUID,
-        pool_name: Optional[str] = None,
-    ) -> List[ZFSStatusResponse]:
+        pool_name: str | None = None,
+    ) -> list[ZFSStatusResponse]:
         """Get ZFS pool status and health"""
         device = await self.get_device_by_id(device_id)
         ssh_info = self.create_ssh_connection_info(device)
@@ -311,7 +306,7 @@ class MetricsService:
                                 **current_pool,
                                 last_scrub=None,
                                 next_scrub=None,
-                                timestamp=datetime.now(timezone.utc),
+                                timestamp=datetime.now(UTC),
                             )
                         )
 
@@ -324,8 +319,8 @@ class MetricsService:
     async def get_device_zfs_snapshots(
         self,
         device_id: UUID,
-        dataset: Optional[str] = None,
-        pagination: Optional[PaginationParams] = None,
+        dataset: str | None = None,
+        pagination: PaginationParams | None = None,
     ) -> ZFSSnapshotList:
         """Get ZFS snapshots"""
         device = await self.get_device_by_id(device_id)
@@ -375,9 +370,9 @@ class MetricsService:
     async def get_device_vms(
         self,
         device_id: UUID,
-        vm_name: Optional[str] = None,
-        state: Optional[str] = None,
-        pagination: Optional[PaginationParams] = None,
+        vm_name: str | None = None,
+        state: str | None = None,
+        pagination: PaginationParams | None = None,
     ) -> VMStatusList:
         """Get virtual machine status"""
         device = await self.get_device_by_id(device_id)
@@ -417,7 +412,7 @@ class MetricsService:
                                     disk_gb=0,
                                     uptime=None,
                                     ip_address=None,
-                                    timestamp=datetime.now(timezone.utc),
+                                    timestamp=datetime.now(UTC),
                                 )
                             )
 
@@ -438,11 +433,11 @@ class MetricsService:
     async def get_device_logs(
         self,
         device_id: UUID,
-        service: Optional[str] = None,
-        severity: Optional[str] = None,
-        since: Optional[str] = "1h",
+        service: str | None = None,
+        severity: str | None = None,
+        since: str | None = "1h",
         lines: int = 100,
-    ) -> List[SystemLogResponse]:
+    ) -> list[SystemLogResponse]:
         """Get system logs"""
         device = await self.get_device_by_id(device_id)
         ssh_info = self.create_ssh_connection_info(device)
@@ -482,7 +477,7 @@ class MetricsService:
                             SystemLogResponse(
                                 device_id=device_id,
                                 timestamp=datetime.now(
-                                    timezone.utc
+                                    UTC
                                 ),  # Would parse actual timestamp
                                 service=service or "system",
                                 severity=severity or "info",
@@ -500,9 +495,9 @@ class MetricsService:
     async def get_device_backups(
         self,
         device_id: UUID,
-        backup_type: Optional[str] = None,
-        status: Optional[str] = None,
-    ) -> List[BackupStatusResponse]:
+        backup_type: str | None = None,
+        status: str | None = None,
+    ) -> list[BackupStatusResponse]:
         """Get backup status and history"""
         device = await self.get_device_by_id(device_id)
         ssh_info = self.create_ssh_connection_info(device)
@@ -516,13 +511,13 @@ class MetricsService:
                     backup_id="backup-001",
                     backup_type=backup_type or "full",
                     status=status or "completed",
-                    start_time=datetime.now(timezone.utc) - timedelta(hours=1),
-                    end_time=datetime.now(timezone.utc),
+                    start_time=datetime.now(UTC) - timedelta(hours=1),
+                    end_time=datetime.now(UTC),
                     size_bytes=1024 * 1024 * 1024,  # 1GB
                     destination="/backup/location",
                     success=True,
                     error_message=None,
-                    timestamp=datetime.now(timezone.utc),
+                    timestamp=datetime.now(UTC),
                 )
             ]
 
@@ -571,8 +566,8 @@ class MetricsService:
                 total_updates=updates_available,
                 security_updates=security_updates,
                 package_updates=package_updates,
-                last_check=datetime.now(timezone.utc),
-                next_check=datetime.now(timezone.utc) + timedelta(hours=24),
+                last_check=datetime.now(UTC),
+                next_check=datetime.now(UTC) + timedelta(hours=24),
                 auto_update_enabled=False,
                 reboot_required=False,
             )

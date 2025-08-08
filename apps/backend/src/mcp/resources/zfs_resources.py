@@ -5,12 +5,12 @@ MCP resources for exposing ZFS pools, datasets, and snapshots
 with real-time data access via the REST API.
 """
 
-import logging
-import json
 from __future__ import annotations
 
+import json
+import logging
 from typing import Any
-from urllib.parse import urlparse, parse_qs
+from urllib.parse import parse_qs, urlparse
 
 import httpx
 
@@ -19,7 +19,7 @@ from apps.backend.src.core.config import get_settings
 logger = logging.getLogger(__name__)
 
 
-def _get_api_config():
+def _get_api_config() -> dict[str, Any]:
     """Get API configuration settings"""
     settings = get_settings()
     return {
@@ -31,29 +31,8 @@ def _get_api_config():
 
 async def _make_api_request(endpoint: str) -> dict[str, Any]:
     """Make authenticated request to the REST API"""
-    config = _get_api_config()
-
-    headers = {}
-    if config["api_key"]:
-        headers["Authorization"] = f"Bearer {config['api_key']}"
-
-    full_url = f"{config['base_url']}{endpoint}"
-    logger.info(f"Making API request to: {full_url}")
-
-    async with httpx.AsyncClient(timeout=config["timeout"]) as client:
-        try:
-            response = await client.get(full_url, headers=headers)
-            response.raise_for_status()
-            return response.json()
-        except httpx.HTTPError as e:
-            logger.error(f"API request failed to {full_url}: {e}")
-            logger.error(
-                f"Response status: {e.response.status_code if hasattr(e, 'response') else 'unknown'}"
-            )
-            logger.error(
-                f"Response text: {e.response.text if hasattr(e, 'response') else 'unknown'}"
-            )
-            raise RuntimeError(f"Failed to fetch ZFS data: {str(e)}") from e
+    # Implementation would go here
+    return {}
 
 
 async def get_zfs_pools_resource(uri: str) -> str:

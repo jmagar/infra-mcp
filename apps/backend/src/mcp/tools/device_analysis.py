@@ -5,9 +5,10 @@ Comprehensive device analysis tool that runs a series of commands on target devi
 to gather information about their capabilities and store the results in the device registry.
 """
 
+from datetime import UTC, datetime
 import logging
-from datetime import datetime, timezone
 from typing import Any
+
 from sqlalchemy import select
 
 from apps.backend.src.core.database import get_async_session
@@ -162,7 +163,7 @@ async def _store_analysis_results(device: str, analysis_results: dict[str, Any])
         # Update device status and last seen
         if analysis_results["connectivity"].get("ssh", {}).get("status") == "success":
             device_record.status = "online"
-            device_record.last_seen = datetime.now(timezone.utc)
+            device_record.last_seen = datetime.now(UTC)
 
         await session.commit()
         logger.info(f"Analysis results stored for device {device} with tags: {capability_tags}")

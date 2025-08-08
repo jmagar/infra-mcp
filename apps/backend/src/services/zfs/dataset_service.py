@@ -4,12 +4,13 @@ ZFS Dataset Management Service
 Handles ZFS dataset operations including listing, properties, and dataset management.
 """
 
+from datetime import datetime, UTC
 import logging
-from datetime import datetime
-from typing import List, Dict, Any, Optional
+from typing import Any, Optional
+
+from apps.backend.src.core.exceptions import ZFSError
 
 from .base import ZFSBaseService
-from apps.backend.src.core.exceptions import ZFSError
 
 logger = logging.getLogger(__name__)
 
@@ -18,8 +19,8 @@ class ZFSDatasetService(ZFSBaseService):
     """Service for ZFS dataset management operations"""
 
     async def list_datasets(
-        self, hostname: str, pool_name: Optional[str] = None, timeout: int = 30
-    ) -> List[Dict[str, Any]]:
+        self, hostname: str, pool_name: str | None = None, timeout: int = 30
+    ) -> list[dict[str, Any]]:
         """List ZFS datasets, optionally filtered by pool"""
         try:
             cmd = "zfs list -H -o name,used,available,referenced,mountpoint,type,compression,dedup"
@@ -57,7 +58,7 @@ class ZFSDatasetService(ZFSBaseService):
 
     async def get_dataset_properties(
         self, hostname: str, dataset_name: str, timeout: int = 30
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         """Get all properties for a specific dataset"""
         try:
             output = await self._execute_zfs_command(
@@ -74,7 +75,7 @@ class ZFSDatasetService(ZFSBaseService):
             return {
                 "dataset_name": dataset_name,
                 "properties": properties,
-                "timestamp": datetime.now(timezone.utc).isoformat(),
+                "timestamp": datetime.now(UTC).isoformat(),
             }
 
         except Exception as e:
@@ -91,12 +92,12 @@ class ZFSDatasetService(ZFSBaseService):
         self,
         hostname: str,
         dataset_name: str,
-        properties: Optional[Dict[str, str]] = None,
+        properties: dict[str, str] | None = None,
         timeout: int = 60,
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         """Create a new ZFS dataset"""
         try:
-            cmd = f"zfs create"
+            cmd = "zfs create"
 
             # Add properties if provided
             if properties:
@@ -110,7 +111,7 @@ class ZFSDatasetService(ZFSBaseService):
             return {
                 "dataset_name": dataset_name,
                 "properties": properties or {},
-                "created_at": datetime.now(timezone.utc).isoformat(),
+                "created_at": datetime.now(UTC).isoformat(),
                 "status": "created",
             }
 
@@ -122,10 +123,10 @@ class ZFSDatasetService(ZFSBaseService):
 
     async def destroy_dataset(
         self, hostname: str, dataset_name: str, recursive: bool = False, timeout: int = 60
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         """Destroy a ZFS dataset"""
         try:
-            cmd = f"zfs destroy"
+            cmd = "zfs destroy"
             if recursive:
                 cmd += " -r"
             cmd += f" {dataset_name}"
@@ -135,7 +136,7 @@ class ZFSDatasetService(ZFSBaseService):
             return {
                 "dataset_name": dataset_name,
                 "recursive": recursive,
-                "destroyed_at": datetime.now(timezone.utc).isoformat(),
+                "destroyed_at": datetime.now(UTC).isoformat(),
                 "status": "destroyed",
             }
 
@@ -149,7 +150,7 @@ class ZFSDatasetService(ZFSBaseService):
 
     async def set_dataset_property(
         self, hostname: str, dataset_name: str, property_name: str, value: str, timeout: int = 30
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         """Set a property on a ZFS dataset"""
         try:
             cmd = f"zfs set {property_name}={value} {dataset_name}"
@@ -159,7 +160,7 @@ class ZFSDatasetService(ZFSBaseService):
                 "dataset_name": dataset_name,
                 "property_name": property_name,
                 "value": value,
-                "set_at": datetime.now(timezone.utc).isoformat(),
+                "set_at": datetime.now(UTC).isoformat(),
                 "status": "property_set",
             }
 

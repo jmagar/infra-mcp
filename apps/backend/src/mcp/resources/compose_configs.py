@@ -7,19 +7,20 @@ with real-time file access and database integration.
 
 from __future__ import annotations
 
-import logging
+from datetime import UTC, datetime
 import json
-import shlex
-from datetime import datetime, timezone
+import logging
 from pathlib import Path
-from typing import Any, Optional
-from urllib.parse import urlparse, parse_qs
+import shlex
+from typing import Any
+from urllib.parse import parse_qs, urlparse
 
-from apps.backend.src.utils.compose_parser import DockerComposeParser, ComposeParseError
-from apps.backend.src.utils.ssh_client import execute_ssh_command_simple
+from sqlalchemy import select
+
 from apps.backend.src.core.database import get_async_session
 from apps.backend.src.models.device import Device
-from sqlalchemy import select
+from apps.backend.src.utils.compose_parser import ComposeParseError, DockerComposeParser
+from apps.backend.src.utils.ssh_client import execute_ssh_command_simple
 
 logger = logging.getLogger(__name__)
 
@@ -81,7 +82,7 @@ async def get_compose_config_resource(uri: str) -> dict[str, Any]:
         return {
             "error": str(e),
             "uri": uri,
-            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "timestamp": datetime.now(UTC).isoformat(),
             "resource_type": "error",
         }
 
@@ -109,7 +110,7 @@ async def _get_service_compose_resource(
                     "database_device_paths",
                     "common_path_patterns",
                 ],
-                "timestamp": datetime.now(timezone.utc).isoformat(),
+                "timestamp": datetime.now(UTC).isoformat(),
                 "resource_type": "service_not_found",
             }
 
@@ -123,7 +124,7 @@ async def _get_service_compose_resource(
                 "device": device,
                 "file_path": compose_file_path,
                 "file_info": file_info,
-                "timestamp": datetime.now(timezone.utc).isoformat(),
+                "timestamp": datetime.now(UTC).isoformat(),
                 "resource_type": "file_not_found",
             }
 
@@ -137,7 +138,7 @@ async def _get_service_compose_resource(
                 "device": device,
                 "file_path": compose_file_path,
                 "file_info": file_info,
-                "timestamp": datetime.now(timezone.utc).isoformat(),
+                "timestamp": datetime.now(UTC).isoformat(),
                 "resource_type": "read_error",
             }
 
@@ -150,7 +151,7 @@ async def _get_service_compose_resource(
             "file_name": Path(compose_file_path).name,
             "file_info": file_info,
             "content_length": len(content),
-            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "timestamp": datetime.now(UTC).isoformat(),
             "resource_type": "docker_compose_service",
             "format": format_type,
         }
@@ -199,12 +200,12 @@ async def _get_service_compose_resource(
             "error": str(e),
             "service_name": service_name,
             "device": device,
-            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "timestamp": datetime.now(UTC).isoformat(),
             "resource_type": "service_error",
         }
 
 
-async def _resolve_compose_file_path(device: str, service_name: str) -> Optional[str]:
+async def _resolve_compose_file_path(device: str, service_name: str) -> str | None:
     """
     Resolve the compose file path for a service using multiple methods:
     1. Check running containers for compose file labels
@@ -273,6 +274,7 @@ async def _resolve_compose_file_path(device: str, service_name: str) -> Optional
             device_record = result.scalar_one_or_none()
 
             if device_record:
+
                 search_paths = []
 
                 # Add primary paths from database
@@ -318,7 +320,7 @@ async def _resolve_compose_file_path(device: str, service_name: str) -> Optional
 
 async def _search_compose_file_in_path(
     device: str, service_name: str, base_path: str
-) -> Optional[str]:
+) -> str | None:
     """Search for compose file in a specific base path"""
 
     # Common compose file patterns
@@ -375,7 +377,7 @@ async def _get_file_info(device: str, file_path: str) -> dict[str, Any]:
                     "file_path": parts[0],
                     "file_size": int(parts[1]),
                     "last_modified": datetime.fromtimestamp(
-                        int(parts[2]), tz=timezone.utc
+                        int(parts[2]), tz=UTC
                     ).isoformat(),
                     "permissions": parts[3],
                     "readable": "r" in parts[3],
@@ -388,7 +390,7 @@ async def _get_file_info(device: str, file_path: str) -> dict[str, Any]:
         return {"exists": False, "file_path": file_path, "error": str(e)}
 
 
-async def _get_file_content(device: str, file_path: str) -> Optional[str]:
+async def _get_file_content(device: str, file_path: str) -> str | None:
     """Get file content via SSH"""
 
     try:
@@ -444,7 +446,7 @@ async def _get_device_compose_stacks(device: str) -> dict[str, Any]:
                 [s for s in all_stacks.values() if s["status"] == "discovered"]
             ),
             "stacks": list(all_stacks.values()),
-            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "timestamp": datetime.now(UTC).isoformat(),
             "resource_type": "docker_compose_stacks",
         }
 
@@ -453,7 +455,7 @@ async def _get_device_compose_stacks(device: str) -> dict[str, Any]:
         return {
             "error": str(e),
             "device": device,
-            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "timestamp": datetime.now(UTC).isoformat(),
             "resource_type": "stacks_error",
         }
 
@@ -550,7 +552,7 @@ async def _get_running_compose_stacks(device: str) -> list[dict[str, Any]]:
 async def _get_discovered_compose_files(device: str) -> list[dict[str, Any]]:
     """Get discovered compose files from database paths"""
 
-    discovered = []
+    discovered: list[dict[str, Any]] = []
 
     try:
         async with get_async_session() as session:
@@ -576,13 +578,13 @@ async def _get_discovered_compose_files(device: str) -> list[dict[str, Any]]:
             for base_path in search_paths:
                 try:
                     find_cmd = f"""
-                    find {shlex.quote(base_path)} -name "docker-compose.y*ml" -o -name "compose.y*ml" | head -20
+                    find {shlex.quote(str(base_path))} -name "docker-compose.y*ml" -o -name "compose.y*ml" | head -20
                     """
 
-                    result = await execute_ssh_command_simple(device, find_cmd, timeout=20)
+                    find_result = await execute_ssh_command_simple(device, find_cmd, timeout=20)
 
-                    if result.return_code == 0:
-                        for compose_file in result.stdout.strip().split("\n"):
+                    if find_result.return_code == 0:
+                        for compose_file in find_result.stdout.strip().split("\n"):
                             if not compose_file.strip():
                                 continue
 
@@ -623,14 +625,14 @@ async def _get_global_compose_listing() -> dict[str, Any]:
                 "uri": "docker://configs",
                 "total_devices": len(devices),
                 "devices": [],
-                "timestamp": datetime.now(timezone.utc).isoformat(),
+                "timestamp": datetime.now(UTC).isoformat(),
                 "resource_type": "docker_compose_global",
             }
 
             # Get compose info for each device
             for device in devices:
                 try:
-                    device_stacks = await _get_device_compose_stacks(device.hostname)
+                    device_stacks: dict[str, Any] = await _get_device_compose_stacks(str(device.hostname))
 
                     device_info = {
                         "hostname": device.hostname,
@@ -681,7 +683,7 @@ async def _get_global_compose_listing() -> dict[str, Any]:
         return {
             "error": str(e),
             "uri": "docker://configs",
-            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "timestamp": datetime.now(UTC).isoformat(),
             "resource_type": "global_error",
         }
 
@@ -720,7 +722,7 @@ async def list_compose_config_resources(device: str | None = None) -> list[dict[
                 query = select(Device).where(Device.monitoring_enabled.is_(True))
                 result = await session.execute(query)
                 device_records = result.scalars().all()
-                devices = [d.hostname for d in device_records if d.tags.get("docker_version")]
+                devices = [str(d.hostname) for d in device_records if d.tags.get("docker_version")]
 
         for device_name in devices:
             # Device stacks listing

@@ -2,8 +2,8 @@
 Time-series metrics models for system and drive health.
 """
 
-from sqlalchemy import Column, String, Integer, BigInteger, DateTime, Numeric, ForeignKey
-from sqlalchemy.dialects.postgresql import UUID, JSONB
+from sqlalchemy import BigInteger, Column, DateTime, ForeignKey, Integer, Numeric, String
+from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import relationship
 
 from apps.backend.src.core.database import Base

@@ -6,19 +6,25 @@ communication with database operations for comprehensive infrastructure monitori
 """
 
 import asyncio
+from datetime import UTC, datetime
 import logging
-from datetime import datetime, timezone
-from typing import Dict, List, Optional, Union, Any
+
+from typing import Any, Optional, cast
 from uuid import UUID
 
-from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, update, and_, func as sa_func
+from sqlalchemy import and_, select
+from sqlalchemy import func as sa_func
 
 from apps.backend.src.core.database import get_async_session
 from apps.backend.src.models.device import Device
-from apps.backend.src.schemas.device import DeviceCreate, DeviceUpdate, DeviceResponse
+from apps.backend.src.schemas.device import DeviceCreate, DeviceResponse, DeviceUpdate
+from apps.backend.src.services.device_service import (
+    get_device_by_hostname as svc_get_device_by_hostname,
+)
+from apps.backend.src.core.exceptions import DeviceNotFoundError
+
 from .ssh_client import SSHClient, SSHConnectionInfo, get_ssh_client
-from .ssh_errors import SSHErrorClassifier, SSHHealthChecker
+from .ssh_errors import SSHHealthChecker
 
 logger = logging.getLogger(__name__)
 
@@ -31,7 +37,7 @@ class DeviceManager:
     health monitoring, and SSH operation management.
     """
 
-    def __init__(self, ssh_client: Optional[SSHClient] = None):
+    def __init__(self, ssh_client: SSHClient | None = None):
         """
         Initialize device manager.
 
@@ -85,10 +91,11 @@ class DeviceManager:
 
             # Test connectivity if requested
             if test_connectivity:
-                connectivity_result = await self.test_device_connectivity(device.id)
-                device.status = "online" if connectivity_result["connected"] else "offline"
-                device.last_seen = (
-                    datetime.now(timezone.utc) if connectivity_result["connected"] else None
+                connectivity_result = await self.test_device_connectivity(cast(Any, device).id)
+                orm_device = cast(Any, device)
+                orm_device.status = "online" if connectivity_result["connected"] else "offline"
+                orm_device.last_seen = (
+                    datetime.now(UTC) if connectivity_result["connected"] else None
                 )
 
                 await session.commit()
@@ -122,7 +129,8 @@ class DeviceManager:
             for field, value in update_data.items():
                 setattr(device, field, value)
 
-            device.updated_at = datetime.now(timezone.utc)
+            orm_device = cast(Any, device)
+            orm_device.updated_at = datetime.now(UTC)
 
             await session.commit()
             await session.refresh(device)
@@ -131,7 +139,7 @@ class DeviceManager:
 
             return DeviceResponse.model_validate(device)
 
-    async def get_device(self, device_id: UUID) -> Optional[DeviceResponse]:
+    async def get_device(self, device_id: UUID) -> DeviceResponse | None:
         """
         Get device by ID.
 
@@ -147,7 +155,7 @@ class DeviceManager:
                 return DeviceResponse.model_validate(device)
             return None
 
-    async def get_device_by_hostname(self, hostname: str) -> Optional[DeviceResponse]:
+    async def get_device_by_hostname(self, hostname: str) -> DeviceResponse | None:
         """
         Get device by hostname.
 
@@ -158,20 +166,20 @@ class DeviceManager:
             DeviceResponse: Device information or None if not found
         """
         async with get_async_session() as session:
-            result = await session.execute(select(Device).where(Device.hostname == hostname))
-            device = result.scalar_one_or_none()
-            if device:
+            try:
+                device = await svc_get_device_by_hostname(session, hostname)
                 return DeviceResponse.model_validate(device)
-            return None
+            except DeviceNotFoundError:
+                return None
 
     async def list_devices(
         self,
-        device_type: Optional[str] = None,
-        status: Optional[str] = None,
-        monitoring_enabled: Optional[bool] = None,
+        device_type: str | None = None,
+        status: str | None = None,
+        monitoring_enabled: bool | None = None,
         limit: int = 100,
         offset: int = 0,
-    ) -> List[DeviceResponse]:
+    ) -> list[DeviceResponse]:
         """
         List devices with optional filtering.
 
@@ -230,15 +238,16 @@ class DeviceManager:
 
     def _create_ssh_connection_info(self, device: Device) -> SSHConnectionInfo:
         """Create SSH connection info from device record"""
+        orm_device = cast(Any, device)
         return SSHConnectionInfo(
-            host=str(device.ip_address),
-            port=device.ssh_port,
-            username=device.ssh_username,
+            host=str(orm_device.ip_address),
+            port=int(orm_device.ssh_port),
+            username=str(orm_device.ssh_username),
             # Note: In production, SSH keys and passwords should be securely managed
             # This is a placeholder for the SSH configuration
         )
 
-    async def test_device_connectivity(self, device_id: UUID) -> Dict[str, Any]:
+    async def test_device_connectivity(self, device_id: UUID) -> dict[str, Any]:
         """
         Test SSH connectivity to a device.
 
@@ -268,13 +277,14 @@ class DeviceManager:
                     "hostname": device.hostname,
                     "ip_address": str(device.ip_address),
                     "connected": connected,
-                    "tested_at": datetime.now(timezone.utc).isoformat(),
+                    "tested_at": datetime.now(UTC).isoformat(),
                 }
 
                 if connected:
                     # Update device status
-                    device.status = "online"
-                    device.last_seen = datetime.now(timezone.utc)
+                    orm_device2 = cast(Any, device)
+                    orm_device2.status = "online"
+                    orm_device2.last_seen = datetime.now(UTC)
                     await session.commit()
 
                     result["status"] = "online"
@@ -294,10 +304,10 @@ class DeviceManager:
                     "connected": False,
                     "error": str(e),
                     "status": "error",
-                    "tested_at": datetime.now(timezone.utc).isoformat(),
+                    "tested_at": datetime.now(UTC).isoformat(),
                 }
 
-    async def diagnose_device_issues(self, device_id: UUID) -> Dict[str, Any]:
+    async def diagnose_device_issues(self, device_id: UUID) -> dict[str, Any]:
         """
         Perform comprehensive device diagnostics.
 
@@ -318,17 +328,19 @@ class DeviceManager:
                 # Get diagnostic commands
                 diagnostic_commands = self.health_checker.create_diagnostic_commands()
 
-                diagnostics = {
+                diagnostics: dict[str, Any] = {
                     "device_id": str(device_id),
-                    "hostname": device.hostname,
-                    "ip_address": str(device.ip_address),
-                    "diagnosis_time": datetime.now(timezone.utc).isoformat(),
+                    "hostname": cast(Any, device).hostname,
+                    "ip_address": str(cast(Any, device).ip_address),
+                    "diagnosis_time": datetime.now(UTC).isoformat(),
                     "categories": {},
                 }
+                categories: dict[str, list[dict[str, object]]] = {}
 
                 # Run diagnostic commands by category
                 for category, commands in diagnostic_commands.items():
-                    category_results = []
+                    cat_key = str(category)
+                    category_results: list[dict[str, object]] = []
 
                     for command in commands:
                         try:
@@ -342,10 +354,10 @@ class DeviceManager:
                             category_results.append(
                                 {
                                     "command": command,
-                                    "success": result.success,
+                                    "success": bool(result.success),
                                     "output": result.stdout[:1000],  # Limit output size
                                     "error": result.stderr[:500] if result.stderr else None,
-                                    "execution_time": result.execution_time,
+                                    "execution_time": float(result.execution_time),
                                 }
                             )
 
@@ -359,7 +371,9 @@ class DeviceManager:
                                 }
                             )
 
-                    diagnostics["categories"][category] = category_results
+                    categories[cat_key] = category_results
+
+                diagnostics["categories"] = categories
 
                 return diagnostics
 
@@ -367,12 +381,12 @@ class DeviceManager:
                 return {
                     "device_id": str(device_id),
                     "error": f"Diagnostic failed: {str(e)}",
-                    "diagnosis_time": datetime.now(timezone.utc).isoformat(),
+                    "diagnosis_time": datetime.now(UTC).isoformat(),
                 }
 
     async def execute_device_command(
         self, device_id: UUID, command: str, timeout: int = 120
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         """
         Execute a command on a specific device.
 
@@ -401,8 +415,9 @@ class DeviceManager:
 
                 # Update last seen time on successful connection
                 if result.success:
-                    device.last_seen = datetime.now(timezone.utc)
-                    device.status = "online"
+                    orm_device3 = cast(Any, device)
+                    orm_device3.last_seen = datetime.now(UTC)
+                    orm_device3.status = "online"
                     await session.commit()
 
                 return {
@@ -414,7 +429,7 @@ class DeviceManager:
                     "stdout": result.stdout,
                     "stderr": result.stderr,
                     "execution_time": result.execution_time,
-                    "executed_at": datetime.now(timezone.utc).isoformat(),
+                    "executed_at": datetime.now(UTC).isoformat(),
                 }
 
             except Exception as e:
@@ -426,12 +441,12 @@ class DeviceManager:
                     "command": command,
                     "success": False,
                     "error": str(e),
-                    "executed_at": datetime.now(timezone.utc).isoformat(),
+                    "executed_at": datetime.now(UTC).isoformat(),
                 }
 
     async def bulk_connectivity_test(
-        self, device_ids: Optional[List[UUID]] = None, device_type: Optional[str] = None
-    ) -> List[Dict[str, Any]]:
+        self, device_ids: list[UUID] | None = None, device_type: str | None = None
+    ) -> list[dict[str, object]]:
         """
         Test connectivity to multiple devices in parallel.
 
@@ -442,47 +457,40 @@ class DeviceManager:
         Returns:
             List of connectivity test results
         """
-        # Get devices to test
+        # Build list of device IDs to test
+        ids_to_test: list[UUID] = []
         if device_ids:
-            devices = []
-            async with get_async_session() as session:
-                for device_id in device_ids:
-                    device = await session.get(Device, device_id)
-                    if device:
-                        devices.append(device)
+            ids_to_test = list(device_ids)
         else:
-            devices = await self.list_devices(device_type=device_type, limit=100)
+            # Query devices by type and collect IDs
+            device_responses = await self.list_devices(device_type=device_type, limit=100)
+            ids_to_test = [d.id for d in device_responses]
 
-        if not devices:
+        if not ids_to_test:
             return []
 
         # Create connectivity test tasks
-        tasks = []
-        for device in devices:
-            if isinstance(device, DeviceResponse):
-                device_id = device.id
-            else:
-                device_id = device.id
-
-            task = asyncio.create_task(self.test_device_connectivity(device_id))
+        tasks: list[asyncio.Task[dict[str, Any]]] = []
+        for dev_id in ids_to_test:
+            task = asyncio.create_task(self.test_device_connectivity(dev_id))
             tasks.append(task)
 
         # Execute tests in parallel
         results = await asyncio.gather(*tasks, return_exceptions=True)
 
         # Process results
-        processed_results = []
+        processed_results: list[dict[str, object]] = []
         for result in results:
             if isinstance(result, Exception):
                 processed_results.append(
                     {"connected": False, "error": str(result), "status": "error"}
                 )
             else:
-                processed_results.append(result)
+                processed_results.append(cast(dict[str, object], result))
 
         return processed_results
 
-    async def get_device_statistics(self) -> Dict[str, Any]:
+    async def get_device_statistics(self) -> dict[str, Any]:
         """
         Get overall device statistics.
 
@@ -491,7 +499,7 @@ class DeviceManager:
         """
         async with get_async_session() as session:
             # Count devices by status
-            status_counts = {}
+            status_counts: dict[str, int] = {}
             result = await session.execute(
                 select(Device.status, sa_func.count(Device.id)).group_by(Device.status)
             )
@@ -500,7 +508,7 @@ class DeviceManager:
                 status_counts[status or "unknown"] = count
 
             # Count devices by type
-            type_counts = {}
+            type_counts: dict[str, int] = {}
             result = await session.execute(
                 select(Device.device_type, sa_func.count(Device.id)).group_by(Device.device_type)
             )
@@ -510,24 +518,24 @@ class DeviceManager:
 
             # Get total counts
             total_devices = await session.execute(select(sa_func.count(Device.id)))
-            total_count = total_devices.scalar()
+            total_count = total_devices.scalar() or 0
 
             monitoring_enabled = await session.execute(
                 select(sa_func.count(Device.id)).where(Device.monitoring_enabled == True)
             )
-            monitoring_count = monitoring_enabled.scalar()
+            monitoring_count = monitoring_enabled.scalar() or 0
 
             return {
                 "total_devices": total_count,
                 "monitoring_enabled": monitoring_count,
                 "status_breakdown": status_counts,
                 "type_breakdown": type_counts,
-                "last_updated": datetime.now(timezone.utc).isoformat(),
+                "last_updated": datetime.now(UTC).isoformat(),
             }
 
 
 # Global device manager instance
-_device_manager: Optional[DeviceManager] = None
+_device_manager: DeviceManager | None = None
 
 
 def get_device_manager() -> DeviceManager:

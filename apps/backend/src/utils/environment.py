@@ -4,9 +4,11 @@ Environment Detection Utilities
 Provides utilities for detecting different system environments and their capabilities.
 """
 
+from dataclasses import dataclass
 import logging
 import subprocess
-from dataclasses import dataclass
+from typing import Any
+from collections.abc import Sequence
 
 logger = logging.getLogger(__name__)
 
@@ -69,7 +71,7 @@ class EnvironmentDetector:
 
     @staticmethod
     def is_container_environment(
-        dockerenv_exists: bool = None, proc_cgroup_content: str = None
+        dockerenv_exists: bool | None = None, proc_cgroup_content: str | None = None
     ) -> bool:
         """
         Detect if running in a container environment
@@ -94,7 +96,7 @@ class EnvironmentDetector:
         return False
 
     @staticmethod
-    def get_detection_commands() -> dict:
+    def get_detection_commands() -> dict[str, dict[str, Any]]:
         """
         Get all environment detection commands
 
@@ -129,7 +131,7 @@ def should_skip_drive_health_monitoring(environment_info: EnvironmentInfo) -> bo
     return False
 
 
-def get_environment_specific_commands(environment_info: EnvironmentInfo) -> dict:
+def get_environment_specific_commands(environment_info: EnvironmentInfo) -> dict[str, Any]:
     """
     Get environment-specific command variations as argument lists for safe execution
 
@@ -139,7 +141,7 @@ def get_environment_specific_commands(environment_info: EnvironmentInfo) -> dict
     Returns:
         Dictionary of adjusted commands for the environment as argument lists
     """
-    commands = {}
+    commands: dict[str, Any] = {}
 
     # Adjust commands based on environment
     if environment_info.is_wsl:
@@ -172,7 +174,7 @@ def get_environment_specific_commands(environment_info: EnvironmentInfo) -> dict
     return commands
 
 
-def execute_safe_command(command_spec: list | dict, timeout: int = 10) -> tuple[bool, str, str]:
+def execute_safe_command(command_spec: list[str] | dict[str, Any], timeout: int = 10) -> tuple[bool, str, str]:
     """
     Safely execute a command specification without shell injection risks
     
@@ -193,7 +195,7 @@ def execute_safe_command(command_spec: list | dict, timeout: int = 10) -> tuple[
                 timeout=timeout
             )
             return result.returncode == 0, result.stdout, result.stderr
-            
+
         elif isinstance(command_spec, dict):
             if "primary" in command_spec:
                 # Handle complex command with potential piping or fallback
@@ -205,10 +207,10 @@ def execute_safe_command(command_spec: list | dict, timeout: int = 10) -> tuple[
                         text=True,
                         timeout=timeout
                     )
-                    
+
                     if primary_result.returncode == 0:
                         stdout = primary_result.stdout
-                        
+
                         # Handle filtering if specified
                         if "filter" in command_spec:
                             filter_spec = command_spec["filter"]
@@ -223,9 +225,9 @@ def execute_safe_command(command_spec: list | dict, timeout: int = 10) -> tuple[
                                 return True, filter_result.stdout, filter_result.stderr
                             else:
                                 return False, stdout, filter_result.stderr
-                        
+
                         return True, stdout, primary_result.stderr
-                    
+
                     elif "fallback" in command_spec and command_spec.get("error_handling") == "fallback_on_error":
                         # Execute fallback command
                         fallback_result = subprocess.run(
@@ -235,30 +237,31 @@ def execute_safe_command(command_spec: list | dict, timeout: int = 10) -> tuple[
                             timeout=timeout
                         )
                         return fallback_result.returncode == 0, fallback_result.stdout, fallback_result.stderr
-                    
+
                     else:
                         return False, "", primary_result.stderr
-                        
+
                 except subprocess.TimeoutExpired:
                     logger.warning(f"Command timeout: {command_spec}")
                     return False, "", "Command timeout"
-                    
+
             elif "check_file" in command_spec or "check_command" in command_spec:
                 # Handle detection command
                 cmd = command_spec.get("check_file") or command_spec.get("check_command")
-                result = subprocess.run(
-                    cmd,
-                    capture_output=True,
-                    text=True,
-                    timeout=timeout
-                )
-                return result.returncode == 0, result.stdout, result.stderr
-                
+                if cmd:
+                    result = subprocess.run(
+                        cmd,
+                        capture_output=True,
+                        text=True,
+                        timeout=timeout
+                    )
+                    return result.returncode == 0, result.stdout, result.stderr
+
     except subprocess.SubprocessError as e:
         logger.error(f"Command execution error: {e}")
         return False, "", str(e)
     except Exception as e:
         logger.error(f"Unexpected error executing command: {e}")
         return False, "", str(e)
-    
+
     return False, "", "Invalid command specification"

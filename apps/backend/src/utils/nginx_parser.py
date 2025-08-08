@@ -5,11 +5,11 @@ Utilities for parsing and analyzing nginx configuration files
 from SWAG reverse proxy setups.
 """
 
-import re
-import logging
-from typing import Optional, Any, List
-from pathlib import Path
 import hashlib
+import logging
+from pathlib import Path
+import re
+from typing import Any
 
 logger = logging.getLogger(__name__)
 
@@ -20,7 +20,7 @@ class NginxConfigParser:
     SWAG-specific patterns and structures.
     """
 
-    def __init__(self):
+    def __init__(self) -> None:
         # Common nginx directive patterns
         self.directive_patterns = {
             "server_name": re.compile(r"server_name\s+([^;]+);"),
@@ -62,7 +62,7 @@ class NginxConfigParser:
             logger.error(f"Failed to parse config file {file_path}: {e}")
             return {"error": str(e), "file_path": file_path, "parsed": False}
 
-    def parse_config_content(self, content: str, file_path: Optional[str] = None) -> dict[str, Any]:
+    def parse_config_content(self, content: str, file_path: str | None = None) -> dict[str, Any]:
         """
         Parse nginx configuration content
 
@@ -73,7 +73,7 @@ class NginxConfigParser:
         Returns:
             Dict containing parsed configuration data
         """
-        result = {
+        result: dict[str, Any] = {
             "file_path": file_path,
             "parsed": True,
             "file_hash": self.calculate_content_hash(content),
@@ -200,7 +200,7 @@ class NginxConfigParser:
         server_blocks = self._extract_blocks(content, "server")
 
         for block_content in server_blocks:
-            server_info = {"directives": {}, "locations": [], "raw_content": block_content}
+            server_info: dict[str, Any] = {"directives": {}, "locations": [], "raw_content": block_content}
 
             # Parse directives within server block
             for directive, pattern in self.directive_patterns.items():
@@ -279,7 +279,7 @@ class NginxConfigParser:
 
     def _extract_blocks(self, content: str, block_type: str) -> list[str]:
         """Extract complete blocks of a specific type"""
-        blocks = []
+        blocks: list[str] = []
         pattern = self.block_patterns.get(block_type)
 
         if not pattern:
@@ -288,7 +288,7 @@ class NginxConfigParser:
         lines = content.split("\n")
         in_block = False
         brace_count = 0
-        current_block = []
+        current_block: list[str] = []
 
         for line in lines:
             if not in_block and pattern.search(line):
@@ -386,7 +386,7 @@ class NginxConfigParser:
         Returns:
             Dict with validation results
         """
-        validation = {"is_valid": True, "errors": [], "warnings": [], "syntax_check": True}
+        validation: dict[str, Any] = {"is_valid": True, "errors": [], "warnings": [], "syntax_check": True}
 
         try:
             # Check for balanced braces
@@ -478,7 +478,7 @@ def parse_swag_config_directory(directory_path: str) -> dict[str, Any]:
         Dict containing all parsed configurations
     """
     parser = NginxConfigParser()
-    results = {
+    results: dict[str, Any] = {
         "directory": directory_path,
         "configs": {},
         "summary": {

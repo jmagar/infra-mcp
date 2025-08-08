@@ -2,34 +2,32 @@
 Service layer for container-related business logic.
 """
 
-import asyncio
+from datetime import UTC, datetime
 import json
 import logging
-from datetime import datetime, timezone
-from typing import List, Optional, Dict, Any
+
+Optional
 from uuid import UUID
 
-from sqlalchemy import select, and_, or_, desc, func
+from sqlalchemy import and_, desc, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from apps.backend.src.models.device import Device
+from apps.backend.src.core.exceptions import (
+    ContainerError,
+    DeviceNotFoundError,
+    SSHCommandError,
+)
 from apps.backend.src.models.container import ContainerSnapshot
+from apps.backend.src.models.device import Device
+from apps.backend.src.schemas.common import PaginationParams
 from apps.backend.src.schemas.container import (
-    ContainerSnapshotList,
-    ContainerSummary,
     ContainerDetails,
     ContainerLogs,
+    ContainerSnapshotList,
     ContainerSnapshotResponse,
+    ContainerSummary,
 )
-from apps.backend.src.schemas.common import PaginationParams
-from apps.backend.src.utils.ssh_client import get_ssh_client, SSHConnectionInfo, execute_ssh_command
-from apps.backend.src.core.exceptions import (
-    DeviceNotFoundError,
-    ContainerError,
-    SSHConnectionError,
-    SSHCommandError,
-    DatabaseOperationError,
-)
+from apps.backend.src.utils.ssh_client import SSHConnectionInfo, execute_ssh_command, get_ssh_client
 
 logger = logging.getLogger(__name__)
 
@@ -56,13 +54,13 @@ class ContainerService:
     async def list_containers(
         self,
         pagination: PaginationParams,
-        device_ids: Optional[List[UUID]] = None,
-        container_names: Optional[List[str]] = None,
-        images: Optional[List[str]] = None,
-        statuses: Optional[List[str]] = None,
-        states: Optional[List[str]] = None,
-        since: Optional[str] = None,
-        search: Optional[str] = None,
+        device_ids: list[UUID] | None = None,
+        container_names: list[str] | None = None,
+        images: list[str] | None = None,
+        statuses: list[str] | None = None,
+        states: list[str] | None = None,
+        since: str | None = None,
+        search: str | None = None,
     ) -> ContainerSnapshotList:
         """List container snapshots with filtering and pagination"""
 
@@ -141,7 +139,7 @@ class ContainerService:
 
     async def list_device_containers(
         self, device_id: UUID, live_data: bool = False
-    ) -> List[ContainerSummary]:
+    ) -> list[ContainerSummary]:
         """List containers for a specific device"""
         device = await self.get_device_by_id(device_id)
 
@@ -225,7 +223,7 @@ class ContainerService:
                                         health_status=None,
                                         restart_count=0,  # Would need additional parsing
                                         created_at=None,  # Would need additional parsing
-                                        last_updated=datetime.now(timezone.utc),
+                                        last_updated=datetime.now(UTC),
                                     )
                                 )
 
@@ -476,8 +474,8 @@ class ContainerService:
         self,
         device_id: UUID,
         container_name: str,
-        since: Optional[str] = None,
-        tail: Optional[int] = 100,
+        since: str | None = None,
+        tail: int | None = 100,
         timestamps: bool = True,
     ) -> ContainerLogs:
         """Get logs for a specific container"""
@@ -511,7 +509,7 @@ class ContainerService:
                         # Simple log parsing - in practice you'd want more sophisticated parsing
                         log_entries.append(
                             {
-                                "timestamp": datetime.now(timezone.utc).isoformat(),
+                                "timestamp": datetime.now(UTC).isoformat(),
                                 "message": line.strip(),
                                 "stream": "stdout",  # Docker logs mix stdout/stderr
                             }

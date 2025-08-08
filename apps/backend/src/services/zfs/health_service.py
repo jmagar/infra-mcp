@@ -4,12 +4,14 @@ ZFS Health Monitoring Service
 Handles ZFS health checks, ARC statistics, and event monitoring.
 """
 
+from datetime import UTC, datetime
 import logging
-from datetime import datetime, timezone
-from typing import Dict, Any
+
+from typing import Any, Dict, List, Optional
+
+from apps.backend.src.core.exceptions import ZFSError
 
 from .base import ZFSBaseService
-from apps.backend.src.core.exceptions import ZFSError
 
 logger = logging.getLogger(__name__)
 
@@ -17,7 +19,7 @@ logger = logging.getLogger(__name__)
 class ZFSHealthService(ZFSBaseService):
     """Service for ZFS health monitoring operations"""
 
-    async def check_zfs_health(self, hostname: str, timeout: int = 60) -> Dict[str, Any]:
+    async def check_zfs_health(self, hostname: str, timeout: int = 60) -> dict[str, Any]:
         """Comprehensive ZFS health check"""
         try:
             # Get pool status
@@ -45,7 +47,7 @@ class ZFSHealthService(ZFSBaseService):
                 "pools_with_errors": pools_with_errors,
                 "detailed_status": pools_output,
                 "overall_health": "healthy" if not pools_with_errors else "degraded",
-                "checked_at": datetime.now(timezone.utc).isoformat(),
+                "checked_at": datetime.now(UTC).isoformat(),
             }
 
         except Exception as e:
@@ -54,7 +56,7 @@ class ZFSHealthService(ZFSBaseService):
                 f"Failed to check ZFS health: {str(e)}", operation="check_health", hostname=hostname
             )
 
-    async def get_arc_stats(self, hostname: str, timeout: int = 30) -> Dict[str, Any]:
+    async def get_arc_stats(self, hostname: str, timeout: int = 30) -> dict[str, Any]:
         """Get ZFS ARC (Adaptive Replacement Cache) statistics"""
         try:
             # Get ARC stats from /proc/spl/kstat/zfs/arcstats
@@ -69,9 +71,11 @@ class ZFSHealthService(ZFSBaseService):
                         key = parts[0]
                         value = parts[2]
                         try:
+                            # Try to convert to int first
                             arc_stats[key] = int(value)
                         except ValueError:
-                            arc_stats[key] = value
+                            # If that fails, keep as string
+                            arc_stats[key] = str(value)
 
             # Calculate hit ratios
             hits = arc_stats.get("hits", 0)
@@ -84,7 +88,7 @@ class ZFSHealthService(ZFSBaseService):
                 "hit_ratio_percent": round(hit_ratio, 2),
                 "cache_size_bytes": arc_stats.get("size", 0),
                 "cache_max_bytes": arc_stats.get("c_max", 0),
-                "retrieved_at": datetime.now(timezone.utc).isoformat(),
+                "retrieved_at": datetime.now(UTC).isoformat(),
             }
 
         except Exception as e:
@@ -93,7 +97,7 @@ class ZFSHealthService(ZFSBaseService):
                 f"Failed to get ARC stats: {str(e)}", operation="get_arc_stats", hostname=hostname
             )
 
-    async def monitor_zfs_events(self, hostname: str, timeout: int = 30) -> Dict[str, Any]:
+    async def monitor_zfs_events(self, hostname: str, timeout: int = 30) -> dict[str, Any]:
         """Monitor ZFS events and error messages"""
         try:
             # Get recent ZFS events from dmesg or journalctl
@@ -107,7 +111,7 @@ class ZFSHealthService(ZFSBaseService):
             return {
                 "journal_events": events_output,
                 "dmesg_events": dmesg_output,
-                "monitored_at": datetime.now(timezone.utc).isoformat(),
+                "monitored_at": datetime.now(UTC).isoformat(),
             }
 
         except Exception as e:
@@ -118,7 +122,7 @@ class ZFSHealthService(ZFSBaseService):
                 hostname=hostname,
             )
 
-    async def scrub_pool(self, hostname: str, pool_name: str, timeout: int = 30) -> Dict[str, Any]:
+    async def scrub_pool(self, hostname: str, pool_name: str, timeout: int = 30) -> dict[str, Any]:
         """Start a ZFS scrub operation"""
         try:
             cmd = f"zpool scrub {pool_name}"
@@ -127,7 +131,7 @@ class ZFSHealthService(ZFSBaseService):
             return {
                 "pool_name": pool_name,
                 "operation": "scrub_started",
-                "started_at": datetime.now(timezone.utc).isoformat(),
+                "started_at": datetime.now(UTC).isoformat(),
                 "status": "initiated",
             }
 
@@ -139,7 +143,7 @@ class ZFSHealthService(ZFSBaseService):
 
     async def get_scrub_status(
         self, hostname: str, pool_name: str, timeout: int = 30
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         """Get current scrub status for a pool"""
         try:
             cmd = f"zpool status {pool_name} | grep -A5 -B5 scrub"
@@ -148,7 +152,7 @@ class ZFSHealthService(ZFSBaseService):
             return {
                 "pool_name": pool_name,
                 "scrub_info": output,
-                "checked_at": datetime.now(timezone.utc).isoformat(),
+                "checked_at": datetime.now(UTC).isoformat(),
             }
 
         except Exception as e:

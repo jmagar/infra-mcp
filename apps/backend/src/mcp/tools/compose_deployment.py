@@ -6,21 +6,20 @@ including path updates, port management, network configuration, and SWAG proxy s
 """
 
 import logging
-from typing import Dict, List, Optional, Any
-import json
+from typing import Any
 
-from apps.backend.src.services.compose_deployment import ComposeDeploymentService
-from apps.backend.src.schemas.compose_deployment import (
-    ComposeModificationRequest,
-    ComposeDeploymentRequest,
-    PortScanRequest,
-    NetworkScanRequest,
-)
 from apps.backend.src.core.exceptions import (
     DeviceNotFoundError,
-    ValidationError,
     SSHConnectionError,
+    ValidationError,
 )
+from apps.backend.src.schemas.compose_deployment import (
+    ComposeDeploymentRequest,
+    ComposeModificationRequest,
+    NetworkScanRequest,
+    PortScanRequest,
+)
+from apps.backend.src.services.compose_deployment import ComposeDeploymentService
 
 logger = logging.getLogger(__name__)
 
@@ -28,19 +27,19 @@ logger = logging.getLogger(__name__)
 async def modify_compose_for_device(
     compose_content: str,
     target_device: str,
-    service_name: Optional[str] = None,
+    service_name: str | None = None,
     update_appdata_paths: bool = True,
     auto_assign_ports: bool = True,
     port_range_start: int = 8000,
     port_range_end: int = 9000,
-    custom_port_mappings: Optional[Dict[str, int]] = None,
+    custom_port_mappings: dict[str, int] | None = None,
     update_networks: bool = True,
-    default_network: Optional[str] = None,
+    default_network: str | None = None,
     generate_proxy_configs: bool = True,
-    base_domain: Optional[str] = None,
-    custom_appdata_path: Optional[str] = None,
-    deployment_path: Optional[str] = None,
-) -> Dict[str, Any]:
+    base_domain: str | None = None,
+    custom_appdata_path: str | None = None,
+    deployment_path: str | None = None,
+) -> dict[str, Any]:
     """
     Modify docker-compose content for deployment on target device.
     
@@ -72,7 +71,7 @@ async def modify_compose_for_device(
     """
     try:
         service = ComposeDeploymentService()
-        
+
         request = ComposeModificationRequest(
             compose_content=compose_content,
             target_device=target_device,
@@ -88,10 +87,11 @@ async def modify_compose_for_device(
             generate_proxy_configs=generate_proxy_configs,
             base_domain=base_domain,
             deployment_path=deployment_path,
+            create_directories=True,
         )
-        
+
         result = await service.modify_compose_for_device(request)
-        
+
         return {
             "success": result.success,
             "device": result.device,
@@ -133,7 +133,7 @@ async def modify_compose_for_device(
             "execution_time_ms": result.execution_time_ms,
             "device_info": result.device_info,
         }
-        
+
     except DeviceNotFoundError as e:
         logger.error(f"Device not found: {e}")
         return {"success": False, "error": f"Device not found: {str(e)}"}
@@ -154,9 +154,9 @@ async def deploy_compose_to_device(
     recreate_containers: bool = False,
     create_directories: bool = True,
     backup_existing: bool = True,
-    services_to_start: Optional[List[str]] = None,
-    services_to_stop: Optional[List[str]] = None,
-) -> Dict[str, Any]:
+    services_to_start: list[str] | None = None,
+    services_to_stop: list[str] | None = None,
+) -> dict[str, Any]:
     """
     Deploy docker-compose content to target device.
     
@@ -184,7 +184,7 @@ async def deploy_compose_to_device(
     """
     try:
         service = ComposeDeploymentService()
-        
+
         request = ComposeDeploymentRequest(
             device=device,
             compose_content=compose_content,
@@ -197,9 +197,9 @@ async def deploy_compose_to_device(
             services_to_start=services_to_start,
             services_to_stop=services_to_stop,
         )
-        
+
         result = await service.deploy_compose_to_device(request)
-        
+
         return {
             "success": result.success,
             "device": result.device,
@@ -217,7 +217,7 @@ async def deploy_compose_to_device(
             "errors": result.errors,
             "execution_time_ms": result.execution_time_ms,
         }
-        
+
     except SSHConnectionError as e:
         logger.error(f"SSH connection error: {e}")
         return {"success": False, "error": f"Cannot connect to device: {str(e)}"}
@@ -229,18 +229,18 @@ async def deploy_compose_to_device(
 async def modify_and_deploy_compose(
     compose_content: str,
     target_device: str,
-    service_name: Optional[str] = None,
+    service_name: str | None = None,
     update_appdata_paths: bool = True,
     auto_assign_ports: bool = True,
     generate_proxy_configs: bool = True,
     start_services: bool = True,
     pull_images: bool = True,
-    custom_appdata_path: Optional[str] = None,
-    deployment_path: Optional[str] = None,
+    custom_appdata_path: str | None = None,
+    deployment_path: str | None = None,
     port_range_start: int = 8000,
     port_range_end: int = 9000,
-    base_domain: Optional[str] = None,
-) -> Dict[str, Any]:
+    base_domain: str | None = None,
+) -> dict[str, Any]:
     """
     Modify and deploy docker-compose in a single operation.
     
@@ -267,7 +267,7 @@ async def modify_and_deploy_compose(
     """
     try:
         service = ComposeDeploymentService()
-        
+
         # Step 1: Modify compose for target device
         modify_request = ComposeModificationRequest(
             compose_content=compose_content,
@@ -281,10 +281,14 @@ async def modify_and_deploy_compose(
             port_range_start=port_range_start,
             port_range_end=port_range_end,
             base_domain=base_domain,
+            custom_port_mappings=None,
+            update_networks=True,
+            default_network=None,
+            create_directories=True,
         )
-        
+
         modify_result = await service.modify_compose_for_device(modify_request)
-        
+
         if not modify_result.success:
             return {
                 "success": False,
@@ -295,7 +299,7 @@ async def modify_and_deploy_compose(
                     "warnings": modify_result.warnings,
                 }
             }
-        
+
         # Step 2: Deploy modified compose
         deploy_request = ComposeDeploymentRequest(
             device=target_device,
@@ -303,10 +307,15 @@ async def modify_and_deploy_compose(
             deployment_path=modify_result.deployment_path or "/opt/docker-compose/docker-compose.yml",
             start_services=start_services,
             pull_images=pull_images,
+            recreate_containers=False,
+            create_directories=True,
+            backup_existing=True,
+            services_to_start=None,
+            services_to_stop=None,
         )
-        
+
         deploy_result = await service.deploy_compose_to_device(deploy_request)
-        
+
         # Combine results
         return {
             "success": modify_result.success and deploy_result.success,
@@ -333,7 +342,7 @@ async def modify_and_deploy_compose(
             "services_started": len(deploy_result.containers_started),
             "total_execution_time_ms": modify_result.execution_time_ms + deploy_result.execution_time_ms,
         }
-        
+
     except Exception as e:
         logger.error(f"Error in modify-and-deploy operation: {e}")
         return {"success": False, "error": f"Failed to modify and deploy: {str(e)}"}
@@ -345,7 +354,7 @@ async def scan_device_ports(
     port_range_end: int = 9000,
     protocol: str = "tcp",
     timeout: int = 5,
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """
     Scan for available ports on target device.
     
@@ -364,7 +373,7 @@ async def scan_device_ports(
     """
     try:
         service = ComposeDeploymentService()
-        
+
         request = PortScanRequest(
             device=device,
             port_range_start=port_range_start,
@@ -372,9 +381,9 @@ async def scan_device_ports(
             protocol=protocol,
             timeout=timeout,
         )
-        
+
         result = await service.scan_available_ports(request)
-        
+
         return {
             "device": result.device,
             "used_ports": result.used_ports,
@@ -385,7 +394,7 @@ async def scan_device_ports(
             "system_services": len(result.system_port_usage),
             "execution_time_ms": result.execution_time_ms,
         }
-        
+
     except SSHConnectionError as e:
         logger.error(f"SSH connection error: {e}")
         return {"success": False, "error": f"Cannot connect to device: {str(e)}"}
@@ -397,7 +406,7 @@ async def scan_device_ports(
 async def scan_docker_networks(
     device: str,
     include_system_networks: bool = False,
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """
     Scan Docker networks on target device.
     
@@ -413,14 +422,14 @@ async def scan_docker_networks(
     """
     try:
         service = ComposeDeploymentService()
-        
+
         request = NetworkScanRequest(
             device=device,
             include_system_networks=include_system_networks,
         )
-        
+
         result = await service.scan_docker_networks(request)
-        
+
         return {
             "device": result.device,
             "networks": result.networks,
@@ -429,7 +438,7 @@ async def scan_docker_networks(
             "containers_by_network": result.containers_by_network,
             "execution_time_ms": result.execution_time_ms,
         }
-        
+
     except SSHConnectionError as e:
         logger.error(f"SSH connection error: {e}")
         return {"success": False, "error": f"Cannot connect to device: {str(e)}"}
@@ -442,8 +451,8 @@ async def generate_proxy_config(
     service_name: str,
     upstream_port: int,
     device_hostname: str,
-    domain: Optional[str] = None,
-) -> Dict[str, Any]:
+    domain: str | None = None,
+) -> dict[str, Any]:
     """
     Generate SWAG proxy configuration for a specific service.
     
@@ -461,7 +470,7 @@ async def generate_proxy_config(
     """
     try:
         service = ComposeDeploymentService()
-        
+
         # Use the service's private method to generate proxy config
         base_domain = domain or f"{service_name}.example.com"
         proxy_config = service._generate_swag_config(
@@ -470,7 +479,7 @@ async def generate_proxy_config(
             domain=base_domain,
             device_hostname=device_hostname
         )
-        
+
         return {
             "success": True,
             "service_name": service_name,
@@ -480,7 +489,7 @@ async def generate_proxy_config(
             "config_content": proxy_config,
             "filename": f"{service_name}.subdomain.conf"
         }
-        
+
     except Exception as e:
         logger.error(f"Error generating proxy config: {e}")
         return {"success": False, "error": f"Failed to generate proxy config: {str(e)}"}

@@ -8,20 +8,17 @@ with a complete catalog of commands organized by categories.
 Task Master Task 2: Implement Unified SSH Command Registry
 """
 
+from datetime import UTC, datetime
+from enum import Enum
 import json
 import logging
-from enum import Enum
-from typing import Any, Optional, Dict, List
-from datetime import datetime, timezone
+from typing import Any
 
 from .ssh_command_manager import (
     CommandDefinition,
-    CommandCategory,
-    SSHCommandManager,
     CommandParser,
-    SystemMetricsParser,
     ContainerStatsParser,
-    DriveHealthParser,
+    SSHCommandManager,
 )
 
 logger = logging.getLogger(__name__)
@@ -36,7 +33,7 @@ class ExtendedCommandCategory(str, Enum):
     NETWORK_INFO = "network_info"
     PROCESS_INFO = "process_info"
     FILE_OPERATIONS = "file_operations"
-    
+
     # New categories for comprehensive coverage
     ZFS_MANAGEMENT = "zfs_management"
     SYSTEM_LOGS = "system_logs"
@@ -48,13 +45,13 @@ class ExtendedCommandCategory(str, Enum):
 
 class ZFSParser(CommandParser):
     """Parser for ZFS commands"""
-    
+
     def parse(self, output: str) -> Any:
         """Parse ZFS command output"""
         lines = output.strip().split('\n')
         if not lines or not lines[0].strip():
             return []
-            
+
         # Handle tabulated ZFS output
         results = []
         for line in lines:
@@ -64,9 +61,9 @@ class ZFSParser(CommandParser):
             elif line.strip():
                 # Handle space-separated output
                 results.append(line.split())
-        
+
         return results
-    
+
     def validate(self, output: str) -> bool:
         """Validate ZFS output format"""
         return len(output.strip()) > 0
@@ -74,25 +71,25 @@ class ZFSParser(CommandParser):
 
 class SystemInfoParser(CommandParser):
     """Parser for system information commands"""
-    
-    def parse(self, output: str) -> Dict[str, Any]:
+
+    def parse(self, output: str) -> dict[str, Any]:
         """Parse system info output into structured data"""
         try:
             lines = output.strip().split('\n')
             if not lines:
                 return {}
-                
+
             # Handle different system info formats
             result = {}
             for i, line in enumerate(lines):
                 if line.strip():
                     result[f"line_{i}"] = line.strip()
-            
+
             return result
         except Exception as e:
             logger.error(f"Failed to parse system info: {e}")
             return {"raw_output": output}
-    
+
     def validate(self, output: str) -> bool:
         """Validate system info output"""
         return len(output.strip()) > 0
@@ -103,34 +100,39 @@ class UnifiedCommandRegistry:
     Unified registry containing all SSH commands used throughout the infrastructure system.
     Extends SSHCommandManager with comprehensive command definitions.
     """
-    
+
     def __init__(self, ssh_command_manager: SSHCommandManager):
         self.ssh_manager = ssh_command_manager
         # Create parser mappings including existing ones from ssh_command_manager
-        self.parsers = {}
-        
-        # Copy existing parsers from ssh_command_manager (using string keys)
+        self.parsers: dict[str, CommandParser] = {}
+
+        # Copy existing parsers from ssh_command_manager using string keys
         for category_enum, parser in ssh_command_manager.parsers.items():
-            self.parsers[category_enum] = parser
-        
-        # Add new extended parsers
-        self.parsers[ExtendedCommandCategory.ZFS_MANAGEMENT] = ZFSParser()
-        self.parsers[ExtendedCommandCategory.SYSTEM_LOGS] = SystemInfoParser()
-        self.parsers[ExtendedCommandCategory.HARDWARE_INFO] = SystemInfoParser()
-        self.parsers[ExtendedCommandCategory.SYSTEM_STATUS] = SystemInfoParser()
-        self.parsers[ExtendedCommandCategory.DOCKER_OPERATIONS] = ContainerStatsParser()
-        self.parsers[ExtendedCommandCategory.COMPOSE_MANAGEMENT] = SystemInfoParser()
-        self.parsers[ExtendedCommandCategory.PROCESS_INFO] = SystemInfoParser()
-        self.parsers[ExtendedCommandCategory.FILE_OPERATIONS] = SystemInfoParser()
+            key = category_enum.value if isinstance(category_enum, Enum) else str(category_enum)
+            self.parsers[key] = parser
+
+        # Add new extended parsers (string keys)
+        self.parsers[ExtendedCommandCategory.ZFS_MANAGEMENT.value] = ZFSParser()
+        self.parsers[ExtendedCommandCategory.SYSTEM_LOGS.value] = SystemInfoParser()
+        self.parsers[ExtendedCommandCategory.HARDWARE_INFO.value] = SystemInfoParser()
+        self.parsers[ExtendedCommandCategory.SYSTEM_STATUS.value] = SystemInfoParser()
+        self.parsers[ExtendedCommandCategory.DOCKER_OPERATIONS.value] = ContainerStatsParser()
+        self.parsers[ExtendedCommandCategory.COMPOSE_MANAGEMENT.value] = SystemInfoParser()
+        self.parsers[ExtendedCommandCategory.PROCESS_INFO.value] = SystemInfoParser()
+        self.parsers[ExtendedCommandCategory.FILE_OPERATIONS.value] = SystemInfoParser()
         self._register_comprehensive_commands()
-    
-    def _get_parser_for_category(self, category: ExtendedCommandCategory):
+
+    def _get_parser_for_category(self, category: ExtendedCommandCategory) -> CommandParser:
         """Safely get parser for category, with fallback"""
-        return self.parsers.get(category, self.parsers.get(ExtendedCommandCategory.SYSTEM_STATUS))
-    
+        parser = (
+            self.parsers.get(category.value)
+            or self.parsers.get(ExtendedCommandCategory.SYSTEM_STATUS.value)
+        )
+        return parser if parser is not None else SystemInfoParser()
+
     def _register_comprehensive_commands(self) -> None:
         """Register all SSH commands discovered throughout the codebase"""
-        
+
         # ZFS Management Commands
         zfs_commands = [
             CommandDefinition(
@@ -188,7 +190,7 @@ class UnifiedCommandRegistry:
                 parser=self._get_parser_for_category(ExtendedCommandCategory.ZFS_MANAGEMENT).parse
             ),
         ]
-        
+
         # Docker Operations Commands
         docker_commands = [
             CommandDefinition(
@@ -255,7 +257,7 @@ class UnifiedCommandRegistry:
                 parser=self._get_parser_for_category(ExtendedCommandCategory.DOCKER_OPERATIONS).parse
             ),
         ]
-        
+
         # System Hardware Commands
         hardware_commands = [
             CommandDefinition(
@@ -313,7 +315,7 @@ class UnifiedCommandRegistry:
                 parser=self._get_parser_for_category(ExtendedCommandCategory.HARDWARE_INFO).parse
             ),
         ]
-        
+
         # System Status Commands
         status_commands = [
             CommandDefinition(
@@ -353,7 +355,7 @@ class UnifiedCommandRegistry:
                 parser=self._get_parser_for_category(ExtendedCommandCategory.PROCESS_INFO).parse
             ),
         ]
-        
+
         # Storage and Drive Commands
         storage_commands = [
             CommandDefinition(
@@ -412,7 +414,7 @@ class UnifiedCommandRegistry:
                 parser=self._get_parser_for_category(ExtendedCommandCategory.DRIVE_HEALTH).parse
             ),
         ]
-        
+
         # Filesystem Commands
         filesystem_commands = [
             CommandDefinition(
@@ -452,7 +454,7 @@ class UnifiedCommandRegistry:
                 parser=self._get_parser_for_category(ExtendedCommandCategory.SYSTEM_STATUS).parse
             ),
         ]
-        
+
         # Network Commands
         network_commands = [
             CommandDefinition(
@@ -483,7 +485,7 @@ class UnifiedCommandRegistry:
                 parser=self._get_parser_for_category(ExtendedCommandCategory.NETWORK_INFO).parse
             ),
         ]
-        
+
         # System Logs Commands
         logs_commands = [
             CommandDefinition(
@@ -514,7 +516,7 @@ class UnifiedCommandRegistry:
                 parser=self._get_parser_for_category(ExtendedCommandCategory.SYSTEM_LOGS).parse
             ),
         ]
-        
+
         # Docker Compose Commands
         compose_commands = [
             CommandDefinition(
@@ -563,7 +565,7 @@ class UnifiedCommandRegistry:
                 parser=self._get_parser_for_category(ExtendedCommandCategory.COMPOSE_MANAGEMENT).parse
             ),
         ]
-        
+
         # Additional System Status Commands
         system_commands = [
             CommandDefinition(
@@ -594,7 +596,7 @@ class UnifiedCommandRegistry:
                 parser=self._get_parser_for_category(ExtendedCommandCategory.SYSTEM_STATUS).parse
             ),
         ]
-        
+
         # Special purpose commands
         special_commands = [
             CommandDefinition(
@@ -616,7 +618,7 @@ class UnifiedCommandRegistry:
                 parser=self._get_parser_for_category(ExtendedCommandCategory.ZFS_MANAGEMENT).parse
             ),
         ]
-        
+
         # Register all command groups
         command_groups = [
             zfs_commands,
@@ -631,44 +633,46 @@ class UnifiedCommandRegistry:
             system_commands,
             special_commands,
         ]
-        
+
         total_registered = 0
         for command_group in command_groups:
             for command_def in command_group:
                 self.ssh_manager.register_command(command_def)
                 total_registered += 1
-        
+
         logger.info(f"Registered {total_registered} comprehensive SSH commands in unified registry")
-    
-    def get_all_commands(self) -> List[CommandDefinition]:
+
+    def get_all_commands(self) -> list[CommandDefinition]:
         """Get all registered commands from the unified registry"""
         return list(self.ssh_manager.command_registry.values())
-    
-    def get_commands_by_category(self, category: ExtendedCommandCategory) -> List[CommandDefinition]:
+
+    def get_commands_by_category(self, category: ExtendedCommandCategory) -> list[CommandDefinition]:
         """Get commands filtered by category"""
+        category_str = category.value
         return [
-            cmd for cmd in self.get_all_commands() 
-            if cmd.category == category
+            cmd for cmd in self.get_all_commands()
+            if (cmd.category.value if isinstance(cmd.category, Enum) else str(cmd.category)) == category_str
         ]
-    
-    def get_command_categories(self) -> List[str]:
+
+    def get_command_categories(self) -> list[str]:
         """Get all available command categories"""
-        categories = set()
+        categories: set[str] = set()
         for command in self.get_all_commands():
-            categories.add(command.category)
+            value = command.category.value if isinstance(command.category, Enum) else str(command.category)
+            categories.add(value)
         return sorted(list(categories))
-    
-    def get_registry_statistics(self) -> Dict[str, Any]:
+
+    def get_registry_statistics(self) -> dict[str, Any]:
         """Get statistics about the command registry"""
         all_commands = self.get_all_commands()
-        category_counts = {}
-        
+        category_counts: dict[str, int] = {}
+
         for command in all_commands:
-            category = command.category
+            category = command.category.value if isinstance(command.category, Enum) else str(command.category)
             if category not in category_counts:
                 category_counts[category] = 0
             category_counts[category] += 1
-        
+
         return {
             "total_commands": len(all_commands),
             "categories": len(category_counts),
@@ -676,16 +680,17 @@ class UnifiedCommandRegistry:
             "commands_with_cache": len([c for c in all_commands if c.cache_ttl > 0]),
             "commands_requiring_root": len([c for c in all_commands if c.requires_root]),
             "average_timeout": sum(c.timeout for c in all_commands) / len(all_commands),
-            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "timestamp": datetime.now(UTC).isoformat(),
         }
-    
+
     def export_registry_json(self) -> str:
         """Export the entire registry as JSON for documentation"""
-        registry_data = {
+        commands: list[dict[str, Any]] = []
+        registry_data: dict[str, Any] = {
             "metadata": self.get_registry_statistics(),
-            "commands": []
+            "commands": commands,
         }
-        
+
         for command in self.get_all_commands():
             command_data = {
                 "name": command.name,
@@ -700,13 +705,13 @@ class UnifiedCommandRegistry:
                 "has_parser": command.parser is not None,
                 "has_validator": command.validator is not None,
             }
-            registry_data["commands"].append(command_data)
-        
+            commands.append(command_data)
+
         return json.dumps(registry_data, indent=2, ensure_ascii=False)
 
 
 # Global unified registry instance
-_unified_registry: Optional[UnifiedCommandRegistry] = None
+_unified_registry: UnifiedCommandRegistry | None = None
 
 
 def get_unified_command_registry() -> UnifiedCommandRegistry:
@@ -719,19 +724,19 @@ def get_unified_command_registry() -> UnifiedCommandRegistry:
     return _unified_registry
 
 
-def get_command_by_name(name: str) -> Optional[CommandDefinition]:
+def get_command_by_name(name: str) -> CommandDefinition | None:
     """Get a specific command by name from the unified registry"""
     registry = get_unified_command_registry()
     return registry.ssh_manager.get_command(name)
 
 
-def list_all_commands() -> List[CommandDefinition]:
+def list_all_commands() -> list[CommandDefinition]:
     """List all commands in the unified registry"""
     registry = get_unified_command_registry()
     return registry.get_all_commands()
 
 
-def get_commands_by_category(category: ExtendedCommandCategory) -> List[CommandDefinition]:
+def get_commands_by_category(category: ExtendedCommandCategory) -> list[CommandDefinition]:
     """Get commands by category from the unified registry"""
     registry = get_unified_command_registry()
     return registry.get_commands_by_category(category)

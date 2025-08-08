@@ -4,9 +4,9 @@ MCP Resources for Network Ports
 Provides access to network port information and listening processes via the ports:// URI scheme.
 """
 
+from datetime import UTC, datetime
 import json
 import logging
-from datetime import datetime, timezone
 from typing import Any
 
 logger = logging.getLogger(__name__)
@@ -34,6 +34,7 @@ async def get_ports_resource(uri: str) -> str:
 
         # Get ports via REST API
         import httpx
+
         from apps.backend.src.core.config import get_settings
 
         settings = get_settings()
@@ -43,7 +44,7 @@ async def get_ports_resource(uri: str) -> str:
 
         async with httpx.AsyncClient(timeout=30) as client:
             response = await client.get(
-                f"http://localhost:{settings.server.port}/api/devices/{device}/ports", headers=headers
+                f"http://localhost:{settings.api.api_port}/api/devices/{device}/ports", headers=headers
             )
             response.raise_for_status()
             result = response.json()
@@ -92,7 +93,7 @@ async def get_ports_resource(uri: str) -> str:
 
         resource_data = {
             "device": device,
-            "timestamp": result.get("timestamp", datetime.now(timezone.utc).isoformat()),
+            "timestamp": result.get("timestamp", datetime.now(UTC).isoformat()),
             "command": "ss -tulpn",
             "total_ports": len(ports_data),
             "ports": ports_data,
@@ -117,9 +118,10 @@ async def list_ports_resources() -> list[dict[str, Any]]:
     This would typically list all devices that support port information.
     """
     try:
+        from sqlalchemy import select
+
         from apps.backend.src.core.database import get_async_session
         from apps.backend.src.models.device import Device
-        from sqlalchemy import select
 
         async with get_async_session() as session:
             query = select(Device).where(Device.monitoring_enabled)

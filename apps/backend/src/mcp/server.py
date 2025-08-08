@@ -2,9 +2,10 @@
 """
 Standalone Infrastructure Management MCP Server
 
-This server provides MCP tools that make HTTP calls to the FastAPI REST endpoints
-instead of doing direct SSH operations. This eliminates code duplication and ensures
-consistency between MCP and REST interfaces.
+This server provides a suite of MCP (Model-Controlled Program) tools that integrate
+directly with the application's unified data collection service. This ensures that
+both the MCP interface and the REST API use the same underlying logic for data
+collection, caching, and auditing, providing a consistent and maintainable architecture.
 """
 
 # Standard library imports
@@ -13,12 +14,13 @@ import json
 import logging
 import os
 import sys
-from typing import Any
+from typing import Any, cast
+
+from dotenv import load_dotenv
+from fastmcp import FastMCP
 
 # Third-party imports
 import httpx
-from fastmcp import FastMCP
-from dotenv import load_dotenv
 
 # Load environment variables from .env file
 load_dotenv()
@@ -31,10 +33,25 @@ sys.path.insert(0, project_root)
 
 # Local imports
 from apps.backend.src.core.database import init_database
+from apps.backend.src.mcp.prompts.device_analysis import (
+    analyze_device_performance,
+    container_stack_analysis,
+    infrastructure_health_check,
+    troubleshoot_system_issue,
+)
 from apps.backend.src.mcp.resources.compose_configs import get_compose_config_resource
-from apps.backend.src.mcp.resources.ports_resources import get_ports_resource, list_ports_resources
-from apps.backend.src.mcp.tools.device_info import get_device_info
+from apps.backend.src.mcp.resources.ports_resources import get_ports_resource
+from apps.backend.src.mcp.tools.compose_deployment import (
+    deploy_compose_to_device,
+    generate_proxy_config,
+    modify_and_deploy_compose,
+    modify_compose_for_device,
+    scan_device_ports,
+    scan_docker_networks,
+)
+from apps.backend.src.mcp.tools.development import DEVELOPMENT_TOOLS
 from apps.backend.src.mcp.tools.device_import import import_devices
+from apps.backend.src.mcp.tools.device_info import get_device_info
 from apps.backend.src.mcp.tools.proxy_management import (
     get_proxy_config,
     get_proxy_config_summary,
@@ -42,26 +59,12 @@ from apps.backend.src.mcp.tools.proxy_management import (
     scan_proxy_configs,
     sync_proxy_config,
 )
-from apps.backend.src.mcp.tools.compose_deployment import (
-    modify_compose_for_device,
-    deploy_compose_to_device,
-    modify_and_deploy_compose,
-    scan_device_ports,
-    scan_docker_networks,
-    generate_proxy_config,
-)
 from apps.backend.src.mcp.tools.zfs_management import ZFS_TOOLS
-from apps.backend.src.mcp.prompts.device_analysis import (
-    analyze_device_performance,
-    container_stack_analysis,
-    infrastructure_health_check,
-    troubleshoot_system_issue,
-)
 
-# Configure logging
-logging.basicConfig(
-    level=logging.INFO, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s"
-)
+# Configure structured logging
+from apps.backend.src.core.logging import setup_logging
+
+setup_logging(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 # FastAPI server configuration
@@ -77,7 +80,7 @@ if not API_KEY:
 class APIClient:
     """HTTP client for FastAPI endpoints"""
 
-    def __init__(self):
+    def __init__(self) -> None:
         headers = {"Content-Type": "application/json"}
         if API_KEY:
             headers["Authorization"] = f"Bearer {API_KEY}"
@@ -86,7 +89,7 @@ class APIClient:
             base_url=API_BASE_URL, timeout=httpx.Timeout(API_TIMEOUT), headers=headers
         )
 
-    async def close(self):
+    async def close(self) -> None:
         """Close the HTTP client"""
         await self.client.aclose()
 
@@ -106,15 +109,15 @@ async def list_containers(
 ) -> dict[str, Any]:
     """List Docker containers on a specific device"""
     try:
-        params = {"all_containers": all_containers, "timeout": timeout, "offset": offset}
+        params = {"all_containers": str(all_containers).lower(), "timeout": str(timeout), "offset": str(offset)}
         if status:
             params["status"] = status
         if limit:
-            params["limit"] = limit
+            params["limit"] = str(limit)
 
         response = await api_client.client.get(f"/containers/{device}", params=params)
         response.raise_for_status()
-        return response.json()
+        return cast(dict[str, Any], response.json())
 
     except httpx.HTTPError as e:
         logger.error(f"HTTP error listing containers on {device}: {e}")
@@ -127,12 +130,12 @@ async def list_containers(
 async def get_container_info(device: str, container_name: str, timeout: int = 60) -> dict[str, Any]:
     """Get detailed information about a specific Docker container"""
     try:
-        params = {"timeout": timeout}
+        params = {"timeout": str(timeout)}
         response = await api_client.client.get(
             f"/containers/{device}/{container_name}", params=params
         )
         response.raise_for_status()
-        return response.json()
+        return cast(dict[str, Any], response.json())
 
     except httpx.HTTPError as e:
         logger.error(f"HTTP error getting container info for {container_name} on {device}: {e}")
@@ -151,17 +154,17 @@ async def get_container_logs(
 ) -> dict[str, Any]:
     """Get logs from a specific Docker container"""
     try:
-        params = {"timeout": timeout}
+        params = {"timeout": str(timeout)}
         if since:
             params["since"] = since
         if tail:
-            params["tail"] = tail
+            params["tail"] = str(tail)
 
         response = await api_client.client.get(
             f"/containers/{device}/{container_name}/logs", params=params
         )
         response.raise_for_status()
-        return response.json()
+        return cast(dict[str, Any], response.json())
 
     except httpx.HTTPError as e:
         logger.error(f"HTTP error getting logs for {container_name} on {device}: {e}")
@@ -174,12 +177,12 @@ async def get_container_logs(
 async def start_container(device: str, container_name: str, timeout: int = 60) -> dict[str, Any]:
     """Start a Docker container on a specific device"""
     try:
-        params = {"timeout": timeout}
+        params = {"timeout": str(timeout)}
         response = await api_client.client.post(
             f"/containers/{device}/{container_name}/start", params=params
         )
         response.raise_for_status()
-        return response.json()
+        return cast(dict[str, Any], response.json())
     except httpx.HTTPError as e:
         logger.error(f"HTTP error starting container {container_name} on {device}: {e}")
         raise Exception(f"Failed to start container: {str(e)}") from e
@@ -193,12 +196,12 @@ async def stop_container(
 ) -> dict[str, Any]:
     """Stop a Docker container on a specific device"""
     try:
-        params = {"timeout": timeout, "force": force, "ssh_timeout": ssh_timeout}
+        params = {"timeout": str(timeout), "force": str(force).lower(), "ssh_timeout": str(ssh_timeout)}
         response = await api_client.client.post(
             f"/containers/{device}/{container_name}/stop", params=params
         )
         response.raise_for_status()
-        return response.json()
+        return cast(dict[str, Any], response.json())
     except httpx.HTTPError as e:
         logger.error(f"HTTP error stopping container {container_name} on {device}: {e}")
         raise Exception(f"Failed to stop container: {str(e)}") from e
@@ -212,12 +215,12 @@ async def restart_container(
 ) -> dict[str, Any]:
     """Restart a Docker container on a specific device"""
     try:
-        params = {"timeout": timeout, "ssh_timeout": ssh_timeout}
+        params = {"timeout": str(timeout), "ssh_timeout": str(ssh_timeout)}
         response = await api_client.client.post(
             f"/containers/{device}/{container_name}/restart", params=params
         )
         response.raise_for_status()
-        return response.json()
+        return cast(dict[str, Any], response.json())
     except httpx.HTTPError as e:
         logger.error(f"HTTP error restarting container {container_name} on {device}: {e}")
         raise Exception(f"Failed to restart container: {str(e)}") from e
@@ -235,12 +238,12 @@ async def remove_container(
 ) -> dict[str, Any]:
     """Remove a Docker container on a specific device"""
     try:
-        params = {"force": force, "remove_volumes": remove_volumes, "timeout": timeout}
+        params = {"force": str(force).lower(), "remove_volumes": str(remove_volumes).lower(), "timeout": str(timeout)}
         response = await api_client.client.delete(
             f"/containers/{device}/{container_name}", params=params
         )
         response.raise_for_status()
-        return response.json()
+        return cast(dict[str, Any], response.json())
     except httpx.HTTPError as e:
         logger.error(f"HTTP error removing container {container_name} on {device}: {e}")
         raise Exception(f"Failed to remove container: {str(e)}") from e
@@ -252,12 +255,12 @@ async def remove_container(
 async def get_container_stats(device: str, container_name: str, timeout: int = 30) -> dict[str, Any]:
     """Get real-time resource usage statistics for a Docker container"""
     try:
-        params = {"timeout": timeout}
+        params = {"timeout": str(timeout)}
         response = await api_client.client.get(
             f"/containers/{device}/{container_name}/stats", params=params
         )
         response.raise_for_status()
-        return response.json()
+        return cast(dict[str, Any], response.json())
     except httpx.HTTPError as e:
         logger.error(f"HTTP error getting stats for container {container_name} on {device}: {e}")
         raise Exception(f"Failed to get container stats: {str(e)}") from e
@@ -277,10 +280,10 @@ async def execute_in_container(
 ) -> dict[str, Any]:
     """Execute a command inside a Docker container"""
     try:
-        params = {
+        params: dict[str, str] = {
             "command": command,
-            "interactive": interactive,
-            "timeout": timeout,
+            "interactive": str(interactive).lower(),
+            "timeout": str(timeout),
         }
         if user:
             params["user"] = user
@@ -291,7 +294,7 @@ async def execute_in_container(
             f"/containers/{device}/{container_name}/exec", params=params
         )
         response.raise_for_status()
-        return response.json()
+        return cast(dict[str, Any], response.json())
     except httpx.HTTPError as e:
         logger.error(f"HTTP error executing command in container {container_name} on {device}: {e}")
         raise Exception(f"Failed to execute command in container: {str(e)}") from e
@@ -308,13 +311,13 @@ async def get_drive_health(
 ) -> dict[str, Any]:
     """Get S.M.A.R.T. drive health information and disk status"""
     try:
-        params = {"timeout": timeout}
+        params = {"timeout": str(timeout)}
         if drive:
             params["drive"] = drive
 
         response = await api_client.client.get(f"/devices/{device}/drives", params=params)
         response.raise_for_status()
-        return response.json()
+        return cast(dict[str, Any], response.json())
 
     except httpx.HTTPError as e:
         logger.error(f"HTTP error getting drive health for {device}: {e}")
@@ -329,13 +332,13 @@ async def get_drives_stats(
 ) -> dict[str, Any]:
     """Get drive usage statistics, I/O performance, and utilization metrics"""
     try:
-        params = {"timeout": timeout}
+        params = {"timeout": str(timeout)}
         if drive:
             params["drive"] = drive
 
         response = await api_client.client.get(f"/devices/{device}/drives/stats", params=params)
         response.raise_for_status()
-        return response.json()
+        return cast(dict[str, Any], response.json())
 
     except httpx.HTTPError as e:
         logger.error(f"HTTP error getting drives stats for {device}: {e}")
@@ -354,7 +357,7 @@ async def get_device_logs(
 ) -> dict[str, Any]:
     """Get system logs from journald or traditional syslog"""
     try:
-        params = {"lines": lines, "timeout": timeout}
+        params = {"lines": str(lines), "timeout": str(timeout)}
         if service:
             params["service"] = service
         if since:
@@ -362,7 +365,7 @@ async def get_device_logs(
 
         response = await api_client.client.get(f"/devices/{device}/logs", params=params)
         response.raise_for_status()
-        return response.json()
+        return cast(dict[str, Any], response.json())
 
     except httpx.HTTPError as e:
         logger.error(f"HTTP error getting device logs for {device}: {e}")
@@ -378,7 +381,7 @@ async def list_devices() -> dict[str, Any]:
     try:
         response = await api_client.client.get("/devices")
         response.raise_for_status()
-        return response.json()
+        return cast(dict[str, Any], response.json())
 
     except httpx.HTTPError as e:
         logger.error(f"HTTP error listing devices: {e}")
@@ -406,7 +409,7 @@ async def add_device(
             "device_type": device_type,
             "monitoring_enabled": monitoring_enabled
         }
-        
+
         if description is not None:
             device_data["description"] = description
         if location is not None:
@@ -419,11 +422,11 @@ async def add_device(
             device_data["ssh_username"] = ssh_username
         if tags is not None:
             device_data["tags"] = tags
-        
+
         response = await api_client.client.post("/devices", json=device_data)
         response.raise_for_status()
-        return response.json()
-        
+        return cast(dict[str, Any], response.json())
+
     except httpx.HTTPError as e:
         logger.error(f"HTTP error adding device {hostname}: {e}")
         raise Exception(f"Failed to add device: {str(e)}") from e
@@ -448,7 +451,7 @@ async def remove_device(hostname: str) -> dict[str, Any]:
 
     except httpx.HTTPError as e:
         logger.error(f"HTTP error removing device {hostname}: {e}")
-        if e.response.status_code == 404:
+        if hasattr(e, 'response') and e.response is not None and e.response.status_code == 404:
             raise Exception(f"Device with hostname '{hostname}' not found") from e
         raise Exception(f"Failed to remove device: {str(e)}") from e
     except Exception as e:
@@ -470,7 +473,7 @@ async def edit_device(
     """Edit/update details of an existing device in the infrastructure registry"""
     try:
         # Prepare update data (only include fields that are provided)
-        update_data = {}
+        update_data: dict[str, Any] = {}
 
         if device_type is not None:
             update_data["device_type"] = device_type
@@ -506,7 +509,7 @@ async def edit_device(
 
     except httpx.HTTPError as e:
         logger.error(f"HTTP error updating device {hostname}: {e}")
-        if e.response.status_code == 404:
+        if hasattr(e, 'response') and e.response is not None and e.response.status_code == 404:
             raise Exception(f"Device with hostname '{hostname}' not found") from e
         raise Exception(f"Failed to update device: {str(e)}") from e
     except Exception as e:
@@ -514,9 +517,9 @@ async def edit_device(
         raise Exception(f"Failed to update device: {str(e)}") from e
 
 
-def create_mcp_server():
+def create_mcp_server() -> FastMCP:
     """Create and configure the MCP server"""
-    server = FastMCP(
+    server: FastMCP = FastMCP(
         name="Infrastructure Management MCP Server",
         version="1.0.0",
         instructions="Comprehensive infrastructure monitoring and management tools for heterogeneous Linux environments",
@@ -659,7 +662,7 @@ def create_mcp_server():
 
     # Register ZFS management tools
     for tool_name, tool_config in ZFS_TOOLS.items():
-        server.tool(name=tool_name, description=tool_config["description"])(tool_config["function"])
+        server.tool(tool_config["function"], name=tool_name, description=tool_config["description"])
 
     # Register comprehensive device info tool
     server.tool(
@@ -672,6 +675,10 @@ def create_mcp_server():
         name="import_devices_from_ssh_config",
         description="Import devices from SSH configuration file. Parses SSH config to extract host information and creates or updates devices in the registry.",
     )(import_devices)
+
+    # Register development tools
+    for tool_name, tool_config in DEVELOPMENT_TOOLS.items():
+        server.tool(tool_config["function"], name=tool_name, description=tool_config["description"])
 
     # Register infrastructure analysis prompts
     server.prompt(analyze_device_performance)
@@ -713,9 +720,9 @@ def create_mcp_server():
 
             # Return appropriate content based on resource type
             if "content" in resource_data:
-                return resource_data["content"]
+                return cast(str, resource_data["content"])
             elif "raw_content" in resource_data:
-                return resource_data["raw_content"]
+                return cast(str, resource_data["raw_content"])
             else:
                 # Return JSON representation for structured data
                 return json.dumps(resource_data, indent=2, default=str, ensure_ascii=False)
@@ -777,6 +784,8 @@ def create_mcp_server():
             system_task = asyncio.create_task(get_device_info(device, include_processes=False))
             containers_task = asyncio.create_task(list_containers(device, all_containers=True))
 
+            system_info: Any
+            containers_info: Any
             system_info, containers_info = await asyncio.gather(
                 system_task, containers_task, return_exceptions=True
             )
@@ -838,7 +847,7 @@ def create_mcp_server():
 
             # Return raw YAML content if available, otherwise JSON
             if "content" in service_data:
-                return service_data["content"]
+                return cast(str, service_data["content"])
             else:
                 return json.dumps(service_data, indent=2, default=str, ensure_ascii=False)
         except Exception as e:
@@ -1065,7 +1074,7 @@ def create_mcp_server():
             response = await api_client.client.get(f"/vms/{hostname}/logs")
             response.raise_for_status()
             data = response.json()
-            
+
             return json.dumps(
                 {
                     "resource_type": "libvirt_logs",
@@ -1174,7 +1183,7 @@ def create_mcp_server():
     return server
 
 
-async def initialize_mcp_server():
+async def initialize_mcp_server() -> None:
     """Initialize database and other required services for MCP server"""
     logger.info("Initializing MCP server database connection...")
     try:
@@ -1185,7 +1194,7 @@ async def initialize_mcp_server():
         raise
 
 
-def main():
+def main() -> None:
     """Main entry point for the MCP server"""
     logger.info("Starting Infrastructure Management MCP Server...")
 
@@ -1203,7 +1212,7 @@ def main():
         # Get MCP server configuration from environment
         mcp_host = os.getenv("MCP_HOST", "localhost")
         mcp_port = int(os.getenv("MCP_PORT", "9102"))
-        
+
         # Run the server on HTTP transport
         logger.info(f"Starting MCP server on HTTP transport at {mcp_host}:{mcp_port}...")
         server.run(transport="http", host=mcp_host, port=mcp_port)

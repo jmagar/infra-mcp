@@ -6,27 +6,28 @@ to target infrastructure devices.
 """
 
 import logging
-from typing import Optional
-from fastapi import APIRouter, Depends, HTTPException, Body
+from typing import Any
+
+from fastapi import APIRouter, Body, Depends, HTTPException
 from fastapi.responses import PlainTextResponse
 
 from apps.backend.src.api.common import get_current_user
-from apps.backend.src.services.compose_deployment import ComposeDeploymentService
-from apps.backend.src.schemas.compose_deployment import (
-    ComposeModificationRequest,
-    ComposeModificationResult,
-    ComposeDeploymentRequest,
-    ComposeDeploymentResult,
-    PortScanRequest,
-    PortScanResult,
-    NetworkScanRequest,
-    NetworkScanResult,
-)
 from apps.backend.src.core.exceptions import (
     DeviceNotFoundError,
-    ValidationError,
     SSHConnectionError,
+    ValidationError,
 )
+from apps.backend.src.schemas.compose_deployment import (
+    ComposeDeploymentRequest,
+    ComposeDeploymentResult,
+    ComposeModificationRequest,
+    ComposeModificationResult,
+    NetworkScanRequest,
+    NetworkScanResult,
+    PortScanRequest,
+    PortScanResult,
+)
+from apps.backend.src.services.compose_deployment import ComposeDeploymentService
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -35,8 +36,8 @@ router = APIRouter()
 @router.post("/modify", response_model=ComposeModificationResult)
 async def modify_compose_for_device(
     request: ComposeModificationRequest,
-    current_user=Depends(get_current_user),
-):
+    current_user: dict = Depends(get_current_user),
+) -> ComposeModificationResult:
     """
     Modify docker-compose content for deployment on target device.
     
@@ -56,15 +57,15 @@ async def modify_compose_for_device(
     try:
         service = ComposeDeploymentService()
         result = await service.modify_compose_for_device(request)
-        
+
         if not result.success:
             raise HTTPException(
                 status_code=400,
                 detail=f"Failed to modify compose: {'; '.join(result.errors)}"
             )
-            
+
         return result
-        
+
     except DeviceNotFoundError as e:
         logger.error(f"Device not found: {e}")
         raise HTTPException(status_code=404, detail=str(e))
@@ -79,8 +80,8 @@ async def modify_compose_for_device(
 @router.post("/deploy", response_model=ComposeDeploymentResult)
 async def deploy_compose_to_device(
     request: ComposeDeploymentRequest,
-    current_user=Depends(get_current_user),
-):
+    current_user: dict = Depends(get_current_user),
+) -> ComposeDeploymentResult:
     """
     Deploy docker-compose content to target device.
     
@@ -100,10 +101,10 @@ async def deploy_compose_to_device(
     try:
         service = ComposeDeploymentService()
         result = await service.deploy_compose_to_device(request)
-        
+
         # Return result even if not fully successful, but include warnings in response
         return result
-        
+
     except SSHConnectionError as e:
         logger.error(f"SSH connection error: {e}")
         raise HTTPException(status_code=503, detail=f"Cannot connect to device: {str(e)}")
@@ -116,16 +117,16 @@ async def deploy_compose_to_device(
 async def modify_and_deploy_compose(
     compose_content: str = Body(..., description="Docker compose YAML content"),
     target_device: str = Body(..., description="Target device hostname"),
-    service_name: Optional[str] = Body(None, description="Specific service to modify"),
+    service_name: str | None = Body(None, description="Specific service to modify"),
     update_appdata_paths: bool = Body(True, description="Update volume paths"),
     auto_assign_ports: bool = Body(True, description="Auto-assign available ports"),
     generate_proxy_configs: bool = Body(True, description="Generate SWAG proxy configs"),
     start_services: bool = Body(True, description="Start services after deployment"),
     pull_images: bool = Body(True, description="Pull latest images"),
-    custom_appdata_path: Optional[str] = Body(None, description="Custom appdata path"),
-    deployment_path: Optional[str] = Body(None, description="Custom deployment path"),
-    current_user=Depends(get_current_user),
-):
+    custom_appdata_path: str | None = Body(None, description="Custom appdata path"),
+    deployment_path: str | None = Body(None, description="Custom deployment path"),
+    current_user: dict = Depends(get_current_user),
+) -> dict:
     """
     Modify and deploy docker-compose in a single operation.
     
@@ -149,7 +150,7 @@ async def modify_and_deploy_compose(
     """
     try:
         service = ComposeDeploymentService()
-        
+
         # Step 1: Modify compose for target device
         modify_request = ComposeModificationRequest(
             compose_content=compose_content,
@@ -160,16 +161,23 @@ async def modify_and_deploy_compose(
             generate_proxy_configs=generate_proxy_configs,
             custom_appdata_path=custom_appdata_path,
             deployment_path=deployment_path,
+            port_range_start=8000,
+            port_range_end=9000,
+            custom_port_mappings=None,
+            update_networks=True,
+            default_network=None,
+            base_domain=None,
+            create_directories=True,
         )
-        
+
         modify_result = await service.modify_compose_for_device(modify_request)
-        
+
         if not modify_result.success:
             raise HTTPException(
                 status_code=400,
                 detail=f"Failed to modify compose: {'; '.join(modify_result.errors)}"
             )
-        
+
         # Step 2: Deploy modified compose
         deploy_request = ComposeDeploymentRequest(
             device=target_device,
@@ -177,10 +185,15 @@ async def modify_and_deploy_compose(
             deployment_path=modify_result.deployment_path or "/opt/docker-compose/docker-compose.yml",
             start_services=start_services,
             pull_images=pull_images,
+            recreate_containers=False,
+            create_directories=True,
+            backup_existing=True,
+            services_to_start=None,
+            services_to_stop=None,
         )
-        
+
         deploy_result = await service.deploy_compose_to_device(deploy_request)
-        
+
         # Combine results
         return {
             "modification": modify_result,
@@ -190,7 +203,7 @@ async def modify_and_deploy_compose(
             "services_started": len(deploy_result.containers_started),
             "total_execution_time_ms": modify_result.execution_time_ms + deploy_result.execution_time_ms,
         }
-        
+
     except HTTPException:
         raise
     except Exception as e:
@@ -202,13 +215,13 @@ async def modify_and_deploy_compose(
 async def download_modified_compose(
     device: str,
     compose_content: str = Body(..., description="Original docker-compose YAML content"),
-    service_name: Optional[str] = None,
+    service_name: str | None = None,
     update_appdata_paths: bool = True,
     auto_assign_ports: bool = True,
     generate_proxy_configs: bool = False,  # Don't generate proxy configs for download
-    custom_appdata_path: Optional[str] = None,
-    current_user=Depends(get_current_user),
-):
+    custom_appdata_path: str | None = None,
+    current_user: dict = Depends(get_current_user),
+) -> str:
     """
     Download modified docker-compose content without deploying.
     
@@ -229,7 +242,7 @@ async def download_modified_compose(
     """
     try:
         service = ComposeDeploymentService()
-        
+
         modify_request = ComposeModificationRequest(
             compose_content=compose_content,
             target_device=device,
@@ -238,18 +251,26 @@ async def download_modified_compose(
             auto_assign_ports=auto_assign_ports,
             generate_proxy_configs=generate_proxy_configs,
             custom_appdata_path=custom_appdata_path,
+            port_range_start=8000,
+            port_range_end=9000,
+            custom_port_mappings=None,
+            update_networks=True,
+            default_network=None,
+            base_domain=None,
+            deployment_path=None,
+            create_directories=True,
         )
-        
+
         result = await service.modify_compose_for_device(modify_request)
-        
+
         if not result.success:
             raise HTTPException(
                 status_code=400,
                 detail=f"Failed to modify compose: {'; '.join(result.errors)}"
             )
-        
+
         return result.modified_compose
-        
+
     except HTTPException:
         raise
     except Exception as e:
@@ -260,8 +281,8 @@ async def download_modified_compose(
 @router.post("/scan-ports", response_model=PortScanResult)
 async def scan_device_ports(
     request: PortScanRequest,
-    current_user=Depends(get_current_user),
-):
+    current_user: dict = Depends(get_current_user),
+) -> PortScanResult:
     """
     Scan for available ports on target device.
     
@@ -278,7 +299,7 @@ async def scan_device_ports(
         service = ComposeDeploymentService()
         result = await service.scan_available_ports(request)
         return result
-        
+
     except SSHConnectionError as e:
         logger.error(f"SSH connection error: {e}")
         raise HTTPException(status_code=503, detail=f"Cannot connect to device: {str(e)}")
@@ -290,8 +311,8 @@ async def scan_device_ports(
 @router.post("/scan-networks", response_model=NetworkScanResult)
 async def scan_docker_networks(
     request: NetworkScanRequest,
-    current_user=Depends(get_current_user),
-):
+    current_user: dict = Depends(get_current_user),
+) -> NetworkScanResult:
     """
     Scan Docker networks on target device.
     
@@ -308,7 +329,7 @@ async def scan_docker_networks(
         service = ComposeDeploymentService()
         result = await service.scan_docker_networks(request)
         return result
-        
+
     except SSHConnectionError as e:
         logger.error(f"SSH connection error: {e}")
         raise HTTPException(status_code=503, detail=f"Cannot connect to device: {str(e)}")
@@ -322,9 +343,9 @@ async def get_generated_proxy_config(
     device: str,
     service_name: str,
     upstream_port: int,
-    domain: Optional[str] = None,
-    current_user=Depends(get_current_user),
-):
+    domain: str | None = None,
+    current_user: dict = Depends(get_current_user),
+) -> dict:
     """
     Generate SWAG proxy configuration for a specific service.
     
@@ -342,7 +363,7 @@ async def get_generated_proxy_config(
     """
     try:
         service = ComposeDeploymentService()
-        
+
         # Use the service's private method to generate proxy config
         base_domain = domain or f"{service_name}.example.com"
         proxy_config = service._generate_swag_config(
@@ -351,7 +372,7 @@ async def get_generated_proxy_config(
             domain=base_domain,
             device_hostname=device
         )
-        
+
         return {
             "service_name": service_name,
             "device": device,
@@ -360,7 +381,7 @@ async def get_generated_proxy_config(
             "config_content": proxy_config,
             "filename": f"{service_name}.subdomain.conf"
         }
-        
+
     except Exception as e:
         logger.error(f"Error generating proxy config: {e}")
         raise HTTPException(status_code=500, detail=f"Internal server error: {str(e)}")

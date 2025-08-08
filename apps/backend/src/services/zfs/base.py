@@ -5,10 +5,9 @@ Common functionality and SSH connection management for all ZFS services.
 """
 
 import logging
-from typing import Optional
 
+from apps.backend.src.core.exceptions import SSHCommandError, SSHConnectionError, ZFSError
 from apps.backend.src.utils.ssh_client import execute_ssh_command_simple
-from apps.backend.src.core.exceptions import SSHConnectionError, SSHCommandError, ZFSError
 
 logger = logging.getLogger(__name__)
 
@@ -16,7 +15,7 @@ logger = logging.getLogger(__name__)
 class ZFSBaseService:
     """Base service for ZFS operations via SSH"""
 
-    def __init__(self):
+    def __init__(self) -> None:
         self.logger = logging.getLogger(f"{__name__}.{self.__class__.__name__}")
 
     async def _execute_zfs_command(self, hostname: str, command: str, timeout: int = 30) -> str:

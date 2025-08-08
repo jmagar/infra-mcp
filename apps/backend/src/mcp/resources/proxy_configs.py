@@ -5,16 +5,16 @@ MCP resources for exposing SWAG reverse proxy configurations
 with real-time file access and database integration.
 """
 
+from datetime import UTC, datetime
 import logging
-import re
-from datetime import datetime, timezone
+import os
 from pathlib import Path
+import re
 from typing import Any
-from urllib.parse import urlparse, parse_qs
+from urllib.parse import parse_qs, urlparse
 
 # HTTP client for API access (resources should also use API, not direct SSH)
 import httpx
-import os
 
 from apps.backend.src.utils.nginx_parser import NginxConfigParser
 
@@ -31,7 +31,7 @@ class APIClient:
         headers = {"Content-Type": "application/json"}
         if API_KEY:
             headers["Authorization"] = f"Bearer {API_KEY}"
-        
+
         self.client = httpx.AsyncClient(
             base_url=API_BASE_URL,
             timeout=httpx.Timeout(API_TIMEOUT),
@@ -56,18 +56,18 @@ async def _get_real_time_file_info(device: str, file_path: str) -> dict:
         service_name = _extract_service_name_from_path(file_path)
         if not service_name:
             return {"exists": False, "error": "Could not extract service name from path"}
-            
+
         response = await api_client.client.get(f"/proxies/configs/{service_name}", params={
             "device": device,
             "include_content": False
         })
-        
+
         if response.status_code == 404:
             return {"exists": False, "size": 0, "last_modified": None}
-            
+
         response.raise_for_status()
         data = response.json()
-        
+
         return {
             "exists": True,
             "size": data.get("file_size", 0),
@@ -76,7 +76,7 @@ async def _get_real_time_file_info(device: str, file_path: str) -> dict:
             "owner": None,
             "group": None
         }
-        
+
     except Exception as e:
         logger.error(f"Error getting file info for {file_path} on {device}: {e}")
         return {"exists": False, "error": str(e)}
@@ -90,17 +90,17 @@ async def _get_real_time_file_content(device: str, file_path: str) -> str:
         service_name = _extract_service_name_from_path(file_path)
         if not service_name:
             return ""
-            
+
         response = await api_client.client.get(f"/proxies/configs/{service_name}/content", params={
             "device": device
         })
-        
+
         if response.status_code == 404:
             return ""
-            
+
         response.raise_for_status()
         return response.text
-        
+
     except Exception as e:
         logger.error(f"Error reading file content for {file_path} on {device}: {e}")
         return ""
@@ -261,7 +261,7 @@ async def get_proxy_config_resource(uri: str) -> dict[str, Any]:
         return {
             "error": str(e),
             "uri": uri,
-            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "timestamp": datetime.now(UTC).isoformat(),
             "resource_type": "error",
         }
 
@@ -285,7 +285,7 @@ async def _get_template_resource(
                 "template_filename": template_filename,
                 "device": device,
                 "file_path": template_path,
-                "timestamp": datetime.now(timezone.utc).isoformat(),
+                "timestamp": datetime.now(UTC).isoformat(),
                 "resource_type": "template_not_found",
             }
 
@@ -299,7 +299,7 @@ async def _get_template_resource(
                 "device": device,
                 "file_path": template_path,
                 "file_info": file_info,
-                "timestamp": datetime.now(timezone.utc).isoformat(),
+                "timestamp": datetime.now(UTC).isoformat(),
                 "resource_type": "template_read_error",
             }
 
@@ -314,7 +314,7 @@ async def _get_template_resource(
             "file_path": template_path,
             "file_info": file_info,
             "content_length": len(content),
-            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "timestamp": datetime.now(UTC).isoformat(),
             "resource_type": "swag_template",
             "format": format_type,
         }
@@ -332,7 +332,7 @@ async def _get_template_resource(
             "error": str(e),
             "template_filename": template_filename,
             "device": device,
-            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "timestamp": datetime.now(UTC).isoformat(),
             "resource_type": "template_error",
         }
 
@@ -406,7 +406,7 @@ async def _get_sample_resource(
                 "device": device,
                 "file_path": sample_path,
                 "searched_patterns": search_info if search_info else [sample_filename],
-                "timestamp": datetime.now(timezone.utc).isoformat(),
+                "timestamp": datetime.now(UTC).isoformat(),
                 "resource_type": "sample_not_found",
             }
 
@@ -420,7 +420,7 @@ async def _get_sample_resource(
                 "device": device,
                 "file_path": sample_path,
                 "file_info": file_info,
-                "timestamp": datetime.now(timezone.utc).isoformat(),
+                "timestamp": datetime.now(UTC).isoformat(),
                 "resource_type": "sample_read_error",
             }
 
@@ -451,7 +451,7 @@ async def _get_sample_resource(
             "file_path": sample_path,
             "file_info": file_info,
             "content_length": len(content),
-            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "timestamp": datetime.now(UTC).isoformat(),
             "resource_type": "swag_sample",
             "format": format_type,
         }
@@ -469,7 +469,7 @@ async def _get_sample_resource(
             "error": str(e),
             "sample_filename": sample_filename,
             "device": device,
-            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "timestamp": datetime.now(UTC).isoformat(),
             "resource_type": "sample_error",
         }
 
@@ -531,7 +531,7 @@ async def _get_samples_directory_resource(device: str) -> dict[str, Any]:
                             "file_path": file_path,
                             "file_size": file_size,
                             "last_modified": datetime.fromtimestamp(
-                                mtime, tz=timezone.utc
+                                mtime, tz=UTC
                             ).isoformat(),
                             "permissions": permissions,
                             "readable": "r" in permissions,
@@ -545,7 +545,7 @@ async def _get_samples_directory_resource(device: str) -> dict[str, Any]:
             "samples_directory": config_dir,
             "total_samples": len(samples),
             "samples": samples,
-            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "timestamp": datetime.now(UTC).isoformat(),
             "resource_type": "swag_samples_directory",
         }
 
@@ -554,7 +554,7 @@ async def _get_samples_directory_resource(device: str) -> dict[str, Any]:
         return {
             "error": str(e),
             "device": device,
-            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "timestamp": datetime.now(UTC).isoformat(),
             "resource_type": "samples_directory_error",
         }
 
@@ -604,7 +604,7 @@ async def _get_service_config_resource(
                         f"{config_dir}/{service_name}.subdomain.conf",
                         f"{config_dir}/{service_name}.subfolder.conf",
                     ],
-                    "timestamp": datetime.now(timezone.utc).isoformat(),
+                    "timestamp": datetime.now(UTC).isoformat(),
                     "resource_type": "service_not_found",
                 }
 
@@ -618,7 +618,7 @@ async def _get_service_config_resource(
                 "device": device,
                 "file_path": file_path,
                 "file_info": file_info,
-                "timestamp": datetime.now(timezone.utc).isoformat(),
+                "timestamp": datetime.now(UTC).isoformat(),
                 "resource_type": "read_error",
             }
 
@@ -638,7 +638,7 @@ async def _get_service_config_resource(
             "subdomain": subdomain,
             "file_info": file_info,
             "content_length": len(content),
-            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "timestamp": datetime.now(UTC).isoformat(),
             "resource_type": "swag_service_config",
             "format": format_type,
         }
@@ -670,7 +670,7 @@ async def _get_service_config_resource(
             "error": str(e),
             "service_name": service_name,
             "device": device,
-            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "timestamp": datetime.now(UTC).isoformat(),
             "resource_type": "service_error",
         }
 
@@ -694,7 +694,7 @@ async def _get_direct_file_resource(
             "file_path": file_path,
             "device": device,
             "exists": False,
-            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "timestamp": datetime.now(UTC).isoformat(),
             "resource_type": "file_not_found",
         }
 
@@ -707,7 +707,7 @@ async def _get_direct_file_resource(
             "file_path": file_path,
             "device": device,
             "file_info": file_info,
-            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "timestamp": datetime.now(UTC).isoformat(),
             "resource_type": "read_error",
         }
 
@@ -728,7 +728,7 @@ async def _get_direct_file_resource(
         "subdomain": subdomain,
         "file_info": file_info,
         "content_length": len(content),
-        "timestamp": datetime.now(timezone.utc).isoformat(),
+        "timestamp": datetime.now(UTC).isoformat(),
         "resource_type": "swag_config_file",
         "format": format_type,
     }
@@ -760,7 +760,7 @@ async def _get_database_config_resource(
                     "error": "Configuration not found in database",
                     "device": device,
                     "service_name": service_name,
-                    "timestamp": datetime.now(timezone.utc).isoformat(),
+                    "timestamp": datetime.now(UTC).isoformat(),
                     "resource_type": "config_not_found",
                 }
 
@@ -801,7 +801,7 @@ async def _get_database_config_resource(
                 },
                 "real_time_info": file_info,
                 "needs_refresh": needs_refresh,
-                "timestamp": datetime.now(timezone.utc).isoformat(),
+                "timestamp": datetime.now(UTC).isoformat(),
                 "resource_type": "swag_config_database",
             }
 
@@ -839,7 +839,7 @@ async def _get_database_config_resource(
             "error": str(e),
             "device": device,
             "service_name": service_name,
-            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "timestamp": datetime.now(UTC).isoformat(),
             "resource_type": "database_error",
         }
 
@@ -886,7 +886,7 @@ async def _get_directory_listing_resource(device: str, config_dir: str) -> dict[
                             "subdomain": subdomain,
                             "file_size": file_size,
                             "last_modified": datetime.fromtimestamp(
-                                mtime, tz=timezone.utc
+                                mtime, tz=UTC
                             ).isoformat(),
                             "permissions": permissions,
                             "readable": "r" in permissions,
@@ -900,7 +900,7 @@ async def _get_directory_listing_resource(device: str, config_dir: str) -> dict[
             "config_directory": config_dir,
             "total_files": len(files),
             "files": files,
-            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "timestamp": datetime.now(UTC).isoformat(),
             "resource_type": "swag_config_directory",
         }
 
@@ -910,7 +910,7 @@ async def _get_directory_listing_resource(device: str, config_dir: str) -> dict[
             "error": str(e),
             "device": device,
             "config_directory": config_dir,
-            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "timestamp": datetime.now(UTC).isoformat(),
             "resource_type": "directory_error",
         }
 
@@ -961,8 +961,8 @@ async def _get_proxy_summary_resource(device: str) -> dict[str, Any]:
                     )
 
                     if config.sync_last_checked and (
-                        not database_info["last_sync"]
-                        or config.sync_last_checked > database_info["last_sync"]
+                        not database_info.get("last_sync")
+                        or config.sync_last_checked > database_info.get("last_sync")
                     ):
                         database_info["last_sync"] = config.sync_last_checked.isoformat()
 
@@ -992,7 +992,7 @@ async def _get_proxy_summary_resource(device: str) -> dict[str, Any]:
                 "file_size_stats": size_stats,
             },
             "database_info": database_info,
-            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "timestamp": datetime.now(UTC).isoformat(),
             "resource_type": "swag_config_summary",
         }
 
@@ -1001,7 +1001,7 @@ async def _get_proxy_summary_resource(device: str) -> dict[str, Any]:
         return {
             "error": str(e),
             "device": device,
-            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "timestamp": datetime.now(UTC).isoformat(),
             "resource_type": "summary_error",
         }
 

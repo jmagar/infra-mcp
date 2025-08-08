@@ -5,12 +5,12 @@ YAML parsing and structure extraction for Docker Compose files,
 similar to the nginx_parser.py for SWAG configurations.
 """
 
-import logging
 import hashlib
-from typing import Any, Dict, List
-from datetime import datetime, timezone
+import logging
+from typing import Any
+from datetime import UTC, datetime
 
-import yaml
+import yaml  # type: ignore[import-untyped]
 
 logger = logging.getLogger(__name__)
 
@@ -24,10 +24,10 @@ class ComposeParseError(Exception):
 class DockerComposeParser:
     """Parser for Docker Compose YAML files"""
 
-    def __init__(self):
+    def __init__(self) -> None:
         self.logger = logging.getLogger(f"{__name__}.{self.__class__.__name__}")
 
-    def parse_compose_content(self, content: str, file_path: str = None) -> Dict[str, Any]:
+    def parse_compose_content(self, content: str, file_path: str | None = None) -> dict[str, Any]:
         """
         Parse Docker Compose YAML content and extract structured information
 
@@ -98,7 +98,7 @@ class DockerComposeParser:
                     "total_volumes": len(volumes),
                     "total_secrets": len(secrets),
                     "total_configs": len(configs),
-                    "parsed_at": datetime.now(timezone.utc).isoformat(),
+                    "parsed_at": datetime.now(UTC).isoformat(),
                     "compose_version": version,
                 },
             }
@@ -116,7 +116,7 @@ class DockerComposeParser:
             self.logger.error(f"Compose parsing error in {file_path}: {e}")
             raise ComposeParseError(f"Failed to parse compose file: {str(e)}") from e
 
-    def _process_services(self, services: Dict[str, Any]) -> Dict[str, Any]:
+    def _process_services(self, services: dict[str, Any]) -> dict[str, Any]:
         """Process services section for better structure"""
         processed = {}
 
@@ -148,7 +148,7 @@ class DockerComposeParser:
 
         return processed
 
-    def _process_networks(self, networks: Dict[str, Any]) -> Dict[str, Any]:
+    def _process_networks(self, networks: dict[str, Any]) -> dict[str, Any]:
         """Process networks section"""
         processed = {}
 
@@ -170,7 +170,7 @@ class DockerComposeParser:
 
         return processed
 
-    def _process_volumes(self, volumes: Dict[str, Any]) -> Dict[str, Any]:
+    def _process_volumes(self, volumes: dict[str, Any]) -> dict[str, Any]:
         """Process volumes section"""
         processed = {}
 
@@ -191,9 +191,9 @@ class DockerComposeParser:
 
         return processed
 
-    def _extract_ports(self, ports: List[Any]) -> List[Dict[str, Any]]:
+    def _extract_ports(self, ports: list[Any]) -> list[dict[str, Any]]:
         """Extract and normalize port configurations"""
-        extracted = []
+        extracted: list[dict[str, Any]] = []
 
         for port in ports:
             if isinstance(port, str):
@@ -226,15 +226,15 @@ class DockerComposeParser:
 
         return extracted
 
-    def _extract_volumes(self, volumes: List[Any]) -> List[Dict[str, Any]]:
+    def _extract_volumes(self, volumes: list[Any]) -> list[dict[str, Any]]:
         """Extract and normalize volume configurations"""
-        extracted = []
+        extracted: list[dict[str, Any]] = []
 
         for volume in volumes:
             if isinstance(volume, str):
                 # Parse string format like "/host/path:/container/path:ro"
                 parts = volume.split(":")
-                volume_info = {
+                volume_info: dict[str, Any] = {
                     "raw": volume,
                     "type": "bind" if parts[0].startswith("/") else "volume",
                 }
@@ -266,25 +266,23 @@ class DockerComposeParser:
 
         return extracted
 
-    def _extract_environment(self, environment: dict | list) -> dict[str, str]:
+    def _extract_environment(self, environment: dict[str, Any] | list[Any]) -> dict[str, str]:
         """Extract and normalize environment variables"""
         if isinstance(environment, dict):
-            return environment
+            return {k: str(v) for k, v in environment.items()}
         elif isinstance(environment, list):
-            env_dict = {}
+            env_dict: dict[str, str] = {}
             for env_var in environment:
-                if "=" in env_var:
+                if isinstance(env_var, str) and "=" in env_var:
                     key, value = env_var.split("=", 1)
                     env_dict[key] = value
-                else:
+                elif isinstance(env_var, str):
                     env_dict[env_var] = ""
             return env_dict
-        else:
-            return {}
 
-    def _validate_compose_structure(self, parsed_yaml: Dict[str, Any]) -> Dict[str, Any]:
+    def _validate_compose_structure(self, parsed_yaml: dict[str, Any]) -> dict[str, Any]:
         """Validate Docker Compose structure and provide warnings"""
-        validation = {"valid": True, "warnings": [], "errors": []}
+        validation: dict[str, Any] = {"valid": True, "warnings": [], "errors": []}
 
         # Check for required sections
         if "services" not in parsed_yaml or not parsed_yaml["services"]:
@@ -320,7 +318,7 @@ class DockerComposeParser:
 
             # Check port conflicts
             ports = service_config.get("ports", [])
-            host_ports = []
+            host_ports: list[str] = []
             for port in ports:
                 if isinstance(port, str) and ":" in port:
                     host_port = port.split(":")[0]
@@ -336,7 +334,7 @@ class DockerComposeParser:
         """Calculate SHA-256 hash of compose file content"""
         return hashlib.sha256(content.encode("utf-8")).hexdigest()
 
-    def extract_service_names(self, content: str) -> List[str]:
+    def extract_service_names(self, content: str) -> list[str]:
         """Extract just the service names from compose content"""
         try:
             parsed = yaml.safe_load(content)
@@ -354,12 +352,13 @@ class DockerComposeParser:
                 services = parsed["services"]
                 if service_name in services:
                     service_config = services[service_name]
-                    return service_config.get("image")
+                    image = service_config.get("image")
+                    return str(image) if image is not None else None
             return None
         except yaml.YAMLError:
             return None
 
-    def find_compose_files_pattern(self) -> List[str]:
+    def find_compose_files_pattern(self) -> list[str]:
         """Return common Docker Compose file patterns for searching"""
         return [
             "docker-compose.yml",
@@ -372,7 +371,7 @@ class DockerComposeParser:
 
 
 # Convenience function for quick parsing
-def parse_compose_file_content(content: str, file_path: str = None) -> Dict[str, Any]:
+def parse_compose_file_content(content: str, file_path: str | None = None) -> dict[str, Any]:
     """
     Convenience function to parse Docker Compose content
 

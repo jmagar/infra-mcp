@@ -2,11 +2,13 @@
 Device-related Pydantic schemas for request/response validation.
 """
 
-from datetime import datetime, timezone
-from typing import Optional, Dict, Any, List
-from uuid import UUID
-from pydantic import BaseModel, Field, field_validator
+from datetime import UTC, datetime
 from ipaddress import IPv4Address, IPv6Address
+from typing import Any
+from uuid import UUID
+
+from pydantic import BaseModel, Field, field_validator
+
 from apps.backend.src.schemas.common import DeviceStatus, PaginatedResponse
 
 
@@ -14,31 +16,31 @@ class DeviceBase(BaseModel):
     """Base device schema with common fields"""
 
     hostname: str = Field(..., min_length=1, max_length=255, description="Device hostname")
-    ip_address: Optional[str] = Field(
+    ip_address: str | None = Field(
         None, description="Device IP address (optional - SSH config can handle this)"
     )
-    ssh_port: Optional[int] = Field(
+    ssh_port: int | None = Field(
         None, ge=1, le=65535, description="SSH port number (optional - SSH config can handle this)"
     )
-    ssh_username: Optional[str] = Field(
+    ssh_username: str | None = Field(
         None, max_length=100, description="SSH username (optional - SSH config can handle this)"
     )
     device_type: str = Field(default="server", max_length=50, description="Device type")
-    description: Optional[str] = Field(None, description="Device description")
-    location: Optional[str] = Field(None, max_length=255, description="Physical location")
-    tags: Dict[str, Any] = Field(default_factory=dict, description="Device tags")
+    description: str | None = Field(None, description="Device description")
+    location: str | None = Field(None, max_length=255, description="Physical location")
+    tags: dict[str, Any] = Field(default_factory=dict, description="Device tags")
     monitoring_enabled: bool = Field(default=True, description="Whether monitoring is enabled")
 
     @field_validator("ip_address")
     @classmethod
-    def validate_ip_address(cls, v):
+    def validate_ip_address(cls, v: str | None) -> str | None:
         if v is None:
             return v
         try:
             # Handle both string and IPv4Address/IPv6Address objects
-            from ipaddress import ip_address, IPv4Address, IPv6Address
+            from ipaddress import IPv4Address, IPv6Address, ip_address
 
-            if isinstance(v, (IPv4Address, IPv6Address)):
+            if isinstance(v, IPv4Address | IPv6Address):
                 return str(v)  # Convert to string
             # Try to parse as IPv4 or IPv6
             ip_address(v)
@@ -48,7 +50,7 @@ class DeviceBase(BaseModel):
 
     @field_validator("hostname")
     @classmethod
-    def validate_hostname(cls, v):
+    def validate_hostname(cls, v: str) -> str:
         # Basic hostname validation
         if not v.replace("-", "").replace(".", "").replace("_", "").isalnum():
             raise ValueError("Hostname contains invalid characters")
@@ -56,7 +58,7 @@ class DeviceBase(BaseModel):
 
     @field_validator("device_type")
     @classmethod
-    def validate_device_type(cls, v):
+    def validate_device_type(cls, v: str) -> str:
         valid_types = [
             "server",
             "container_host",
@@ -82,20 +84,20 @@ class DeviceCreate(DeviceBase):
 class DeviceUpdate(BaseModel):
     """Schema for updating an existing device"""
 
-    hostname: Optional[str] = Field(None, min_length=1, max_length=255)
-    ip_address: Optional[str] = Field(None)
-    ssh_port: Optional[int] = Field(None, ge=1, le=65535)
-    ssh_username: Optional[str] = Field(None, max_length=100)
-    device_type: Optional[str] = Field(None, max_length=50)
-    description: Optional[str] = Field(None)
-    location: Optional[str] = Field(None, max_length=255)
-    tags: Optional[Dict[str, Any]] = Field(None)
-    monitoring_enabled: Optional[bool] = Field(None)
-    status: Optional[DeviceStatus] = Field(None)
+    hostname: str | None = Field(None, min_length=1, max_length=255)
+    ip_address: str | None = Field(None)
+    ssh_port: int | None = Field(None, ge=1, le=65535)
+    ssh_username: str | None = Field(None, max_length=100)
+    device_type: str | None = Field(None, max_length=50)
+    description: str | None = Field(None)
+    location: str | None = Field(None, max_length=255)
+    tags: dict[str, Any] | None = Field(None)
+    monitoring_enabled: bool | None = Field(None)
+    status: DeviceStatus | None = Field(None)
 
     @field_validator("ip_address")
     @classmethod
-    def validate_ip_address(cls, v):
+    def validate_ip_address(cls, v: str | None) -> str | None:
         if v is not None:
             try:
                 from ipaddress import ip_address
@@ -108,7 +110,7 @@ class DeviceUpdate(BaseModel):
 
     @field_validator("hostname")
     @classmethod
-    def validate_hostname(cls, v):
+    def validate_hostname(cls, v: str) -> str:
         if v is not None:
             if not v.replace("-", "").replace(".", "").replace("_", "").isalnum():
                 raise ValueError("Hostname contains invalid characters")
@@ -121,19 +123,19 @@ class DeviceResponse(DeviceBase):
 
     id: UUID = Field(description="Device unique identifier")
     status: DeviceStatus = Field(description="Device status")
-    last_seen: Optional[datetime] = Field(description="Last time device was seen")
+    last_seen: datetime | None = Field(description="Last time device was seen")
     created_at: datetime = Field(description="Device creation timestamp")
     updated_at: datetime = Field(description="Device last update timestamp")
 
     @field_validator("ip_address", mode="before")
     @classmethod
-    def convert_ip_address(cls, v):
+    def convert_ip_address(cls, v: str | None) -> str | None:
         """Convert IPv4Address/IPv6Address objects to string"""
         if v is None:
             return v
         from ipaddress import IPv4Address, IPv6Address
 
-        if isinstance(v, (IPv4Address, IPv6Address)):
+        if isinstance(v, IPv4Address | IPv6Address):
             return str(v)
         return v
 
@@ -153,11 +155,11 @@ class DeviceSummary(BaseModel):
 
     id: UUID
     hostname: str
-    ip_address: Optional[str]
+    ip_address: str | None
     device_type: str
     status: DeviceStatus
     monitoring_enabled: bool
-    last_seen: Optional[datetime]
+    last_seen: datetime | None
 
     class Config:
         from_attributes = True
@@ -169,15 +171,15 @@ class DeviceHealth(BaseModel):
     device_id: UUID
     hostname: str
     status: DeviceStatus
-    last_seen: Optional[datetime]
+    last_seen: datetime | None
     connectivity_status: str = Field(description="SSH connectivity status")
-    system_health: Optional[str] = Field(description="Overall system health")
-    cpu_usage: Optional[float] = Field(description="Current CPU usage percentage")
-    memory_usage: Optional[float] = Field(description="Current memory usage percentage")
-    disk_usage: Optional[float] = Field(description="Current disk usage percentage")
-    uptime_hours: Optional[int] = Field(description="System uptime in hours")
-    active_containers: Optional[int] = Field(description="Number of active containers")
-    alerts_count: Optional[int] = Field(description="Number of active alerts")
+    system_health: str | None = Field(description="Overall system health")
+    cpu_usage: float | None = Field(description="Current CPU usage percentage")
+    memory_usage: float | None = Field(description="Current memory usage percentage")
+    disk_usage: float | None = Field(description="Current disk usage percentage")
+    uptime_hours: int | None = Field(description="System uptime in hours")
+    active_containers: int | None = Field(description="Number of active containers")
+    alerts_count: int | None = Field(description="Number of active alerts")
 
     class Config:
         from_attributes = True
@@ -186,9 +188,9 @@ class DeviceHealth(BaseModel):
 class DeviceHealthList(BaseModel):
     """List of device health summaries"""
 
-    devices: List[DeviceHealth] = Field(description="List of device health statuses")
-    summary: Dict[str, int] = Field(description="Health summary statistics")
-    timestamp: datetime = Field(default_factory=lambda: datetime.now(timezone.utc), description="Report timestamp")
+    devices: list[DeviceHealth] = Field(description="List of device health statuses")
+    summary: dict[str, int] = Field(description="Health summary statistics")
+    timestamp: datetime = Field(default_factory=lambda: datetime.now(UTC), description="Report timestamp")
 
 
 class DeviceConnectionTest(BaseModel):
@@ -196,20 +198,20 @@ class DeviceConnectionTest(BaseModel):
 
     device_id: UUID
     hostname: str
-    ip_address: Optional[str]
-    ssh_port: Optional[int]
+    ip_address: str | None
+    ssh_port: int | None
     connection_status: str = Field(description="Connection test result")
-    response_time_ms: Optional[float] = Field(description="Connection response time")
-    error_message: Optional[str] = Field(description="Error message if connection failed")
-    test_timestamp: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+    response_time_ms: float | None = Field(description="Connection response time")
+    error_message: str | None = Field(description="Error message if connection failed")
+    test_timestamp: datetime = Field(default_factory=lambda: datetime.now(UTC))
 
     @field_validator("ip_address", mode="before")
     @classmethod
-    def convert_ip_address(cls, v):
+    def convert_ip_address(cls, v: str | None) -> str | None:
         """Convert IPv4Address/IPv6Address objects to string"""
         if v is None:
             return v
-        if isinstance(v, (IPv4Address, IPv6Address)):
+        if isinstance(v, IPv4Address | IPv6Address):
             return str(v)
         return v
 
@@ -220,9 +222,9 @@ class DeviceConnectionTest(BaseModel):
 class DeviceCredentials(BaseModel):
     """Device SSH credentials (for updates only)"""
 
-    ssh_username: Optional[str] = Field(None, max_length=100)
-    ssh_port: Optional[int] = Field(None, ge=1, le=65535)
-    ssh_key_path: Optional[str] = Field(None, description="Path to SSH private key")
+    ssh_username: str | None = Field(None, max_length=100)
+    ssh_port: int | None = Field(None, ge=1, le=65535)
+    ssh_key_path: str | None = Field(None, description="Path to SSH private key")
 
 
 class DeviceMetricsOverview(BaseModel):
@@ -230,9 +232,9 @@ class DeviceMetricsOverview(BaseModel):
 
     device_id: UUID
     hostname: str
-    current_metrics: Dict[str, Any] = Field(description="Latest metric values")
-    trend_data: Dict[str, List[float]] = Field(description="24-hour trend data")
-    alerts: List[str] = Field(description="Active alerts for this device")
+    current_metrics: dict[str, Any] = Field(description="Latest metric values")
+    trend_data: dict[str, list[float]] = Field(description="24-hour trend data")
+    alerts: list[str] = Field(description="Active alerts for this device")
     last_updated: datetime = Field(description="Last metrics update timestamp")
 
     class Config:
@@ -255,7 +257,7 @@ class DeviceImportRequest(BaseModel):
     default_monitoring: bool = Field(
         default=True, description="Default monitoring state for imported devices"
     )
-    tag_prefix: Optional[str] = Field(None, description="Prefix to add to imported device tags")
+    tag_prefix: str | None = Field(None, description="Prefix to add to imported device tags")
 
     @field_validator("ssh_config_path")
     @classmethod
@@ -291,24 +293,24 @@ class DeviceImportResult(BaseModel):
 
     hostname: str = Field(description="Device hostname")
     action: str = Field(description="Action taken: 'created', 'updated', 'skipped', or 'error'")
-    device_id: Optional[UUID] = Field(None, description="Device ID if successfully created/updated")
-    error_message: Optional[str] = Field(None, description="Error message if action failed")
-    changes: Dict[str, Any] = Field(default_factory=dict, description="What changed during update")
+    device_id: UUID | None = Field(None, description="Device ID if successfully created/updated")
+    error_message: str | None = Field(None, description="Error message if action failed")
+    changes: dict[str, Any] = Field(default_factory=dict, description="What changed during update")
 
 
 class DeviceImportResponse(BaseModel):
     """Response schema for device import operation"""
 
     total_hosts_found: int = Field(description="Total hosts found in SSH config")
-    results: List[DeviceImportResult] = Field(description="Results for each device")
-    summary: Dict[str, int] = Field(description="Summary of actions taken")
+    results: list[DeviceImportResult] = Field(description="Results for each device")
+    summary: dict[str, int] = Field(description="Summary of actions taken")
     dry_run: bool = Field(description="Whether this was a dry run")
     import_timestamp: datetime = Field(
-        default_factory=lambda: datetime.now(timezone.utc), description="When the import was performed"
+        default_factory=lambda: datetime.now(UTC), description="When the import was performed"
     )
 
     @classmethod
-    def create_summary(cls, results: List[DeviceImportResult]) -> Dict[str, int]:
+    def create_summary(cls, results: list[DeviceImportResult]) -> dict[str, int]:
         """Create summary statistics from results"""
         summary = {"created": 0, "updated": 0, "skipped": 0, "errors": 0}
         for result in results:

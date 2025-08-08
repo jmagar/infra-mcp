@@ -4,12 +4,13 @@ ZFS Snapshot Management Service
 Handles ZFS snapshot operations including creation, cloning, sending, receiving, and diffing.
 """
 
+from datetime import UTC, datetime
 import logging
-from datetime import datetime, timezone
-from typing import List, Dict, Any, Optional
+from typing import Any, Optional
+
+from apps.backend.src.core.exceptions import ZFSError
 
 from .base import ZFSBaseService
-from apps.backend.src.core.exceptions import ZFSError
 
 logger = logging.getLogger(__name__)
 
@@ -20,11 +21,11 @@ class ZFSSnapshotService(ZFSBaseService):
     @staticmethod
     def _get_current_utc_iso() -> str:
         """Helper function to get current UTC time in ISO format"""
-        return datetime.now(timezone.utc).isoformat()
+        return datetime.now(UTC).isoformat()
 
     async def list_snapshots(
-        self, hostname: str, dataset_name: Optional[str] = None, timeout: int = 30
-    ) -> List[Dict[str, Any]]:
+        self, hostname: str, dataset_name: str | None = None, timeout: int = 30
+    ) -> list[dict[str, Any]]:
         """List ZFS snapshots, optionally filtered by dataset"""
         try:
             cmd = "zfs list -t snapshot -H -o name,used,referenced,creation"
@@ -63,11 +64,11 @@ class ZFSSnapshotService(ZFSBaseService):
         snapshot_name: str,
         recursive: bool = False,
         timeout: int = 60,
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         """Create a ZFS snapshot"""
         try:
             full_snapshot_name = f"{dataset_name}@{snapshot_name}"
-            cmd = f"zfs snapshot"
+            cmd = "zfs snapshot"
             if recursive:
                 cmd += " -r"
             cmd += f" {full_snapshot_name}"
@@ -95,10 +96,10 @@ class ZFSSnapshotService(ZFSBaseService):
 
     async def destroy_snapshot(
         self, hostname: str, snapshot_name: str, recursive: bool = False, timeout: int = 60
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         """Destroy a ZFS snapshot"""
         try:
-            cmd = f"zfs destroy"
+            cmd = "zfs destroy"
             if recursive:
                 cmd += " -r"
             cmd += f" {snapshot_name}"
@@ -122,7 +123,7 @@ class ZFSSnapshotService(ZFSBaseService):
 
     async def clone_snapshot(
         self, hostname: str, snapshot_name: str, clone_name: str, timeout: int = 60
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         """Clone a ZFS snapshot"""
         try:
             cmd = f"zfs clone {snapshot_name} {clone_name}"
@@ -147,13 +148,13 @@ class ZFSSnapshotService(ZFSBaseService):
         self,
         hostname: str,
         snapshot_name: str,
-        destination: Optional[str] = None,
+        destination: str | None = None,
         incremental: bool = False,
         timeout: int = 300,
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         """Send a ZFS snapshot (for replication/backup)"""
         try:
-            cmd = f"zfs send"
+            cmd = "zfs send"
             if incremental:
                 cmd += " -i"
             cmd += f" {snapshot_name}"
@@ -180,7 +181,7 @@ class ZFSSnapshotService(ZFSBaseService):
 
     async def receive_snapshot(
         self, hostname: str, dataset_name: str, timeout: int = 300
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         """Receive a ZFS snapshot stream"""
         try:
             cmd = f"zfs receive {dataset_name}"
@@ -203,7 +204,7 @@ class ZFSSnapshotService(ZFSBaseService):
 
     async def diff_snapshots(
         self, hostname: str, snapshot1: str, snapshot2: str, timeout: int = 60
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         """Compare differences between two snapshots"""
         try:
             cmd = f"zfs diff {snapshot1} {snapshot2}"

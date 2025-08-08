@@ -3,8 +3,9 @@ Device models for infrastructure registry and management.
 """
 
 from uuid import uuid4
-from sqlalchemy import Column, String, Integer, Boolean, DateTime, Text
-from sqlalchemy.dialects.postgresql import UUID, INET, JSONB
+
+from sqlalchemy import Boolean, Column, DateTime, Integer, String, Text
+from sqlalchemy.dialects.postgresql import INET, JSONB, UUID
 from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
 

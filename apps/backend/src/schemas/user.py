@@ -3,9 +3,12 @@ User authentication and authorization Pydantic schemas.
 """
 
 from datetime import datetime
-from typing import Optional, Dict, Any, List
+
+from typing import Optional, List, Any
 from uuid import UUID
-from pydantic import BaseModel, Field, EmailStr, field_validator
+
+from pydantic import BaseModel, EmailStr, Field, field_validator
+
 from apps.backend.src.schemas.common import PaginatedResponse
 
 
@@ -14,16 +17,16 @@ class UserBase(BaseModel):
 
     username: str = Field(..., min_length=3, max_length=50, description="Unique username")
     email: EmailStr = Field(..., description="User email address")
-    full_name: Optional[str] = Field(None, max_length=100, description="Full name")
-    bio: Optional[str] = Field(None, max_length=500, description="User bio")
-    avatar_url: Optional[str] = Field(None, max_length=500, description="Avatar image URL")
+    full_name: str | None = Field(None, max_length=100, description="Full name")
+    bio: str | None = Field(None, max_length=500, description="User bio")
+    avatar_url: str | None = Field(None, max_length=500, description="Avatar image URL")
     timezone: str = Field(default="UTC", max_length=50, description="User timezone")
     language: str = Field(default="en", max_length=10, description="Preferred language")
-    preferences: Dict[str, Any] = Field(default_factory=dict, description="User preferences")
+    preferences: dict[str, Any] = Field(default_factory=dict, description="User preferences")
 
     @field_validator("username")
     @classmethod
-    def validate_username(cls, v):
+    def validate_username(cls, v: str) -> str:
         # Username can contain letters, numbers, underscores, hyphens
         if not v.replace("_", "").replace("-", "").replace(".", "").isalnum():
             raise ValueError(
@@ -33,7 +36,7 @@ class UserBase(BaseModel):
 
     @field_validator("timezone")
     @classmethod
-    def validate_timezone(cls, v):
+    def validate_timezone(cls, v: str) -> str:
         # Basic timezone validation - just check common formats
         common_timezones = [
             "UTC",
@@ -59,7 +62,7 @@ class UserBase(BaseModel):
 
     @field_validator("language")
     @classmethod
-    def validate_language(cls, v):
+    def validate_language(cls, v: str) -> str:
         valid_languages = ["en", "es", "fr", "de", "it", "pt", "ru", "zh", "ja", "ko"]
         if v not in valid_languages:
             raise ValueError(f"Language must be one of: {', '.join(valid_languages)}")
@@ -73,7 +76,7 @@ class UserCreate(UserBase):
 
     @field_validator("password")
     @classmethod
-    def validate_password(cls, v):
+    def validate_password(cls, v: str) -> str:
         # Password must contain at least one uppercase, one lowercase, one digit
         if not any(c.isupper() for c in v):
             raise ValueError("Password must contain at least one uppercase letter")
@@ -89,17 +92,17 @@ class UserCreate(UserBase):
 class UserUpdate(BaseModel):
     """Schema for updating user information"""
 
-    email: Optional[EmailStr] = Field(None, description="Updated email address")
-    full_name: Optional[str] = Field(None, max_length=100, description="Updated full name")
-    bio: Optional[str] = Field(None, max_length=500, description="Updated bio")
-    avatar_url: Optional[str] = Field(None, max_length=500, description="Updated avatar URL")
-    timezone: Optional[str] = Field(None, max_length=50, description="Updated timezone")
-    language: Optional[str] = Field(None, max_length=10, description="Updated language")
-    preferences: Optional[Dict[str, Any]] = Field(None, description="Updated preferences")
+    email: EmailStr | None = Field(None, description="Updated email address")
+    full_name: str | None = Field(None, max_length=100, description="Updated full name")
+    bio: str | None = Field(None, max_length=500, description="Updated bio")
+    avatar_url: str | None = Field(None, max_length=500, description="Updated avatar URL")
+    timezone: str | None = Field(None, max_length=50, description="Updated timezone")
+    language: str | None = Field(None, max_length=10, description="Updated language")
+    preferences: dict[str, Any] | None = Field(None, description="Updated preferences")
 
     @field_validator("timezone")
     @classmethod
-    def validate_timezone(cls, v):
+    def validate_timezone(cls, v: str) -> str:
         if v is not None:
             # Basic timezone validation - just check common formats
             common_timezones = [
@@ -134,7 +137,7 @@ class UserResponse(UserBase):
     is_verified: bool = Field(description="Whether user email is verified")
     created_at: datetime = Field(description="Account creation timestamp")
     updated_at: datetime = Field(description="Account last update timestamp")
-    last_login_at: Optional[datetime] = Field(description="Last login timestamp")
+    last_login_at: datetime | None = Field(description="Last login timestamp")
     password_changed_at: datetime = Field(description="Password last changed timestamp")
 
     class Config:
@@ -153,11 +156,11 @@ class UserProfile(BaseModel):
 
     id: UUID = Field(description="User unique identifier")
     username: str = Field(description="Username")
-    full_name: Optional[str] = Field(description="Full name")
-    bio: Optional[str] = Field(description="User bio")
-    avatar_url: Optional[str] = Field(description="Avatar image URL")
+    full_name: str | None = Field(description="Full name")
+    bio: str | None = Field(description="User bio")
+    avatar_url: str | None = Field(description="Avatar image URL")
     created_at: datetime = Field(description="Account creation timestamp")
-    last_login_at: Optional[datetime] = Field(description="Last login timestamp")
+    last_login_at: datetime | None = Field(description="Last login timestamp")
 
     class Config:
         from_attributes = True
@@ -169,7 +172,7 @@ class UserLoginRequest(BaseModel):
     username: str = Field(..., description="Username or email")
     password: str = Field(..., description="Password")
     remember_me: bool = Field(default=False, description="Remember login session")
-    device_fingerprint: Optional[str] = Field(None, description="Device fingerprint for security")
+    device_fingerprint: str | None = Field(None, description="Device fingerprint for security")
 
 
 class UserLoginResponse(BaseModel):
@@ -197,7 +200,7 @@ class UserChangePasswordRequest(BaseModel):
 
     @field_validator("new_password")
     @classmethod
-    def validate_new_password(cls, v):
+    def validate_new_password(cls, v: str) -> str:
         # Same validation as UserCreate password
         if not any(c.isupper() for c in v):
             raise ValueError("Password must contain at least one uppercase letter")
@@ -224,7 +227,7 @@ class UserResetPasswordConfirm(BaseModel):
 
     @field_validator("new_password")
     @classmethod
-    def validate_new_password(cls, v):
+    def validate_new_password(cls, v: str) -> str:
         # Same validation as UserCreate password
         if not any(c.isupper() for c in v):
             raise ValueError("Password must contain at least one uppercase letter")
@@ -248,9 +251,9 @@ class UserSessionResponse(BaseModel):
 
     id: UUID = Field(description="Session unique identifier")
     user_id: UUID = Field(description="User identifier")
-    ip_address: Optional[str] = Field(description="Session IP address")
-    user_agent: Optional[str] = Field(description="User agent string")
-    device_fingerprint: Optional[str] = Field(description="Device fingerprint")
+    ip_address: str | None = Field(description="Session IP address")
+    user_agent: str | None = Field(description="User agent string")
+    device_fingerprint: str | None = Field(description="Device fingerprint")
     created_at: datetime = Field(description="Session creation timestamp")
     expires_at: datetime = Field(description="Session expiration timestamp")
     last_accessed_at: datetime = Field(description="Last access timestamp")
@@ -270,12 +273,12 @@ class UserAPIKeyCreate(BaseModel):
     """Schema for creating API key"""
 
     name: str = Field(..., min_length=1, max_length=100, description="API key name")
-    scopes: List[str] = Field(description="API key scopes/permissions")
-    expires_at: Optional[datetime] = Field(None, description="Optional expiration date")
+    scopes: list[str] = Field(description="API key scopes/permissions")
+    expires_at: datetime | None = Field(None, description="Optional expiration date")
 
     @field_validator("scopes")
     @classmethod
-    def validate_scopes(cls, v):
+    def validate_scopes(cls, v: list[str]) -> list[str]:
         valid_scopes = [
             "read:devices",
             "write:devices",
@@ -303,11 +306,11 @@ class UserAPIKeyResponse(BaseModel):
     id: UUID = Field(description="API key unique identifier")
     name: str = Field(description="API key name")
     key_prefix: str = Field(description="API key prefix for identification")
-    scopes: List[str] = Field(description="API key scopes")
+    scopes: list[str] = Field(description="API key scopes")
     is_active: bool = Field(description="Whether API key is active")
     created_at: datetime = Field(description="API key creation timestamp")
-    expires_at: Optional[datetime] = Field(description="API key expiration timestamp")
-    last_used_at: Optional[datetime] = Field(description="Last usage timestamp")
+    expires_at: datetime | None = Field(description="API key expiration timestamp")
+    last_used_at: datetime | None = Field(description="Last usage timestamp")
     usage_count: int = Field(description="Usage count")
 
     class Config:
@@ -330,13 +333,13 @@ class UserAuditLogResponse(BaseModel):
     """User audit log entry"""
 
     id: UUID = Field(description="Audit log entry identifier")
-    user_id: Optional[UUID] = Field(description="User identifier")
+    user_id: UUID | None = Field(description="User identifier")
     event_type: str = Field(description="Event type")
     event_category: str = Field(description="Event category")
     description: str = Field(description="Event description")
-    ip_address: Optional[str] = Field(description="Request IP address")
-    user_agent: Optional[str] = Field(description="User agent string")
-    event_metadata: Dict[str, Any] = Field(description="Additional event metadata")
+    ip_address: str | None = Field(description="Request IP address")
+    user_agent: str | None = Field(description="User agent string")
+    event_metadata: dict[str, Any] = Field(description="Additional event metadata")
     severity: str = Field(description="Event severity")
     timestamp: datetime = Field(description="Event timestamp")
 
@@ -358,12 +361,12 @@ class UserActivitySummary(BaseModel):
     total_logins: int = Field(description="Total number of logins")
     successful_logins: int = Field(description="Successful logins")
     failed_logins: int = Field(description="Failed login attempts")
-    last_login_at: Optional[datetime] = Field(description="Last successful login")
-    last_failed_login_at: Optional[datetime] = Field(description="Last failed login attempt")
+    last_login_at: datetime | None = Field(description="Last successful login")
+    last_failed_login_at: datetime | None = Field(description="Last failed login attempt")
     active_sessions: int = Field(description="Current active sessions")
     api_key_usage: int = Field(description="API key usage count")
     devices_managed: int = Field(description="Number of devices managed")
-    recent_activities: List[str] = Field(description="Recent activity descriptions")
+    recent_activities: list[str] = Field(description="Recent activity descriptions")
     account_created_at: datetime = Field(description="Account creation date")
 
     class Config:
@@ -381,16 +384,16 @@ class UserSecuritySettings(BaseModel):
     api_key_expiry_days: int = Field(
         default=90, ge=1, le=365, description="Default API key expiry in days"
     )
-    allowed_ip_ranges: List[str] = Field(
+    allowed_ip_ranges: list[str] = Field(
         default_factory=list, description="Allowed IP address ranges"
     )
-    password_expiry_days: Optional[int] = Field(
+    password_expiry_days: int | None = Field(
         None, ge=30, le=365, description="Password expiry in days"
     )
 
     @field_validator("allowed_ip_ranges")
     @classmethod
-    def validate_ip_ranges(cls, v):
+    def validate_ip_ranges(cls, v: list[str]) -> list[str]:
         if v:
             from ipaddress import ip_network
 

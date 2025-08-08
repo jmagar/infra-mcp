@@ -5,10 +5,10 @@ MCP resources for exposing system and container logs
 with real-time access via the REST API.
 """
 
-import logging
 import json
+import logging
 from typing import Any
-from urllib.parse import urlparse, parse_qs
+from urllib.parse import parse_qs, urlparse
 
 import httpx
 
@@ -17,11 +17,11 @@ from apps.backend.src.core.config import get_settings
 logger = logging.getLogger(__name__)
 
 
-def _get_api_config():
+def _get_api_config() -> dict[str, Any]:
     """Get API configuration settings"""
     settings = get_settings()
     return {
-        "base_url": f"http://localhost:{settings.server.port}",
+        "base_url": f"http://localhost:{settings.api.api_port}",
         "api_key": settings.auth.api_key,
         "timeout": 30,
     }
@@ -74,11 +74,11 @@ async def get_system_logs_resource(uri: str) -> str:
         # Extract query parameters
         service = query_params.get("service", [None])[0]
         since = query_params.get("since", [None])[0]
-        lines = query_params.get("lines", ["100"])[0]
+        lines_str = query_params.get("lines", ["100"])[0]
 
         # Build endpoint parameters
         endpoint = f"/api/devices/{hostname}/logs"
-        params = {"lines": int(lines), "timeout": 60}
+        params: dict[str, Any] = {"lines": int(lines_str), "timeout": 60}
 
         if service:
             params["service"] = service
@@ -96,7 +96,7 @@ async def get_system_logs_resource(uri: str) -> str:
                 "hostname": hostname,
                 "service": service,
                 "since": since,
-                "lines": int(lines),
+                "lines": int(lines_str),
                 "log_content": log_content,
                 "metadata": {
                     "execution_time": data.get("execution_time")
@@ -139,16 +139,16 @@ async def get_container_logs_resource(uri: str) -> str:
 
         # Extract query parameters
         since = query_params.get("since", [None])[0]
-        tail = query_params.get("tail", ["100"])[0]
+        tail_str = query_params.get("tail", ["100"])[0]
 
         # Build endpoint parameters
         endpoint = f"/api/containers/{hostname}/{container_name}/logs"
-        params = {"timeout": 60}
+        params: dict[str, Any] = {"timeout": 60}
 
         if since:
             params["since"] = since
-        if tail:
-            params["tail"] = int(tail)
+        if tail_str:
+            params["tail"] = tail_str
 
         data = await _make_api_request(endpoint, params)
 
@@ -161,7 +161,7 @@ async def get_container_logs_resource(uri: str) -> str:
                 "hostname": hostname,
                 "container_name": container_name,
                 "since": since,
-                "tail": int(tail) if tail else None,
+                "tail": int(tail_str) if tail_str else None,
                 "log_content": log_content,
                 "metadata": {
                     "execution_time": data.get("execution_time")
@@ -217,7 +217,6 @@ async def get_vm_logs_resource(uri: str) -> str:
             vm_name = path_parts[1]
 
         # Use SSH to get VM logs since they're file-based
-        import asyncio
         from apps.backend.src.utils.ssh_client import execute_ssh_command_simple
 
         if vm_name:

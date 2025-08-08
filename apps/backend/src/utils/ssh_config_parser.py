@@ -5,9 +5,10 @@ Parses OpenSSH client configuration files to extract host information
 for automatic device registration in the infrastructure registry.
 """
 
-import re
 from pathlib import Path
-from typing import Dict, List, Optional, Any
+import re
+from typing import Any
+
 from pydantic import BaseModel, Field
 
 
@@ -15,18 +16,18 @@ class SSHHostConfig(BaseModel):
     """Parsed SSH host configuration"""
 
     host_pattern: str = Field(description="Original Host pattern from config")
-    hostname: Optional[str] = Field(None, description="Resolved hostname or IP")
+    hostname: str | None = Field(None, description="Resolved hostname or IP")
     port: int = Field(default=22, description="SSH port")
-    user: Optional[str] = Field(None, description="SSH username")
-    identity_file: Optional[str] = Field(None, description="SSH private key path")
-    proxy_command: Optional[str] = Field(None, description="ProxyCommand if present")
+    user: str | None = Field(None, description="SSH username")
+    identity_file: str | None = Field(None, description="SSH private key path")
+    proxy_command: str | None = Field(None, description="ProxyCommand if present")
 
     # Additional fields that might be useful
-    connect_timeout: Optional[int] = Field(None, description="Connection timeout")
-    server_alive_interval: Optional[int] = Field(None, description="ServerAliveInterval")
-    forward_x11: Optional[bool] = Field(None, description="X11 forwarding")
+    connect_timeout: int | None = Field(None, description="Connection timeout")
+    server_alive_interval: int | None = Field(None, description="ServerAliveInterval")
+    forward_x11: bool | None = Field(None, description="X11 forwarding")
 
-    def to_device_dict(self) -> Dict[str, Any]:
+    def to_device_dict(self) -> dict[str, Any]:
         """Convert SSH config to device creation dict"""
         # Use hostname if available, otherwise use host_pattern as hostname
         device_hostname = self.hostname or self.host_pattern
@@ -56,7 +57,7 @@ class SSHConfigParser:
         self.global_config = {}
         self.host_configs = []
 
-    def parse_file(self, config_path: str) -> List[SSHHostConfig]:
+    def parse_file(self, config_path: str) -> list[SSHHostConfig]:
         """
         Parse SSH configuration file and return list of host configurations.
 
@@ -75,14 +76,14 @@ class SSHConfigParser:
             raise FileNotFoundError(f"SSH config file not found: {config_path}")
 
         try:
-            with open(config_file, "r", encoding="utf-8") as f:
+            with open(config_file, encoding="utf-8") as f:
                 content = f.read()
         except UnicodeDecodeError:
             raise ValueError(f"SSH config file is not UTF-8 encoded: {config_path}")
 
         return self.parse_content(content)
 
-    def parse_content(self, content: str) -> List[SSHHostConfig]:
+    def parse_content(self, content: str) -> list[SSHHostConfig]:
         """
         Parse SSH configuration content.
 
@@ -137,7 +138,7 @@ class SSHConfigParser:
 
         return self.host_configs
 
-    def _save_host_config(self, host_pattern: str, config: Dict[str, str]):
+    def _save_host_config(self, host_pattern: str, config: dict[str, str]):
         """Save parsed host configuration"""
         try:
             # Parse configuration values
@@ -176,16 +177,7 @@ class SSHConfigParser:
             # Skip malformed host configs rather than failing entirely
             print(f"Warning: Skipping malformed host config '{host_pattern}': {e}")
 
-    def get_importable_hosts(self, config_path: str) -> List[Dict[str, Any]]:
-        """
-        Parse SSH config and return list of devices ready for import.
-
-        Args:
-            config_path: Path to SSH config file
-
-        Returns:
-            List of device dictionaries ready for database insertion
-        """
+    def get_importable_hosts(self, config_path: str) -> list[dict[str, Any]]:
         host_configs = self.parse_file(config_path)
         importable_devices = []
 
@@ -197,7 +189,7 @@ class SSHConfigParser:
         return importable_devices
 
 
-def parse_ssh_config(config_path: str) -> List[Dict[str, Any]]:
+def parse_ssh_config(config_path: str) -> list[dict[str, Any]]:
     """
     Convenience function to parse SSH config file and return importable devices.
 

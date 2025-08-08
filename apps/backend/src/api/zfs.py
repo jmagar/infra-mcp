@@ -8,20 +8,20 @@ health monitoring, and performance analysis via SSH commands.
 from __future__ import annotations
 
 import logging
-from typing import Any
 
-from fastapi import APIRouter, Depends, HTTPException, Query, Path
+from fastapi import APIRouter, Depends, HTTPException, Path, Query
+from typing import Any
 from pydantic import BaseModel, Field
 
-from apps.backend.src.core.exceptions import ZFSError, SSHConnectionError
-from apps.backend.src.services.zfs import (
-    ZFSPoolService,
-    ZFSDatasetService,
-    ZFSSnapshotService,
-    ZFSHealthService,
-    ZFSAnalysisService,
-)
 from apps.backend.src.api.common import get_current_user
+from apps.backend.src.core.exceptions import SSHConnectionError, ZFSError
+from apps.backend.src.services.zfs import (
+    ZFSAnalysisService,
+    ZFSDatasetService,
+    ZFSHealthService,
+    ZFSPoolService,
+    ZFSSnapshotService,
+)
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -77,8 +77,8 @@ async def list_zfs_pools(
     hostname: str = Path(..., description="Device hostname"),
     timeout: int = Query(30, description="SSH timeout in seconds"),
     service: ZFSPoolService = Depends(get_pool_service),
-    current_user=Depends(get_current_user),
-):
+    current_user: Any = Depends(get_current_user),
+) -> dict[str, Any]:
     """List all ZFS pools on a device"""
     try:
         pools = await service.list_pools(hostname, timeout)
@@ -98,8 +98,8 @@ async def get_pool_status(
     pool_name: str = Path(..., description="ZFS pool name"),
     timeout: int = Query(30, description="SSH timeout in seconds"),
     service: ZFSPoolService = Depends(get_pool_service),
-    current_user=Depends(get_current_user),
-):
+    current_user: Any = Depends(get_current_user),
+) -> dict[str, Any]:
     """Get detailed status for a specific ZFS pool"""
     try:
         status = await service.get_pool_status(hostname, pool_name, timeout)
@@ -120,8 +120,8 @@ async def list_zfs_datasets(
     pool_name: str | None = Query(None, description="Filter by pool name"),
     timeout: int = Query(30, description="SSH timeout in seconds"),
     service: ZFSDatasetService = Depends(get_dataset_service),
-    current_user=Depends(get_current_user),
-):
+    current_user: Any = Depends(get_current_user),
+) -> dict[str, Any]:
     """List ZFS datasets, optionally filtered by pool"""
     try:
         datasets = await service.list_datasets(hostname, pool_name, timeout)
@@ -146,8 +146,8 @@ async def get_dataset_properties(
     dataset_name: str = Path(..., description="Dataset name"),
     timeout: int = Query(30, description="SSH timeout in seconds"),
     service: ZFSDatasetService = Depends(get_dataset_service),
-    current_user=Depends(get_current_user),
-):
+    current_user: Any = Depends(get_current_user),
+) -> dict[str, Any]:
     """Get all properties for a specific dataset"""
     try:
         properties = await service.get_dataset_properties(hostname, dataset_name, timeout)
@@ -168,8 +168,8 @@ async def list_zfs_snapshots(
     dataset_name: str | None = Query(None, description="Filter by dataset name"),
     timeout: int = Query(30, description="SSH timeout in seconds"),
     service: ZFSSnapshotService = Depends(get_snapshot_service),
-    current_user=Depends(get_current_user),
-):
+    current_user: Any = Depends(get_current_user),
+) -> dict[str, Any]:
     """List ZFS snapshots, optionally filtered by dataset"""
     try:
         snapshots = await service.list_snapshots(hostname, dataset_name, timeout)
@@ -194,8 +194,8 @@ async def create_zfs_snapshot(
     hostname: str = Path(..., description="Device hostname"),
     timeout: int = Query(60, description="SSH timeout in seconds"),
     service: ZFSSnapshotService = Depends(get_snapshot_service),
-    current_user=Depends(get_current_user),
-):
+    current_user: Any = Depends(get_current_user),
+) -> dict[str, Any]:
     """Create a new ZFS snapshot"""
     try:
         result = await service.create_snapshot(
@@ -218,8 +218,8 @@ async def clone_zfs_snapshot(
     snapshot_name: str = Path(..., description="Snapshot name to clone"),
     timeout: int = Query(60, description="SSH timeout in seconds"),
     service: ZFSSnapshotService = Depends(get_snapshot_service),
-    current_user=Depends(get_current_user),
-):
+    current_user: Any = Depends(get_current_user),
+) -> dict[str, Any]:
     """Clone a ZFS snapshot"""
     try:
         result = await service.clone_snapshot(hostname, snapshot_name, request.clone_name, timeout)
@@ -240,8 +240,8 @@ async def send_zfs_snapshot(
     snapshot_name: str = Path(..., description="Snapshot name to send"),
     timeout: int = Query(300, description="SSH timeout in seconds"),
     service: ZFSSnapshotService = Depends(get_snapshot_service),
-    current_user=Depends(get_current_user),
-):
+    current_user: Any = Depends(get_current_user),
+) -> dict[str, Any]:
     """Send a ZFS snapshot for replication/backup"""
     try:
         result = await service.send_snapshot(
@@ -263,8 +263,8 @@ async def receive_zfs_snapshot(
     hostname: str = Path(..., description="Device hostname"),
     timeout: int = Query(300, description="SSH timeout in seconds"),
     service: ZFSSnapshotService = Depends(get_snapshot_service),
-    current_user=Depends(get_current_user),
-):
+    current_user: Any = Depends(get_current_user),
+) -> dict[str, Any]:
     """Receive a ZFS snapshot stream"""
     try:
         result = await service.receive_snapshot(hostname, request.dataset_name, timeout)
@@ -285,8 +285,8 @@ async def diff_zfs_snapshots(
     snapshot2: str = Query(..., description="Second snapshot name for comparison"),
     timeout: int = Query(60, description="SSH timeout in seconds"),
     service: ZFSSnapshotService = Depends(get_snapshot_service),
-    current_user=Depends(get_current_user),
-):
+    current_user: Any = Depends(get_current_user),
+) -> dict[str, Any]:
     """Compare differences between two snapshots"""
     try:
         result = await service.diff_snapshots(hostname, snapshot_name, snapshot2, timeout)
@@ -306,8 +306,8 @@ async def check_zfs_health(
     hostname: str = Path(..., description="Device hostname"),
     timeout: int = Query(60, description="SSH timeout in seconds"),
     service: ZFSHealthService = Depends(get_health_service),
-    current_user=Depends(get_current_user),
-):
+    current_user: Any = Depends(get_current_user),
+) -> dict[str, Any]:
     """Comprehensive ZFS health check"""
     try:
         health = await service.check_zfs_health(hostname, timeout)
@@ -326,8 +326,8 @@ async def get_zfs_arc_stats(
     hostname: str = Path(..., description="Device hostname"),
     timeout: int = Query(30, description="SSH timeout in seconds"),
     service: ZFSHealthService = Depends(get_health_service),
-    current_user=Depends(get_current_user),
-):
+    current_user: Any = Depends(get_current_user),
+) -> dict[str, Any]:
     """Get ZFS ARC (Adaptive Replacement Cache) statistics"""
     try:
         arc_stats = await service.get_arc_stats(hostname, timeout)
@@ -346,8 +346,8 @@ async def monitor_zfs_events(
     hostname: str = Path(..., description="Device hostname"),
     timeout: int = Query(30, description="SSH timeout in seconds"),
     service: ZFSHealthService = Depends(get_health_service),
-    current_user=Depends(get_current_user),
-):
+    current_user: Any = Depends(get_current_user),
+) -> dict[str, Any]:
     """Monitor ZFS events and error messages"""
     try:
         events = await service.monitor_zfs_events(hostname, timeout)
@@ -367,8 +367,8 @@ async def generate_zfs_report(
     hostname: str = Path(..., description="Device hostname"),
     timeout: int = Query(120, description="SSH timeout in seconds"),
     service: ZFSAnalysisService = Depends(get_analysis_service),
-    current_user=Depends(get_current_user),
-):
+    current_user: Any = Depends(get_current_user),
+) -> dict[str, Any]:
     """Generate comprehensive ZFS report"""
     try:
         report = await service.generate_zfs_report(hostname, timeout)
@@ -387,8 +387,8 @@ async def analyze_snapshot_usage(
     hostname: str = Path(..., description="Device hostname"),
     timeout: int = Query(60, description="SSH timeout in seconds"),
     service: ZFSAnalysisService = Depends(get_analysis_service),
-    current_user=Depends(get_current_user),
-):
+    current_user: Any = Depends(get_current_user),
+) -> dict[str, Any]:
     """Analyze snapshot space usage and provide cleanup recommendations"""
     try:
         analysis = await service.analyze_snapshot_usage(hostname, timeout)
@@ -407,8 +407,8 @@ async def optimize_zfs_settings(
     hostname: str = Path(..., description="Device hostname"),
     timeout: int = Query(60, description="SSH timeout in seconds"),
     service: ZFSAnalysisService = Depends(get_analysis_service),
-    current_user=Depends(get_current_user),
-):
+    current_user: Any = Depends(get_current_user),
+) -> dict[str, Any]:
     """Analyze ZFS configuration and suggest optimizations"""
     try:
         optimization = await service.optimize_zfs_settings(hostname, timeout)

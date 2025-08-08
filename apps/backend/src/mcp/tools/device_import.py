@@ -7,15 +7,16 @@ from SSH configuration files through the MCP protocol.
 
 import logging
 from typing import Any
+
 from fastmcp import FastMCP
 
-from apps.backend.src.utils.ssh_config_parser import parse_ssh_config
+from apps.backend.src.core.database import get_async_session_factory
 from apps.backend.src.schemas.device import (
     DeviceCreate,
     DeviceUpdate,
 )
 from apps.backend.src.services.device_service import DeviceService
-from apps.backend.src.core.database import get_db_session
+from apps.backend.src.utils.ssh_config_parser import parse_ssh_config
 
 logger = logging.getLogger(__name__)
 
@@ -65,8 +66,9 @@ async def import_devices(
 
         results = []
 
-        # Get database session
-        async with get_db_session() as db:
+        # Get database session via async session factory (not FastAPI dependency)
+        session_factory = get_async_session_factory()
+        async with session_factory() as db:
             service = DeviceService(db)
 
             for device_data in importable_devices:
@@ -209,7 +211,7 @@ async def import_devices(
 
 
 # FastMCP tool registration
-def register_device_import_tools(mcp_server: FastMCP):
+def register_device_import_tools(mcp_server: FastMCP) -> None:
     """Register device import tools with the MCP server"""
 
     @mcp_server.tool()

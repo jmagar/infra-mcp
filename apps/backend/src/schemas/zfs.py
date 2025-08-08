@@ -2,44 +2,47 @@
 ZFS-related Pydantic schemas for request/response validation.
 """
 
-from datetime import datetime, timezone
-from typing import Optional, Dict, Any, List
-from uuid import UUID
+from datetime import UTC, datetime
+
+from typing import Optional, List, Any
 from decimal import Decimal
+from uuid import UUID
+
 from pydantic import BaseModel, Field, field_validator
-from apps.backend.src.schemas.common import PaginatedResponse, TimeRangeParams
+
+from apps.backend.src.schemas.common import PaginatedResponse
 
 
 class ZFSStatusBase(BaseModel):
     """Base ZFS status schema with common fields"""
 
     pool_name: str = Field(..., min_length=1, max_length=255, description="ZFS pool name")
-    dataset_name: Optional[str] = Field(None, max_length=255, description="ZFS dataset name")
+    dataset_name: str | None = Field(None, max_length=255, description="ZFS dataset name")
     pool_state: str = Field(..., description="Pool state (ONLINE, DEGRADED, FAULTED, etc.)")
     pool_health: str = Field(..., description="Pool health status")
-    capacity_bytes: Optional[int] = Field(None, ge=0, description="Total pool capacity in bytes")
-    allocated_bytes: Optional[int] = Field(None, ge=0, description="Allocated space in bytes")
-    free_bytes: Optional[int] = Field(None, ge=0, description="Free space in bytes")
-    fragmentation_percent: Optional[Decimal] = Field(
+    capacity_bytes: int | None = Field(None, ge=0, description="Total pool capacity in bytes")
+    allocated_bytes: int | None = Field(None, ge=0, description="Allocated space in bytes")
+    free_bytes: int | None = Field(None, ge=0, description="Free space in bytes")
+    fragmentation_percent: Decimal | None = Field(
         None, ge=0, le=100, description="Fragmentation percentage"
     )
-    dedup_ratio: Optional[Decimal] = Field(None, ge=1, description="Deduplication ratio")
-    compression_ratio: Optional[Decimal] = Field(None, ge=1, description="Compression ratio")
-    scrub_state: Optional[str] = Field(
+    dedup_ratio: Decimal | None = Field(None, ge=1, description="Deduplication ratio")
+    compression_ratio: Decimal | None = Field(None, ge=1, description="Compression ratio")
+    scrub_state: str | None = Field(
         None, description="Scrub state (none, scanning, finished, etc.)"
     )
-    scrub_progress_percent: Optional[Decimal] = Field(
+    scrub_progress_percent: Decimal | None = Field(
         None, ge=0, le=100, description="Scrub progress percentage"
     )
     scrub_errors: int = Field(default=0, ge=0, description="Number of scrub errors")
-    last_scrub: Optional[datetime] = Field(None, description="Last scrub timestamp")
-    properties: Dict[str, Any] = Field(
+    last_scrub: datetime | None = Field(None, description="Last scrub timestamp")
+    properties: dict[str, Any] = Field(
         default_factory=dict, description="Additional ZFS properties"
     )
 
     @field_validator("pool_state")
     @classmethod
-    def validate_pool_state(cls, v):
+    def validate_pool_state(cls, v: str) -> str:
         valid_states = ["ONLINE", "DEGRADED", "FAULTED", "OFFLINE", "UNAVAIL", "REMOVED"]
         if v.upper() not in valid_states:
             raise ValueError(f"Pool state must be one of: {', '.join(valid_states)}")
@@ -47,7 +50,7 @@ class ZFSStatusBase(BaseModel):
 
     @field_validator("scrub_state")
     @classmethod
-    def validate_scrub_state(cls, v):
+    def validate_scrub_state(cls, v: str | None) -> str | None:
         if v is not None:
             valid_states = ["none", "scanning", "finished", "canceled", "suspended"]
             if v.lower() not in valid_states:
@@ -69,7 +72,7 @@ class ZFSStatusResponse(ZFSStatusBase):
     device_id: UUID = Field(description="Device UUID")
 
     # Computed fields
-    usage_percent: Optional[float] = Field(None, description="Storage usage percentage")
+    usage_percent: float | None = Field(None, description="Storage usage percentage")
 
     class Config:
         from_attributes = True
@@ -92,15 +95,15 @@ class ZFSSnapshotBase(BaseModel):
     dataset_name: str = Field(..., min_length=1, max_length=255, description="Dataset name")
     snapshot_name: str = Field(..., min_length=1, max_length=255, description="Snapshot name")
     creation_time: datetime = Field(..., description="Snapshot creation time")
-    used_bytes: Optional[int] = Field(None, ge=0, description="Space used by snapshot in bytes")
-    referenced_bytes: Optional[int] = Field(
+    used_bytes: int | None = Field(None, ge=0, description="Space used by snapshot in bytes")
+    referenced_bytes: int | None = Field(
         None, ge=0, description="Space referenced by snapshot in bytes"
     )
-    properties: Dict[str, Any] = Field(default_factory=dict, description="Snapshot properties")
+    properties: dict[str, Any] = Field(default_factory=dict, description="Snapshot properties")
 
     @field_validator("snapshot_name")
     @classmethod
-    def validate_snapshot_name(cls, v):
+    def validate_snapshot_name(cls, v: str) -> str:
         # Basic validation - snapshots typically have @ symbol
         if "@" not in v:
             raise ValueError("Snapshot name should contain '@' symbol")
@@ -120,7 +123,7 @@ class ZFSSnapshotResponse(ZFSSnapshotBase):
     device_id: UUID = Field(description="Device UUID")
 
     # Computed fields
-    age_days: Optional[int] = Field(None, description="Age of snapshot in days")
+    age_days: int | None = Field(None, description="Age of snapshot in days")
 
     class Config:
         from_attributes = True
@@ -140,16 +143,16 @@ class ZFSPoolSummary(BaseModel):
     pool_name: str
     pool_state: str
     pool_health: str
-    total_capacity_gb: Optional[float] = Field(description="Total capacity in GB")
-    used_capacity_gb: Optional[float] = Field(description="Used capacity in GB")
-    usage_percent: Optional[float] = Field(description="Usage percentage")
-    fragmentation_percent: Optional[float] = Field(description="Fragmentation percentage")
-    dedup_ratio: Optional[float] = Field(description="Deduplication ratio")
-    compression_ratio: Optional[float] = Field(description="Compression ratio")
-    last_scrub: Optional[datetime] = Field(description="Last scrub timestamp")
+    total_capacity_gb: float | None = Field(description="Total capacity in GB")
+    used_capacity_gb: float | None = Field(description="Used capacity in GB")
+    usage_percent: float | None = Field(description="Usage percentage")
+    fragmentation_percent: float | None = Field(description="Fragmentation percentage")
+    dedup_ratio: float | None = Field(description="Deduplication ratio")
+    compression_ratio: float | None = Field(description="Compression ratio")
+    last_scrub: datetime | None = Field(description="Last scrub timestamp")
     scrub_errors: int = Field(description="Number of scrub errors")
-    dataset_count: Optional[int] = Field(description="Number of datasets in pool")
-    snapshot_count: Optional[int] = Field(description="Number of snapshots in pool")
+    dataset_count: int | None = Field(description="Number of datasets in pool")
+    snapshot_count: int | None = Field(description="Number of snapshots in pool")
     last_updated: datetime = Field(description="Last update timestamp")
 
     class Config:
@@ -166,11 +169,11 @@ class ZFSHealthOverview(BaseModel):
     total_capacity_tb: float = Field(description="Total ZFS capacity in TB")
     used_capacity_tb: float = Field(description="Used ZFS capacity in TB")
     overall_usage_percent: float = Field(description="Overall usage percentage")
-    pools_by_device: Dict[str, int] = Field(description="Pool count by device")
-    health_by_device: Dict[str, str] = Field(description="Health status by device")
+    pools_by_device: dict[str, int] = Field(description="Pool count by device")
+    health_by_device: dict[str, str] = Field(description="Health status by device")
     recent_scrub_errors: int = Field(description="Recent scrub errors count")
     overdue_scrubs: int = Field(description="Number of pools with overdue scrubs")
-    timestamp: datetime = Field(default_factory=lambda: datetime.now(timezone.utc), description="Report timestamp")
+    timestamp: datetime = Field(default_factory=lambda: datetime.now(UTC), description="Report timestamp")
 
 
 class ZFSDatasetInfo(BaseModel):
@@ -179,16 +182,16 @@ class ZFSDatasetInfo(BaseModel):
     name: str = Field(description="Dataset name")
     pool_name: str = Field(description="Parent pool name")
     type: str = Field(description="Dataset type (filesystem, volume, snapshot)")
-    used_bytes: Optional[int] = Field(description="Space used by dataset")
-    available_bytes: Optional[int] = Field(description="Available space")
-    referenced_bytes: Optional[int] = Field(description="Space referenced by dataset")
-    compression: Optional[str] = Field(description="Compression algorithm")
-    dedup: Optional[str] = Field(description="Deduplication setting")
-    encryption: Optional[str] = Field(description="Encryption status")
-    mountpoint: Optional[str] = Field(description="Mount point for filesystems")
-    quota: Optional[int] = Field(description="Dataset quota in bytes")
-    reservation: Optional[int] = Field(description="Dataset reservation in bytes")
-    properties: Dict[str, str] = Field(default_factory=dict, description="Dataset properties")
+    used_bytes: int | None = Field(description="Space used by dataset")
+    available_bytes: int | None = Field(description="Available space")
+    referenced_bytes: int | None = Field(description="Space referenced by dataset")
+    compression: str | None = Field(description="Compression algorithm")
+    dedup: str | None = Field(description="Deduplication setting")
+    encryption: str | None = Field(description="Encryption status")
+    mountpoint: str | None = Field(description="Mount point for filesystems")
+    quota: int | None = Field(description="Dataset quota in bytes")
+    reservation: int | None = Field(description="Dataset reservation in bytes")
+    properties: dict[str, str] = Field(default_factory=dict, description="Dataset properties")
 
 
 class ZFSIntegrityCheck(BaseModel):
@@ -199,12 +202,12 @@ class ZFSIntegrityCheck(BaseModel):
     check_type: str = Field(description="Type of integrity check (scrub, verify)")
     status: str = Field(description="Check status (running, completed, failed)")
     start_time: datetime = Field(description="Check start time")
-    end_time: Optional[datetime] = Field(description="Check end time")
-    duration_seconds: Optional[int] = Field(description="Check duration")
-    bytes_processed: Optional[int] = Field(description="Bytes processed during check")
+    end_time: datetime | None = Field(description="Check end time")
+    duration_seconds: int | None = Field(description="Check duration")
+    bytes_processed: int | None = Field(description="Bytes processed during check")
     errors_found: int = Field(default=0, description="Number of errors found")
     errors_repaired: int = Field(default=0, description="Number of errors repaired")
-    error_details: List[str] = Field(default_factory=list, description="Detailed error information")
+    error_details: list[str] = Field(default_factory=list, description="Detailed error information")
 
     class Config:
         from_attributes = True
@@ -213,14 +216,14 @@ class ZFSIntegrityCheck(BaseModel):
 class ZFSFilter(BaseModel):
     """ZFS filtering parameters"""
 
-    device_ids: Optional[List[UUID]] = Field(description="Filter by device IDs")
-    pool_names: Optional[List[str]] = Field(description="Filter by pool names")
-    pool_states: Optional[List[str]] = Field(description="Filter by pool states")
-    health_status: Optional[List[str]] = Field(description="Filter by health status")
-    min_capacity_gb: Optional[float] = Field(description="Minimum capacity in GB")
-    max_usage_percent: Optional[float] = Field(description="Maximum usage percentage")
-    has_scrub_errors: Optional[bool] = Field(description="Filter pools with scrub errors")
-    overdue_scrub_days: Optional[int] = Field(description="Filter pools with overdue scrubs")
+    device_ids: list[UUID] | None = Field(description="Filter by device IDs")
+    pool_names: list[str] | None = Field(description="Filter by pool names")
+    pool_states: list[str] | None = Field(description="Filter by pool states")
+    health_status: list[str] | None = Field(description="Filter by health status")
+    min_capacity_gb: float | None = Field(description="Minimum capacity in GB")
+    max_usage_percent: float | None = Field(description="Maximum usage percentage")
+    has_scrub_errors: bool | None = Field(description="Filter pools with scrub errors")
+    overdue_scrub_days: int | None = Field(description="Filter pools with overdue scrubs")
 
 
 class ZFSAggregatedMetrics(BaseModel):
@@ -229,11 +232,11 @@ class ZFSAggregatedMetrics(BaseModel):
     time_bucket: datetime = Field(description="Time bucket for aggregation")
     device_id: UUID = Field(description="Device ID")
     pool_name: str = Field(description="Pool name")
-    avg_usage_percent: Optional[float] = Field(description="Average usage percentage")
-    max_usage_percent: Optional[float] = Field(description="Maximum usage percentage")
-    avg_fragmentation_percent: Optional[float] = Field(description="Average fragmentation")
-    dedup_ratio: Optional[float] = Field(description="Deduplication ratio")
-    compression_ratio: Optional[float] = Field(description="Compression ratio")
+    avg_usage_percent: float | None = Field(description="Average usage percentage")
+    max_usage_percent: float | None = Field(description="Maximum usage percentage")
+    avg_fragmentation_percent: float | None = Field(description="Average fragmentation")
+    dedup_ratio: float | None = Field(description="Deduplication ratio")
+    compression_ratio: float | None = Field(description="Compression ratio")
     scrub_error_count: int = Field(description="Total scrub errors in period")
 
     class Config:

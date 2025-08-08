@@ -22,29 +22,49 @@
 
 ## 🏛️ Architecture
 
-`infrastructor` uses a dual-server architecture:
+**Updated: August 7, 2025** - Architectural Decision Change
+
+`infrastructor` uses a dual-server architecture with a unified data collection service:
 
 *   **FastAPI REST API:** A robust backend that provides a RESTful interface for managing and monitoring your infrastructure.
-*   **`fastmcp` Server:** A flexible command-line interface that acts as a client to the REST API, providing a powerful and scriptable way to interact with your infrastructure.
+*   **`fastmcp` Server:** A flexible command-line interface that provides MCP protocol support for Claude Desktop and other MCP clients.
+*   **Unified Data Collection Service:** A centralized service layer that handles all data collection, caching, and storage operations.
 
-This architecture ensures that all operations, whether initiated from the API or the MCP, go through the same centralized logic, providing a consistent and reliable management experience.
+**Key Architectural Decision:** Both API endpoints and MCP tools call the unified data collection service directly, rather than MCP tools calling API endpoints via HTTP. This provides better performance, consistency, and maintainability.
 
 ```text
 +-----------------+      +-----------------+      +-----------------+
 |                 |      |                 |      |                 |
-|   FastAPI REST  |<---->|   `fastmcp`     |<---->|   User          |
-|   API Server    |      |   Server        |      |                 |
+|   FastAPI REST  |      |   `fastmcp`     |<---->|   MCP Clients   |
+|   API Server    |      |   Server        |      |   (Claude, etc) |
 |                 |      |                 |      |                 |
 +-----------------+      +-----------------+      +-----------------+
-        ^                      ^
+        |                      |
         |                      |
         v                      v
 +-----------------------------------------------------------------+
 |                                                                 |
-|   PostgreSQL Database                                           |
+|   Unified Data Collection Service                               |
+|   • Data collection methods                                     |
+|   • Caching & freshness management                             |
+|   • Audit trails                                               |
+|   • Database storage                                            |
+|                                                                 |
++-----------------------------------------------------------------+
+        |
+        v
++-----------------------------------------------------------------+
+|                                                                 |
+|   PostgreSQL Database + Redis Cache                            |
 |                                                                 |
 +-----------------------------------------------------------------+
 ```
+
+This architecture ensures that:
+- Both API and MCP operations use the same data collection logic
+- Caching and performance optimizations benefit both interfaces
+- Audit trails and data consistency are maintained
+- Direct service calls eliminate unnecessary HTTP overhead
 
 ## 🚀 Getting Started
 
@@ -425,7 +445,7 @@ zfs://health/squirts
 
 ## 🗄️ Database Schema
 
-`infrastructor` uses a TimescaleDB database to store time-series data for infrastructure monitoring. The schema is designed to be flexible and extensible, and it includes tables for:
+`infrastructor` uses a PostgreSQL database to store infrastructure monitoring data. The schema is designed to be flexible and extensible, and it includes tables for:
 
 *   **`devices`:** A registry of all infrastructure devices.
 *   **`system_metrics`:** Time-series data for system-level metrics (CPU, memory, disk, etc.).
@@ -433,11 +453,11 @@ zfs://health/squirts
 *   **`container_snapshots`:** Time-series data for Docker container metrics.
 *   **`proxy_configs`:** SWAG reverse proxy configuration management.
 
-The schema also makes extensive use of TimescaleDB's features, including:
+The schema also makes extensive use of PostgreSQL's features, including:
 
-*   **Hypertables:** For efficient storage and querying of time-series data.
-*   **Compression Policies:** To automatically compress old data and save storage space.
-*   **Continuous Aggregates:** To pre-calculate hourly and daily summaries of the time-series data for faster querying.
+*   **BTREE Indexes:** For efficient time-based queries and device lookups.
+*   **GIN Indexes:** For JSONB data indexing and querying.
+*   **JSONB Support:** For flexible metadata and configuration storage.
 
 ## 👨‍💻 Development
 

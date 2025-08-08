@@ -5,20 +5,20 @@ This module provides async SQLAlchemy setup with TimescaleDB-optimized
 connection pooling, session management, and dependency injection.
 """
 
-from typing import AsyncGenerator, Optional
+from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
-import asyncio
 import logging
+from typing import Any, Optional, cast
+
 from sqlalchemy import MetaData, text
 from sqlalchemy.ext.asyncio import (
-    AsyncSession,
     AsyncEngine,
-    create_async_engine,
+    AsyncSession,
     async_sessionmaker,
+    create_async_engine,
 )
 from sqlalchemy.ext.declarative import declarative_base
-from sqlalchemy.pool import NullPool, AsyncAdaptedQueuePool
-from sqlalchemy.orm import sessionmaker
+from sqlalchemy.pool import AsyncAdaptedQueuePool, NullPool
 
 from .config import get_settings
 
@@ -26,8 +26,8 @@ from .config import get_settings
 logger = logging.getLogger(__name__)
 
 # Global database engine and session factory
-_async_engine: Optional[AsyncEngine] = None
-_async_session_factory: Optional[async_sessionmaker[AsyncSession]] = None
+_async_engine: AsyncEngine | None = None
+_async_session_factory: async_sessionmaker[AsyncSession] | None = None
 
 # TimescaleDB-specific metadata naming convention for constraints and indexes
 custom_metadata = MetaData(
@@ -54,8 +54,8 @@ def create_async_database_engine() -> AsyncEngine:
     settings = get_settings()
 
     # Engine configuration optimized for TimescaleDB
-    engine_config = {
-        "url": settings.database.database_url,
+    database_url = settings.database.database_url
+    engine_kwargs = {
         "echo": settings.debug,  # SQL logging in debug mode
         "echo_pool": settings.debug,  # Connection pool logging in debug mode
         "future": True,  # Use SQLAlchemy 2.0 style
@@ -80,10 +80,10 @@ def create_async_database_engine() -> AsyncEngine:
 
     # Use NullPool for testing/development if specified
     if settings.environment == "testing":
-        engine_config["poolclass"] = NullPool
+        engine_kwargs["poolclass"] = NullPool
         logger.info("Using NullPool for testing environment")
 
-    engine = create_async_engine(**engine_config)
+    engine = create_async_engine(database_url, **engine_kwargs)
 
     logger.info(
         f"Created async database engine: {settings.database.postgres_host}:"
@@ -91,6 +91,26 @@ def create_async_database_engine() -> AsyncEngine:
     )
 
     return engine
+
+
+def get_pool_status(pool: Any) -> dict[str, Any]:
+    """Safely extract pool metrics if available on this pool implementation."""
+    def call_or_none(obj: Any, name: str) -> Optional[int]:
+        attr = getattr(obj, name, None)
+        if callable(attr):
+            try:
+                return int(attr())
+            except Exception:
+                return None
+        return None
+
+    return {
+        "size": call_or_none(pool, "size"),
+        "checked_in": call_or_none(pool, "checkedin"),
+        "checked_out": call_or_none(pool, "checkedout"),
+        "overflow": call_or_none(pool, "overflow"),
+        "pool_class": type(pool).__name__,
+    }
 
 
 def create_async_session_factory(engine: AsyncEngine) -> async_sessionmaker[AsyncSession]:
@@ -280,7 +300,7 @@ async def check_database_health() -> dict:
     Returns:
         dict: Health check results with metrics
     """
-    health_data = {
+    health_data: dict[str, Any] = {
         "status": "unknown",
         "connection_pool": {},
         "database_info": {},
@@ -293,14 +313,7 @@ async def check_database_health() -> dict:
 
         # Check connection pool status
         pool = engine.pool
-        health_data["connection_pool"] = {
-            "pool_size": pool.size(),
-            "checked_in": pool.checkedin(),
-            "checked_out": pool.checkedout(),
-            "overflow": pool.overflow(),
-            # AsyncAdaptedQueuePool doesn't have invalid() method
-            "pool_class": str(type(pool).__name__),
-        }
+        health_data["connection_pool"] = get_pool_status(pool)
 
         async with get_async_session() as session:
             # Basic connectivity
@@ -355,7 +368,7 @@ async def check_database_health() -> dict:
     return health_data
 
 
-async def execute_raw_sql(query: str, params: dict = None) -> any:
+async def execute_raw_sql(query: str, params: dict[str, Any] | None = None) -> Any:
     """
     Execute raw SQL query with parameters.
 
@@ -434,7 +447,7 @@ async def create_hypertables() -> dict:
     Returns:
         dict: Results of hypertable creation operations
     """
-    results = {"created": [], "skipped": [], "errors": []}
+    results: dict[str, Any] = {"created": [], "skipped": [], "errors": []}
 
     # Define hypertables to create
     hypertables = [
@@ -502,7 +515,7 @@ async def setup_compression_policies() -> dict:
     Returns:
         dict: Results of compression policy setup
     """
-    results = {"created": [], "skipped": [], "errors": []}
+    results: dict[str, Any] = {"created": [], "skipped": [], "errors": []}
 
     # Define compression policies (compress data older than 7 days)
     compression_policies = [
@@ -571,7 +584,7 @@ async def setup_retention_policies() -> dict:
     Returns:
         dict: Results of retention policy setup
     """
-    results = {"created": [], "skipped": [], "errors": []}
+    results: dict[str, Any] = {"created": [], "skipped": [], "errors": []}
 
     settings = get_settings()
 
@@ -637,7 +650,7 @@ async def get_timescaledb_info() -> dict:
     Returns:
         dict: TimescaleDB configuration and statistics
     """
-    info = {
+    info: dict[str, Any] = {
         "version": None,
         "license": None,
         "hypertables": [],
@@ -759,7 +772,7 @@ async def optimize_database() -> dict:
     Returns:
         dict: Results of optimization operations
     """
-    results = {"operations": [], "errors": []}
+    results: dict[str, Any] = {"operations": [], "errors": []}
 
     try:
         async with get_async_session() as session:
@@ -891,7 +904,7 @@ async def validate_database_schema() -> dict:
     Returns:
         dict: Schema validation results
     """
-    validation = {
+    validation: dict[str, Any] = {
         "schema_valid": True,
         "tables_found": [],
         "missing_tables": [],
@@ -935,7 +948,8 @@ async def validate_database_schema() -> dict:
 
             if missing:
                 validation["schema_valid"] = False
-                validation["issues"].append(f"Missing tables: {', '.join(missing)}")
+                issues = cast(list[str], validation["issues"])  # narrow type for mypy
+                issues.append(f"Missing tables: {', '.join(missing)}")
 
             # Check foreign key constraints
             result = await session.execute(
@@ -984,17 +998,18 @@ async def validate_database_schema() -> dict:
             validation["extensions"] = [dict(row) for row in result.fetchall()]
 
             # Validate TimescaleDB extension
-            timescale_found = any(
-                ext["extname"] == "timescaledb" for ext in validation["extensions"]
-            )
+            exts = cast(list[dict[str, Any]], validation["extensions"])  # narrow type
+            timescale_found = any(ext["extname"] == "timescaledb" for ext in exts)
             if not timescale_found:
                 validation["schema_valid"] = False
-                validation["issues"].append("TimescaleDB extension not installed")
+                issues = cast(list[str], validation["issues"])  # narrow type for mypy
+                issues.append("TimescaleDB extension not installed")
 
     except Exception as e:
         logger.error(f"Schema validation failed: {e}")
         validation["schema_valid"] = False
-        validation["issues"].append(f"Validation error: {str(e)}")
+        issues = cast(list[str], validation["issues"])  # narrow type for mypy
+        issues.append(f"Validation error: {str(e)}")
 
     return validation
 
@@ -1006,7 +1021,7 @@ async def get_connection_info() -> dict:
     Returns:
         dict: Connection details and configuration
     """
-    info = {}
+    info: dict[str, Any] = {}
 
     try:
         settings = get_settings()
@@ -1023,13 +1038,7 @@ async def get_connection_info() -> dict:
 
         # Pool information
         pool = engine.pool
-        info["pool_status"] = {
-            "size": pool.size(),
-            "checked_in": pool.checkedin(),
-            "checked_out": pool.checkedout(),
-            "overflow": pool.overflow(),
-            "invalid": pool.invalid(),
-        }
+        info["pool_status"] = get_pool_status(pool)
 
         # Current database session info
         async with get_async_session() as session:
@@ -1044,14 +1053,14 @@ async def get_connection_info() -> dict:
                 """)
             )
             db_info = result.fetchone()
-
-            info["server_info"] = {
-                "database": db_info[0],
-                "user": db_info[1],
-                "server_addr": db_info[2],
-                "server_port": db_info[3],
-                "version": db_info[4],
-            }
+            if db_info is not None:
+                info["server_info"] = {
+                    "database": db_info[0],
+                    "user": db_info[1],
+                    "server_addr": db_info[2],
+                    "server_port": db_info[3],
+                    "version": db_info[4],
+                }
 
     except Exception as e:
         logger.error(f"Failed to get connection info: {e}")

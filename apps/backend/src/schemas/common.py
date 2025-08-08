@@ -2,11 +2,12 @@
 Common Pydantic schemas used across the application.
 """
 
-from datetime import datetime, timezone
-from typing import Any, Dict, List, Optional, Generic, TypeVar
-from uuid import UUID
-from pydantic import BaseModel, Field, field_validator
+from datetime import UTC, datetime
+from typing import Any, TypeVar, Generic
 from enum import Enum
+from uuid import UUID
+
+from pydantic import BaseModel, Field, field_validator
 
 T = TypeVar("T")
 
@@ -57,16 +58,16 @@ class PaginationParams(BaseModel):
 class TimeRangeParams(BaseModel):
     """Time range parameters for time-series queries"""
 
-    start_time: Optional[datetime] = Field(
+    start_time: datetime | None = Field(
         default=None, description="Start time for time-series data (ISO 8601 format)"
     )
-    end_time: Optional[datetime] = Field(
+    end_time: datetime | None = Field(
         default=None, description="End time for time-series data (ISO 8601 format)"
     )
 
     @field_validator("end_time")
     @classmethod
-    def validate_time_range(cls, v, info):
+    def validate_time_range(cls, v: datetime | None, info: Any) -> datetime | None:
         if v and info.data.get("start_time"):
             if v <= info.data["start_time"]:
                 raise ValueError("end_time must be after start_time")
@@ -77,9 +78,9 @@ class APIResponse(BaseModel, Generic[T]):
     """Generic API response wrapper"""
 
     success: bool = Field(description="Whether the request was successful")
-    data: Optional[T] = Field(description="Response data")
-    message: Optional[str] = Field(description="Response message")
-    errors: Optional[List[str]] = Field(description="List of errors if any")
+    data: T | None = Field(description="Response data")
+    message: str | None = Field(description="Response message")
+    errors: list[str] | None = Field(description="List of errors if any")
 
     class Config:
         arbitrary_types_allowed = True
@@ -88,7 +89,7 @@ class APIResponse(BaseModel, Generic[T]):
 class PaginatedResponse(BaseModel, Generic[T]):
     """Paginated response wrapper"""
 
-    items: List[T] = Field(description="List of items")
+    items: list[T] = Field(description="List of items")
     total_count: int = Field(description="Total number of items")
     page: int = Field(description="Current page number")
     page_size: int = Field(description="Number of items per page")
@@ -105,8 +106,8 @@ class ErrorResponse(BaseModel):
 
     error: str = Field(description="Error type")
     message: str = Field(description="Error message")
-    details: Optional[Dict[str, Any]] = Field(description="Additional error details")
-    timestamp: datetime = Field(default_factory=lambda: datetime.now(timezone.utc), description="Error timestamp")
+    details: dict[str, Any] | None = Field(description="Additional error details")
+    timestamp: datetime = Field(default_factory=lambda: datetime.now(UTC), description="Error timestamp")
 
 
 class HealthCheckResponse(BaseModel):
@@ -115,10 +116,10 @@ class HealthCheckResponse(BaseModel):
     status: str = Field(description="Overall health status")
     version: str = Field(description="Application version")
     environment: str = Field(description="Environment (development/production)")
-    database: Dict[str, Any] = Field(description="Database health information")
-    services: Dict[str, str] = Field(description="Service status map")
+    database: dict[str, Any] = Field(description="Database health information")
+    services: dict[str, str] = Field(description="Service status map")
     timestamp: datetime = Field(
-        default_factory=lambda: datetime.now(timezone.utc), description="Health check timestamp"
+        default_factory=lambda: datetime.now(UTC), description="Health check timestamp"
     )
 
 
@@ -126,20 +127,20 @@ class DatabaseHealthInfo(BaseModel):
     """Database health information schema"""
 
     status: str = Field(description="Database status (healthy/unhealthy)")
-    connection_pool: Dict[str, int] = Field(description="Connection pool statistics")
-    timescaledb_info: Dict[str, int] = Field(description="TimescaleDB information")
-    table_counts: Dict[str, Any] = Field(description="Table row counts")
-    performance_metrics: Dict[str, Any] = Field(description="Database performance metrics")
+    connection_pool: dict[str, int] = Field(description="Connection pool statistics")
+    timescaledb_info: dict[str, int] = Field(description="TimescaleDB information")
+    table_counts: dict[str, Any] = Field(description="Table row counts")
+    performance_metrics: dict[str, Any] = Field(description="Database performance metrics")
 
 
 class DeviceFilter(BaseModel):
     """Device filtering parameters"""
 
-    hostname: Optional[str] = Field(description="Filter by hostname (partial match)")
-    device_type: Optional[str] = Field(description="Filter by device type")
-    status: Optional[DeviceStatus] = Field(description="Filter by device status")
-    monitoring_enabled: Optional[bool] = Field(description="Filter by monitoring status")
-    tags: Optional[Dict[str, str]] = Field(description="Filter by tags (key-value pairs)")
+    hostname: str | None = Field(description="Filter by hostname (partial match)")
+    device_type: str | None = Field(description="Filter by device type")
+    status: DeviceStatus | None = Field(description="Filter by device status")
+    monitoring_enabled: bool | None = Field(description="Filter by monitoring status")
+    tags: dict[str, str] | None = Field(description="Filter by tags (key-value pairs)")
 
 
 class TimeSeriesAggregation(str, Enum):
@@ -180,10 +181,10 @@ class AggregationParams(BaseModel):
 class MetricFilter(BaseModel):
     """Metric filtering parameters"""
 
-    device_ids: Optional[List[UUID]] = Field(description="List of device IDs to include")
-    metric_names: Optional[List[str]] = Field(description="List of specific metrics to include")
-    threshold_min: Optional[float] = Field(description="Minimum threshold value")
-    threshold_max: Optional[float] = Field(description="Maximum threshold value")
+    device_ids: list[UUID] | None = Field(description="List of device IDs to include")
+    metric_names: list[str] | None = Field(description="List of specific metrics to include")
+    threshold_min: float | None = Field(description="Minimum threshold value")
+    threshold_max: float | None = Field(description="Maximum threshold value")
 
 
 class SortParams(BaseModel):
@@ -199,7 +200,7 @@ class BulkOperationResponse(BaseModel):
     total_processed: int = Field(description="Total number of items processed")
     successful: int = Field(description="Number of successful operations")
     failed: int = Field(description="Number of failed operations")
-    errors: List[str] = Field(description="List of error messages")
+    errors: list[str] = Field(description="List of error messages")
     duration_ms: int = Field(description="Operation duration in milliseconds")
 
 
@@ -207,8 +208,8 @@ class StatusResponse(BaseModel):
     """Simple status response"""
 
     status: str = Field(description="Operation status")
-    message: Optional[str] = Field(description="Status message")
-    timestamp: datetime = Field(default_factory=lambda: datetime.now(timezone.utc), description="Status timestamp")
+    message: str | None = Field(description="Status message")
+    timestamp: datetime = Field(default_factory=lambda: datetime.now(UTC), description="Status timestamp")
 
 
 class CreatedResponse(BaseModel, Generic[T]):
@@ -216,9 +217,9 @@ class CreatedResponse(BaseModel, Generic[T]):
 
     id: str = Field(description="ID of created resource")
     resource_type: str = Field(description="Type of resource created")
-    data: Optional[T] = Field(description="Created resource data")
+    data: T | None = Field(description="Created resource data")
     message: str = Field(default="Resource created successfully", description="Success message")
-    timestamp: datetime = Field(default_factory=lambda: datetime.now(timezone.utc), description="Creation timestamp")
+    timestamp: datetime = Field(default_factory=lambda: datetime.now(UTC), description="Creation timestamp")
 
     class Config:
         arbitrary_types_allowed = True
@@ -229,10 +230,10 @@ class UpdatedResponse(BaseModel, Generic[T]):
 
     id: str = Field(description="ID of updated resource")
     resource_type: str = Field(description="Type of resource updated")
-    data: Optional[T] = Field(description="Updated resource data")
-    changes: Dict[str, Any] = Field(description="Fields that were changed")
+    data: T | None = Field(description="Updated resource data")
+    changes: dict[str, Any] = Field(description="Fields that were changed")
     message: str = Field(default="Resource updated successfully", description="Success message")
-    timestamp: datetime = Field(default_factory=lambda: datetime.now(timezone.utc), description="Update timestamp")
+    timestamp: datetime = Field(default_factory=lambda: datetime.now(UTC), description="Update timestamp")
 
     class Config:
         arbitrary_types_allowed = True
@@ -244,7 +245,7 @@ class DeletedResponse(BaseModel):
     id: str = Field(description="ID of deleted resource")
     resource_type: str = Field(description="Type of resource deleted")
     message: str = Field(default="Resource deleted successfully", description="Success message")
-    timestamp: datetime = Field(default_factory=lambda: datetime.now(timezone.utc), description="Deletion timestamp")
+    timestamp: datetime = Field(default_factory=lambda: datetime.now(UTC), description="Deletion timestamp")
 
 
 class ValidationErrorResponse(BaseModel):
@@ -252,35 +253,35 @@ class ValidationErrorResponse(BaseModel):
 
     error_type: str = Field(default="validation_error", description="Type of validation error")
     message: str = Field(description="Error message")
-    field_errors: List[Dict[str, Any]] = Field(description="Field-specific validation errors")
+    field_errors: list[dict[str, Any]] = Field(description="Field-specific validation errors")
     error_count: int = Field(description="Total number of validation errors")
-    timestamp: datetime = Field(default_factory=lambda: datetime.now(timezone.utc), description="Error timestamp")
+    timestamp: datetime = Field(default_factory=lambda: datetime.now(UTC), description="Error timestamp")
 
 
 class HealthMetrics(BaseModel):
     """Health metrics for services and components"""
 
-    cpu_usage_percent: Optional[float] = Field(description="CPU usage percentage")
-    memory_usage_percent: Optional[float] = Field(description="Memory usage percentage")
-    disk_usage_percent: Optional[float] = Field(description="Disk usage percentage")
-    network_latency_ms: Optional[float] = Field(description="Network latency in milliseconds")
-    active_connections: Optional[int] = Field(description="Number of active connections")
-    error_rate_percent: Optional[float] = Field(description="Error rate percentage")
-    uptime_seconds: Optional[int] = Field(description="Service uptime in seconds")
-    last_health_check: Optional[datetime] = Field(description="Last health check timestamp")
+    cpu_usage_percent: float | None = Field(description="CPU usage percentage")
+    memory_usage_percent: float | None = Field(description="Memory usage percentage")
+    disk_usage_percent: float | None = Field(description="Disk usage percentage")
+    network_latency_ms: float | None = Field(description="Network latency in milliseconds")
+    active_connections: int | None = Field(description="Number of active connections")
+    error_rate_percent: float | None = Field(description="Error rate percentage")
+    uptime_seconds: int | None = Field(description="Service uptime in seconds")
+    last_health_check: datetime | None = Field(description="Last health check timestamp")
 
 
 class OperationResult(BaseModel, Generic[T]):
     """Generic operation result wrapper"""
 
     success: bool = Field(description="Whether operation was successful")
-    operation_id: Optional[str] = Field(description="Unique operation identifier")
+    operation_id: str | None = Field(description="Unique operation identifier")
     operation_type: str = Field(description="Type of operation performed")
-    result: Optional[T] = Field(description="Operation result data")
-    error_message: Optional[str] = Field(description="Error message if operation failed")
-    warnings: List[str] = Field(default_factory=list, description="Warning messages")
-    execution_time_ms: Optional[int] = Field(description="Operation execution time in milliseconds")
-    timestamp: datetime = Field(default_factory=lambda: datetime.now(timezone.utc), description="Operation timestamp")
+    result: T | None = Field(description="Operation result data")
+    error_message: str | None = Field(description="Error message if operation failed")
+    warnings: list[str] = Field(default_factory=list, description="Warning messages")
+    execution_time_ms: int | None = Field(description="Operation execution time in milliseconds")
+    timestamp: datetime = Field(default_factory=lambda: datetime.now(UTC), description="Operation timestamp")
 
     class Config:
         arbitrary_types_allowed = True
@@ -290,7 +291,7 @@ class SearchParams(BaseModel):
     """Search parameters for text search operations"""
 
     query: str = Field(min_length=1, max_length=1000, description="Search query string")
-    field: Optional[str] = Field(description="Specific field to search in")
+    field: str | None = Field(description="Specific field to search in")
     case_sensitive: bool = Field(default=False, description="Whether search is case sensitive")
     exact_match: bool = Field(default=False, description="Whether to match exact phrase")
     include_metadata: bool = Field(
@@ -317,5 +318,5 @@ class SystemInfo(BaseModel):
     app_version: str = Field(description="Application version")
     startup_time: datetime = Field(description="Application startup time")
     current_time: datetime = Field(
-        default_factory=lambda: datetime.now(timezone.utc), description="Current system time"
+        default_factory=lambda: datetime.now(UTC), description="Current system time"
     )

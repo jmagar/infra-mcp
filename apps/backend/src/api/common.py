@@ -5,28 +5,28 @@ General-purpose API endpoints including status, system information,
 and utility endpoints for the infrastructure management system.
 """
 
+from datetime import UTC, datetime
 import logging
 import platform
-import sys
 import random
-from datetime import datetime, timezone
-from typing import Dict
+import sys
 
 from fastapi import APIRouter, Depends, HTTPException, Request
+
+# Import authentication dependency directly to avoid circular imports
+from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from slowapi import Limiter
 from slowapi.util import get_remote_address
 
-from apps.backend.src.schemas.common import StatusResponse, SystemInfo, OperationResult
+from apps.backend.src.core.config import get_settings
 from apps.backend.src.core.exceptions import (
     DeviceNotFoundError,
     SSHConnectionError,
+)
+from apps.backend.src.core.exceptions import (
     ValidationError as CustomValidationError,
 )
-
-# Import authentication dependency directly to avoid circular imports
-from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
-
-from apps.backend.src.core.config import get_settings
+from apps.backend.src.schemas.common import OperationResult, StatusResponse, SystemInfo
 
 # Security
 security = HTTPBearer(auto_error=False)
@@ -86,7 +86,7 @@ async def api_status(request: Request):
     return StatusResponse(
         status="operational",
         message="All systems operational",
-        timestamp=datetime.now(timezone.utc),
+        timestamp=datetime.now(UTC),
     )
 
 
@@ -105,12 +105,12 @@ async def get_system_info(request: Request):
         architecture=platform.machine(),
         python_version=sys.version.split()[0],
         app_version="1.0.0",
-        startup_time=datetime.now(timezone.utc),  # This would be tracked in real implementation
-        current_time=datetime.now(timezone.utc),
+        startup_time=datetime.now(UTC),  # This would be tracked in real implementation
+        current_time=datetime.now(UTC),
     )
 
 
-@router.get("/test-error", response_model=OperationResult[Dict[str, str]])
+@router.get("/test-error", response_model=OperationResult[dict[str, str]])
 @limiter.limit("10/minute")  # Lower limit for test endpoint
 async def test_error_handling(request: Request):
     """
@@ -138,9 +138,11 @@ async def test_error_handling(request: Request):
             "Invalid device configuration", field="hostname", value="invalid..hostname"
         )
     else:
-        return OperationResult[Dict[str, str]](
+        return OperationResult[dict[str, str]](
             success=True,
+            operation_id="test-op-123",
             operation_type="test_operation",
             result={"message": "Test completed successfully"},
+            error_message=None,
             execution_time_ms=150,
         )

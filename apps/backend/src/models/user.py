@@ -2,12 +2,11 @@
 User-related models for authentication and authorization.
 """
 
-from datetime import datetime
 from uuid import uuid4
-from sqlalchemy import Column, String, Boolean, DateTime, Text, Integer
-from sqlalchemy.dialects.postgresql import UUID, JSONB
+
+from sqlalchemy import Boolean, Column, DateTime, Integer, String, Text
+from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.sql import func
-from sqlalchemy.orm import relationship
 
 from apps.backend.src.core.database import Base
 
@@ -49,7 +48,7 @@ class User(Base):
     # Preferences and settings
     preferences = Column(JSONB, default={}, nullable=False)
 
-    def __repr__(self):
+    def __repr__(self) -> str:
         return f"<User(id={self.id}, username={self.username}, email={self.email})>"
 
 
@@ -80,7 +79,7 @@ class UserSession(Base):
     is_active = Column(Boolean, default=True, nullable=False)
     revocation_reason = Column(String(100), nullable=True)
 
-    def __repr__(self):
+    def __repr__(self) -> str:
         return f"<UserSession(id={self.id}, user_id={self.user_id}, active={self.is_active})>"
 
 
@@ -110,7 +109,7 @@ class UserAPIKey(Base):
     expires_at = Column(DateTime(timezone=True), nullable=True)  # Optional expiration
     revoked_at = Column(DateTime(timezone=True), nullable=True)
 
-    def __repr__(self):
+    def __repr__(self) -> str:
         return f"<UserAPIKey(id={self.id}, name={self.name}, active={self.is_active})>"
 
 
@@ -145,5 +144,5 @@ class UserAuditLog(Base):
         DateTime(timezone=True), server_default=func.now(), nullable=False, index=True
     )
 
-    def __repr__(self):
+    def __repr__(self) -> str:
         return f"<UserAuditLog(id={self.id}, event_type={self.event_type}, user_id={self.user_id})>"

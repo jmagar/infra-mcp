@@ -19,7 +19,7 @@ security = HTTPBearer()
 class WebSocketAuthenticator:
     """Handles WebSocket authentication using Bearer tokens"""
 
-    def __init__(self):
+    def __init__(self) -> None:
         self.settings = get_settings()
 
     async def authenticate_token(self, token: str) -> str | None:

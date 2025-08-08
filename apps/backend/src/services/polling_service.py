@@ -4,40 +4,42 @@ Service layer for background device polling and metrics collection.
 
 import asyncio
 import contextlib
+from datetime import UTC, datetime
 import json
 import logging
-from datetime import datetime, timezone
-from typing import Any, Optional
+from typing import Any, Callable, cast
 from uuid import UUID
 
-from sqlalchemy import select, and_
+from sqlalchemy import and_, select
+
 from apps.backend.src.core.config import get_settings
 from apps.backend.src.core.events import (
-    get_event_bus,
-    MetricCollectedEvent,
-    DeviceStatusChangedEvent,
     ContainerStatusEvent,
-    DriveHealthEvent
+    DeviceStatusChangedEvent,
+    DriveHealthEvent,
+    MetricCollectedEvent,
+    get_event_bus,
 )
-from apps.backend.src.models.device import Device
-from apps.backend.src.models.metrics import SystemMetric, DriveHealth
-from apps.backend.src.models.container import ContainerSnapshot
-from apps.backend.src.utils.ssh_client import get_ssh_client, SSHConnectionInfo
-from apps.backend.src.utils.ssh_command_manager import get_ssh_command_manager
-from apps.backend.src.utils.environment import WSL_DETECTION_COMMAND
-from apps.backend.src.services.unified_data_collection import get_unified_data_collection_service, UnifiedDataCollectionService
 from apps.backend.src.core.exceptions import (
     DeviceNotFoundError,
     SSHConnectionError,
-    SSHCommandError,
-    DatabaseOperationError,
 )
+from apps.backend.src.models.container import ContainerSnapshot
+from apps.backend.src.models.device import Device
+from apps.backend.src.models.metrics import DriveHealth, SystemMetric
+from apps.backend.src.services.unified_data_collection import (
+    UnifiedDataCollectionService,
+    get_unified_data_collection_service,
+)
+from apps.backend.src.utils.environment import WSL_DETECTION_COMMAND
+from apps.backend.src.utils.ssh_client import SSHConnectionInfo, get_ssh_client
+from apps.backend.src.utils.ssh_command_manager import get_ssh_command_manager
 
 logger = logging.getLogger(__name__)
 
 
 class PollingService:
-    def __init__(self):
+    def __init__(self) -> None:
         self.ssh_client = get_ssh_client()
         self.ssh_command_manager = get_ssh_command_manager()
         self.settings = get_settings()
@@ -46,7 +48,7 @@ class PollingService:
             UUID, dict[str, asyncio.Task]
         ] = {}  # device_id -> {task_type: task}
         self.is_running = False
-        self.unified_data_service: Optional[UnifiedDataCollectionService] = None  # Will be initialized in start_polling
+        self.unified_data_service: UnifiedDataCollectionService | None = None  # Will be initialized in start_polling
 
         # Use configured intervals for different data types
         self.container_interval = self.settings.polling.polling_container_interval
@@ -61,18 +63,18 @@ class PollingService:
             return
 
         self.is_running = True
-        logger.info("Starting device polling service")
+        logger.info("polling.start", extra={})
 
         # Create database session factory for this service
         from apps.backend.src.core.database import get_async_session_factory
 
         self.session_factory = get_async_session_factory()
-        
+
         # Initialize unified data collection service
         self.unified_data_service = await get_unified_data_collection_service(
             db_session_factory=self.session_factory,
             ssh_client=self.ssh_client,
-            ssh_command_manager=self.ssh_command_manager
+            ssh_command_manager=self.ssh_command_manager  # type: ignore[arg-type]
         )
 
         # Start polling loop - it will manage its own database sessions
@@ -100,9 +102,12 @@ class PollingService:
         """Main polling loop that manages device polling tasks"""
         # Wait a bit after startup to let the system stabilize
         startup_delay = self.settings.polling.polling_startup_delay
-        logger.info(f"Polling service starting - waiting {startup_delay} seconds before initial device polling")
+        logger.info(
+            "polling.loop.start",
+            extra={"startup_delay_seconds": startup_delay},
+        )
         await asyncio.sleep(startup_delay)
-        
+
         while self.is_running:
             try:
                 # Get all devices that should be polled
@@ -129,11 +134,12 @@ class PollingService:
             )
 
             result = await db.execute(query)
-            return result.scalars().all()
+            return list(result.scalars().all())
 
     async def _manage_polling_tasks(self, devices: list[Device]) -> None:
         """Start/stop polling tasks based on current devices"""
-        current_device_ids = {device.id for device in devices}
+        from typing import cast
+        current_device_ids = {cast(UUID, device.id) for device in devices}
         running_device_ids = set(self.polling_tasks.keys())
 
         # Stop polling for devices no longer in the list
@@ -152,7 +158,7 @@ class PollingService:
         device_delay = 0
         task_stagger = self.settings.polling.polling_task_stagger_delay
         device_stagger = self.settings.polling.polling_device_stagger_delay
-        
+
         for device in devices:
             if device.id in to_start:
                 # Create separate tasks for each data type with different intervals
@@ -161,7 +167,7 @@ class PollingService:
                     "metrics": asyncio.create_task(self._poll_system_metrics(device, device_delay + task_stagger)),
                     "drive_health": asyncio.create_task(self._poll_drive_health(device, device_delay + (task_stagger * 2))),
                 }
-                self.polling_tasks[device.id] = device_tasks
+                self.polling_tasks[cast(UUID, device.id)] = device_tasks
                 logger.info(
                     f"Started staggered polling for device {device.id} ({device.hostname}) with {device_delay}s delay"
                 )
@@ -169,15 +175,16 @@ class PollingService:
                 device_delay += device_stagger
 
     async def _poll_data_type(
-        self, 
-        device: Device, 
-        collection_method, 
-        interval: int, 
+        self,
+        device: Device,
+        collection_method: Callable,
+        interval: int,
         data_type: str,
         startup_delay: int = 0
     ) -> None:
         """Generic method to continuously poll data for a device using unified service"""
-        device_id = device.id
+        from typing import cast
+        device_id = cast(UUID, device.id)
         consecutive_failures = 0
         max_consecutive_failures = 3
 
@@ -201,7 +208,7 @@ class PollingService:
                     logger.error(f"Unified data service not initialized for {data_type} polling")
                     await asyncio.sleep(interval)
                     continue
-                    
+
                 consecutive_failures = 0
                 await asyncio.sleep(interval)
 
@@ -227,9 +234,9 @@ class PollingService:
     async def _poll_containers(self, device: Device, startup_delay: int = 0) -> None:
         """Continuously poll container data for a device"""
         return await self._poll_data_type(
-            device, 
-            lambda: self._collect_container_data_unified(device), 
-            self.container_interval, 
+            device,
+            lambda: self._collect_container_data_unified(device),
+            self.container_interval,
             "containers",
             startup_delay
         )
@@ -237,9 +244,9 @@ class PollingService:
     async def _poll_system_metrics(self, device: Device, startup_delay: int = 0) -> None:
         """Continuously poll system metrics for a device"""
         return await self._poll_data_type(
-            device, 
-            lambda: self._collect_system_metrics_unified(device), 
-            self.metrics_interval, 
+            device,
+            lambda: self._collect_system_metrics_unified(device),
+            self.metrics_interval,
             "system_metrics",
             startup_delay
         )
@@ -247,9 +254,9 @@ class PollingService:
     async def _poll_drive_health(self, device: Device, startup_delay: int = 0) -> None:
         """Continuously poll drive health for a device"""
         return await self._poll_data_type(
-            device, 
-            lambda: self._collect_drive_health_unified(device), 
-            self.drive_health_interval, 
+            device,
+            lambda: self._collect_drive_health_unified(device),
+            self.drive_health_interval,
             "drive_health",
             startup_delay
         )
@@ -258,20 +265,22 @@ class PollingService:
         """Update device status and last seen timestamp"""
         async with self.session_factory() as db:
             try:
-                old_status = device.status
-                device.status = status
+                old_status = cast(str | None, device.status)
+                # Assign to ORM attributes through an Any-typed alias to satisfy mypy
+                dev = cast(Any, device)
+                dev.status = status
                 if status == "online":
-                    device.last_seen = datetime.now(timezone.utc)
-                device.updated_at = datetime.now(timezone.utc)
+                    dev.last_seen = datetime.now(UTC)
+                dev.updated_at = datetime.now(UTC)
 
                 await db.commit()
 
                 # Emit device status change event if status actually changed
                 if old_status != status:
                     event = DeviceStatusChangedEvent(
-                        device_id=device.id,
-                        hostname=device.hostname,
-                        old_status=old_status or "unknown",
+                        device_id=cast(UUID, device.id),
+                        hostname=cast(str, device.hostname),
+                        old_status=(old_status or "unknown"),
                         new_status=status
                     )
                     self.event_bus.emit_nowait(event)
@@ -283,7 +292,7 @@ class PollingService:
     async def _collect_system_metrics_unified(self, device: Device) -> dict[str, Any]:
         """Collect system metrics for a device and return structured data"""
         ssh_info = SSHConnectionInfo(
-            host=device.hostname, port=device.ssh_port or 22, username=device.ssh_username or "root"
+            host=cast(str, device.hostname), port=cast(int, device.ssh_port) or 22, username=cast(str, device.ssh_username) or "root"
         )
 
         # Use SSH Command Manager for robust system metrics collection
@@ -291,13 +300,13 @@ class PollingService:
             "system_metrics",
             ssh_info
         )
-        
+
         # Extract parsed metrics
         cpu_usage = metrics_data.get("cpu_usage", 0.0)
         memory_usage = metrics_data.get("memory_usage", 0.0)
         disk_usage = metrics_data.get("disk_usage", 0.0)
         uptime_seconds = metrics_data.get("uptime", 0.0)
-        
+
         load_avg = metrics_data.get("load_avg", ["0", "0", "0"])
         load_1m = float(load_avg[0]) if len(load_avg) > 0 else 0.0
         load_5m = float(load_avg[1]) if len(load_avg) > 1 else 0.0
@@ -305,8 +314,8 @@ class PollingService:
 
         # Create system metric record and emit event
         metric = SystemMetric(
-            device_id=device.id,
-            time=datetime.now(timezone.utc),
+            device_id=cast(UUID, device.id),
+            time=datetime.now(UTC),
             cpu_usage_percent=cpu_usage,
             memory_usage_percent=memory_usage,
             disk_usage_percent=disk_usage,
@@ -324,8 +333,8 @@ class PollingService:
 
         # Emit metric collected event for real-time updates
         event = MetricCollectedEvent(
-            device_id=device.id,
-            hostname=device.hostname,
+            device_id=cast(UUID, device.id),
+            hostname=cast(str, device.hostname),
             cpu_usage_percent=cpu_usage,
             memory_usage_percent=memory_usage,
             disk_usage_percent=disk_usage,
@@ -359,11 +368,12 @@ class PollingService:
     async def _collect_drive_health_unified(self, device: Device) -> dict[str, Any]:
         """Collect drive health data for a device and return structured data"""
         ssh_info = SSHConnectionInfo(
-            host=device.hostname, port=device.ssh_port or 22, username=device.ssh_username or "root"
+            host=cast(str, device.hostname), port=cast(int, device.ssh_port) or 22, username=cast(str, device.ssh_username) or "root"
         )
 
         # Check if this is a WSL environment - skip drive health collection
-        wsl_result = await self.ssh_client.execute_command(ssh_info, WSL_DETECTION_COMMAND)
+        # Execute a simple remote command to detect WSL
+        wsl_result = await self.ssh_client.execute_command(ssh_info, "cat /proc/version")
 
         if wsl_result.stdout and "WSL" in wsl_result.stdout:
             logger.debug(
@@ -404,7 +414,7 @@ class PollingService:
 
         drives = []
         drive_data_list = []
-        
+
         for drive_data in drive_list:
             drive_name = drive_data.get("name", "")
 
@@ -442,8 +452,8 @@ class PollingService:
 
             # Create drive health record
             drive_health = DriveHealth(
-                device_id=device.id,
-                time=datetime.now(timezone.utc),
+                device_id=cast(UUID, device.id),
+                time=datetime.now(UTC),
                 drive_name=f"/dev/{drive_name}",
                 model="Unknown",  # Would need additional parsing
                 serial_number="Unknown",
@@ -474,13 +484,13 @@ class PollingService:
         # Emit drive health events for real-time updates
         for drive in drives:
             event = DriveHealthEvent(
-                device_id=device.id,
-                hostname=device.hostname,
-                drive_name=drive.drive_name,
-                health_status=drive.health_status,
-                temperature_celsius=drive.temperature_celsius,
-                model=drive.model,
-                serial_number=drive.serial_number
+                device_id=cast(UUID, device.id),
+                hostname=cast(str, device.hostname),
+                drive_name=cast(str, drive.drive_name),
+                health_status=cast(str, drive.health_status),
+                temperature_celsius=cast(int | None, drive.temperature_celsius),
+                model=cast(str | None, drive.model),
+                serial_number=cast(str | None, drive.serial_number)
             )
             self.event_bus.emit_nowait(event)
 
@@ -496,7 +506,7 @@ class PollingService:
     async def _collect_container_data_unified(self, device: Device) -> dict[str, Any]:
         """Collect container data for a device and return structured data"""
         ssh_info = SSHConnectionInfo(
-            host=device.hostname, port=device.ssh_port or 22, username=device.ssh_username or "root"
+            host=cast(str, device.hostname), port=cast(int, device.ssh_port) or 22, username=cast(str, device.ssh_username) or "root"
         )
 
         # Check if Docker is available
@@ -514,7 +524,8 @@ class PollingService:
         try:
             container_list = await self.ssh_command_manager.execute_command(
                 "list_containers",
-                ssh_info
+                ssh_info,
+                parameters={"all": True}
             )
         except Exception as e:
             logger.warning(f"Failed to get container list for {device.hostname}: {e}")
@@ -537,7 +548,7 @@ class PollingService:
 
         containers = []
         container_data_list = []
-        
+
         for container_data in container_list:
             container_id = container_data.get("ID", "")
             container_name = container_data.get("Names", "").lstrip("/")
@@ -560,7 +571,7 @@ class PollingService:
                     if "Error response from daemon" in stats_result.stdout or "No such container" in stats_result.stdout:
                         logger.debug(f"Container {container_id} no longer exists, skipping stats collection")
                         continue
-                    
+
                     try:
                         stats_data = json.loads(stats_result.stdout.strip())
                     except json.JSONDecodeError as e:
@@ -593,10 +604,10 @@ class PollingService:
                     state_json = {"status": state_value, "running": state_value.lower() == "running"}
                 else:
                     state_json = state_value if state_value else {}
-                
+
                 snapshot = ContainerSnapshot(
-                    device_id=device.id,
-                    time=datetime.now(timezone.utc),
+                    device_id=cast(UUID, device.id),
+                    time=datetime.now(UTC),
                     container_id=container_id,
                     container_name=container_name,
                     image=container_data.get("Image", ""),
@@ -640,16 +651,19 @@ class PollingService:
 
         # Emit container status events for real-time updates
         for container in containers:
+            cpu_val = float(container.cpu_usage_percent) if getattr(container, "cpu_usage_percent", None) is not None else 0.0
+            mem_used = int(container.memory_usage_bytes) if getattr(container, "memory_usage_bytes", None) is not None else 0
+            mem_limit = int(container.memory_limit_bytes) if getattr(container, "memory_limit_bytes", None) is not None else 0
             event = ContainerStatusEvent(
-                device_id=device.id,
-                hostname=device.hostname,
-                container_id=container.container_id,
-                container_name=container.container_name,
-                image=container.image,
-                status=container.status,
-                cpu_usage_percent=container.cpu_usage_percent or 0.0,
-                memory_usage_bytes=container.memory_usage_bytes or 0,
-                memory_limit_bytes=container.memory_limit_bytes or 0
+                device_id=cast(UUID, device.id),
+                hostname=cast(str, device.hostname),
+                container_id=cast(str, container.container_id),
+                container_name=cast(str, container.container_name),
+                image=cast(str, container.image),
+                status=cast(str, container.status),
+                cpu_usage_percent=cpu_val,
+                memory_usage_bytes=mem_used,
+                memory_limit_bytes=mem_limit
             )
             self.event_bus.emit_nowait(event)
 
@@ -662,10 +676,10 @@ class PollingService:
             "container_count": len(containers)
         }
 
-    async def _collect_system_logs_unified(self, device: Device, service: str = None, since: str = None, lines: int = 100) -> dict[str, Any]:
+    async def _collect_system_logs_unified(self, device: Device, service: str | None = None, since: str | None = None, lines: int = 100) -> dict[str, Any]:
         """Collect system logs for a device using SSH command manager"""
         ssh_info = SSHConnectionInfo(
-            host=device.hostname, port=device.ssh_port or 22, username=device.ssh_username or "root"
+            host=cast(str, device.hostname), port=cast(int, device.ssh_port) or 22, username=cast(str, device.ssh_username) or "root"
         )
 
         try:
@@ -684,7 +698,7 @@ class PollingService:
                     ssh_info,
                     timeout=30
                 )
-            
+
             log_entries = []
             if logs_data.stdout:
                 # Parse JSON log entries
@@ -698,22 +712,22 @@ class PollingService:
                                 "service": log_entry.get("_SYSTEMD_UNIT", service or "system"),
                                 "priority": log_entry.get("PRIORITY", "6"),
                                 "message": log_entry.get("MESSAGE", ""),
-                                "hostname": device.hostname
+                                "hostname": cast(str, device.hostname)
                             })
                         except json.JSONDecodeError:
                             # Handle non-JSON lines (fallback for systems without JSON support)
                             log_entries.append({
-                                "timestamp": datetime.now(timezone.utc).isoformat(),
+                                "timestamp": datetime.now(UTC).isoformat(),
                                 "service": service or "system",
                                 "priority": "6",
                                 "message": line.strip(),
-                                "hostname": device.hostname
+                                "hostname": cast(str, device.hostname)
                             })
 
             # Return structured data for unified service
             return {
                 "device_id": str(device.id),
-                "hostname": device.hostname,
+                "hostname": cast(str, device.hostname),
                 "logs": log_entries,
                 "status": "success",
                 "log_count": len(log_entries),
@@ -725,7 +739,7 @@ class PollingService:
             logger.warning(f"Failed to get system logs for {device.hostname}: {e}")
             return {
                 "device_id": str(device.id),
-                "hostname": device.hostname,
+                "hostname": cast(str, device.hostname),
                 "logs": [],
                 "status": "error",
                 "message": f"Failed to get system logs: {str(e)}",
@@ -733,10 +747,10 @@ class PollingService:
                 "since": since
             }
 
-    async def _collect_drive_stats_unified(self, device: Device, drive: str = None) -> dict[str, Any]:
+    async def _collect_drive_stats_unified(self, device: Device, drive: str | None = None) -> dict[str, Any]:
         """Collect drive usage statistics and I/O performance using SSH command manager"""
         ssh_info = SSHConnectionInfo(
-            host=device.hostname, port=device.ssh_port or 22, username=device.ssh_username or "root"
+            host=cast(str, device.hostname), port=cast(int, device.ssh_port) or 22, username=cast(str, device.ssh_username) or "root"
         )
 
         try:
@@ -750,20 +764,24 @@ class PollingService:
             else:
                 # Get all available disk drives using SSH command manager
                 try:
-                    drive_list = await self.ssh_command_manager.execute_command("list_drives", ssh_info)
+                    drive_list = await self.ssh_command_manager.execute_command(
+                        "list_drives",
+                        ssh_info,
+                        parameters={}
+                    )
                     drives_to_check = [d.get("name", "") for d in drive_list if d.get("name")]
                 except Exception as e:
                     logger.warning(f"Failed to get drive list for stats on {device.hostname}: {e}")
                     drives_to_check = []
 
-            # Get disk I/O stats from /proc/diskstats using SSH command manager  
+            # Get disk I/O stats from /proc/diskstats using SSH command manager
             try:
                 diskstats_result = await self.ssh_command_manager.execute_raw_command(
                     "cat /proc/diskstats",
                     ssh_info,
                     timeout=10
                 )
-                
+
                 diskstats_data = {}
                 if diskstats_result.stdout:
                     for line in diskstats_result.stdout.strip().split('\n'):
@@ -791,7 +809,7 @@ class PollingService:
             for drive_name in drives_to_check:
                 if not drive_name:
                     continue
-                    
+
                 drive_info = {
                     "drive_name": f"/dev/{drive_name}",
                     "usage_stats": diskstats_data.get(drive_name, {}),
@@ -806,7 +824,7 @@ class PollingService:
                         ssh_info,
                         timeout=10
                     )
-                    
+
                     if df_result.stdout and "NOT_MOUNTED" not in df_result.stdout:
                         lines = [line for line in df_result.stdout.strip().split('\n') if line.strip()]
                         for line in lines:
@@ -835,19 +853,19 @@ class PollingService:
             # Return structured data for unified service
             return {
                 "device_id": str(device.id),
-                "hostname": device.hostname,
+                "hostname": cast(str, device.hostname),
                 "drives": drives_stats,
                 "filesystem_usage": filesystem_usage,
                 "status": "success",
                 "drive_count": len(drives_stats),
-                "timestamp": datetime.now(timezone.utc).isoformat()
+                "timestamp": datetime.now(UTC).isoformat()
             }
 
         except Exception as e:
             logger.warning(f"Failed to get drive stats for {device.hostname}: {e}")
             return {
                 "device_id": str(device.id),
-                "hostname": device.hostname,
+                "hostname": cast(str, device.hostname),
                 "drives": [],
                 "filesystem_usage": [],
                 "status": "error",
@@ -891,13 +909,13 @@ class PollingService:
                 self.unified_data_service = await get_unified_data_collection_service(
                     db_session_factory=self.session_factory,
                     ssh_client=self.ssh_client,
-                    ssh_command_manager=self.ssh_command_manager
+                    ssh_command_manager=self.ssh_command_manager  # type: ignore[arg-type]
                 )
 
             try:
                 # Collect all data types using unified service
                 results = {}
-                
+
                 # System metrics
                 try:
                     results["system_metrics"] = await self.unified_data_service.collect_and_store_data(
@@ -909,7 +927,7 @@ class PollingService:
                     )
                 except Exception as e:
                     results["system_metrics"] = {"error": str(e)}
-                
+
                 # Drive health
                 try:
                     results["drive_health"] = await self.unified_data_service.collect_and_store_data(
@@ -921,7 +939,7 @@ class PollingService:
                     )
                 except Exception as e:
                     results["drive_health"] = {"error": str(e)}
-                
+
                 # Container data
                 try:
                     results["containers"] = await self.unified_data_service.collect_and_store_data(
@@ -936,20 +954,24 @@ class PollingService:
 
                 return {
                     "device_id": str(device_id),
-                    "hostname": device.hostname,
+                    "hostname": cast(str, device.hostname),
                     "status": "success",
-                    "timestamp": datetime.now(timezone.utc).isoformat(),
+                    "timestamp": datetime.now(UTC).isoformat(),
                     "message": "Device polled successfully",
                     "results": results
                 }
 
             except Exception as e:
-                logger.error(f"Error in manual poll for device {device_id}: {e}")
+                logger.error(
+                    "polling.manual.error",
+                    exc_info=True,
+                    extra={"device_id": str(device_id), "error": str(e)},
+                )
                 return {
                     "device_id": str(device_id),
-                    "hostname": device.hostname,
+                    "hostname": cast(str, device.hostname),
                     "status": "error",
-                    "timestamp": datetime.now(timezone.utc).isoformat(),
+                    "timestamp": datetime.now(UTC).isoformat(),
                     "error": str(e),
                 }
 

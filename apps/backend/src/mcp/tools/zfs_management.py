@@ -6,7 +6,8 @@ utilizing the ZFS REST API endpoints for operation execution.
 """
 
 import logging
-from typing import Dict, Any, Optional, List
+from typing import Any
+
 import httpx
 
 logger = logging.getLogger(__name__)
@@ -22,38 +23,12 @@ def _get_api_config():
     }
 
 
-async def _make_api_request(method: str, endpoint: str, json_data: Optional[Dict] = None) -> Dict[str, Any]:
+async def _make_api_request(method: str, endpoint: str, json_data: dict | None = None) -> dict[str, Any]:
     """Make authenticated request to the ZFS API"""
-    config = _get_api_config()
-    
-    headers = {}
-    if config["api_key"]:
-        headers["Authorization"] = f"Bearer {config['api_key']}"
-    
-    full_url = f"{config['base_url']}{endpoint}"
-    logger.info(f"Making {method} API request to: {full_url}")
-    
-    async with httpx.AsyncClient(timeout=config["timeout"]) as client:
-        try:
-            if method.upper() == "GET":
-                response = await client.get(full_url, headers=headers)
-            elif method.upper() == "POST":
-                response = await client.post(full_url, headers=headers, json=json_data)
-            else:
-                raise ValueError(f"Unsupported HTTP method: {method}")
-                
-            response.raise_for_status()
-            return response.json()
-        except httpx.HTTPError as e:
-            logger.error(f"ZFS API request failed to {full_url}: {e}")
-            if hasattr(e, 'response'):
-                logger.error(f"Response status: {e.response.status_code}")
-                logger.error(f"Response text: {e.response.text}")
-            raise Exception(f"Failed to execute ZFS operation: {str(e)}")
 
 
 # Pool Management Tools
-async def list_zfs_pools(device: str, timeout: int = 30) -> Dict[str, Any]:
+async def list_zfs_pools(device: str, timeout: int = 30) -> dict[str, Any]:
     """List all ZFS pools on a device."""
     logger.info(f"Listing ZFS pools on device: {device}")
     try:
@@ -70,7 +45,7 @@ async def list_zfs_pools(device: str, timeout: int = 30) -> Dict[str, Any]:
         raise Exception(f"Failed to list ZFS pools on {device}: {str(e)}")
 
 
-async def get_zfs_pool_status(device: str, pool_name: str, timeout: int = 30) -> Dict[str, Any]:
+async def get_zfs_pool_status(device: str, pool_name: str, timeout: int = 30) -> dict[str, Any]:
     """Get detailed status for a specific ZFS pool."""
     logger.info(f"Getting ZFS pool status for {pool_name} on device: {device}")
     try:
@@ -88,14 +63,14 @@ async def get_zfs_pool_status(device: str, pool_name: str, timeout: int = 30) ->
 
 
 # Dataset Management Tools
-async def list_zfs_datasets(device: str, pool_name: Optional[str] = None, timeout: int = 30) -> Dict[str, Any]:
+async def list_zfs_datasets(device: str, pool_name: str | None = None, timeout: int = 30) -> dict[str, Any]:
     """List ZFS datasets, optionally filtered by pool."""
     logger.info(f"Listing ZFS datasets on device: {device} (pool: {pool_name or 'all'})")
     try:
         endpoint = f"/api/zfs/{device}/datasets?timeout={timeout}"
         if pool_name:
             endpoint += f"&pool_name={pool_name}"
-        
+
         result = await _make_api_request("GET", endpoint)
         return {
             "device": device,
@@ -109,7 +84,7 @@ async def list_zfs_datasets(device: str, pool_name: Optional[str] = None, timeou
         raise Exception(f"Failed to list ZFS datasets on {device}: {str(e)}")
 
 
-async def get_zfs_dataset_properties(device: str, dataset_name: str, timeout: int = 30) -> Dict[str, Any]:
+async def get_zfs_dataset_properties(device: str, dataset_name: str, timeout: int = 30) -> dict[str, Any]:
     """Get all properties for a specific ZFS dataset."""
     logger.info(f"Getting properties for dataset {dataset_name} on device: {device}")
     try:
@@ -127,14 +102,14 @@ async def get_zfs_dataset_properties(device: str, dataset_name: str, timeout: in
 
 
 # Snapshot Management Tools
-async def list_zfs_snapshots(device: str, dataset_name: Optional[str] = None, timeout: int = 30) -> Dict[str, Any]:
+async def list_zfs_snapshots(device: str, dataset_name: str | None = None, timeout: int = 30) -> dict[str, Any]:
     """List ZFS snapshots, optionally filtered by dataset."""
     logger.info(f"Listing ZFS snapshots on device: {device} (dataset: {dataset_name or 'all'})")
     try:
         endpoint = f"/api/zfs/{device}/snapshots?timeout={timeout}"
         if dataset_name:
             endpoint += f"&dataset_name={dataset_name}"
-        
+
         result = await _make_api_request("GET", endpoint)
         return {
             "device": device,
@@ -149,12 +124,12 @@ async def list_zfs_snapshots(device: str, dataset_name: Optional[str] = None, ti
 
 
 async def create_zfs_snapshot(
-    device: str, 
-    dataset_name: str, 
-    snapshot_name: str, 
-    recursive: bool = False, 
+    device: str,
+    dataset_name: str,
+    snapshot_name: str,
+    recursive: bool = False,
     timeout: int = 60
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """Create a new ZFS snapshot."""
     logger.info(f"Creating ZFS snapshot {snapshot_name} for dataset {dataset_name} on device: {device} (recursive: {recursive})")
     try:
@@ -179,11 +154,11 @@ async def create_zfs_snapshot(
 
 
 async def clone_zfs_snapshot(
-    device: str, 
-    snapshot_name: str, 
-    clone_name: str, 
+    device: str,
+    snapshot_name: str,
+    clone_name: str,
     timeout: int = 60
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """Clone a ZFS snapshot."""
     logger.info(f"Cloning ZFS snapshot {snapshot_name} to {clone_name} on device: {device}")
     try:
@@ -203,12 +178,12 @@ async def clone_zfs_snapshot(
 
 
 async def send_zfs_snapshot(
-    device: str, 
-    snapshot_name: str, 
-    destination: Optional[str] = None, 
-    incremental: bool = False, 
+    device: str,
+    snapshot_name: str,
+    destination: str | None = None,
+    incremental: bool = False,
     timeout: int = 300
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """Send a ZFS snapshot for replication/backup."""
     logger.info(f"Sending ZFS snapshot {snapshot_name} from device: {device} (destination: {destination}, incremental: {incremental})")
     try:
@@ -232,10 +207,10 @@ async def send_zfs_snapshot(
 
 
 async def receive_zfs_snapshot(
-    device: str, 
-    dataset_name: str, 
+    device: str,
+    dataset_name: str,
     timeout: int = 300
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """Receive a ZFS snapshot stream."""
     logger.info(f"Receiving ZFS snapshot stream for dataset {dataset_name} on device: {device}")
     try:
@@ -254,11 +229,11 @@ async def receive_zfs_snapshot(
 
 
 async def diff_zfs_snapshots(
-    device: str, 
-    snapshot1: str, 
-    snapshot2: str, 
+    device: str,
+    snapshot1: str,
+    snapshot2: str,
     timeout: int = 60
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """Compare differences between two ZFS snapshots."""
     logger.info(f"Comparing ZFS snapshots {snapshot1} and {snapshot2} on device: {device}")
     try:
@@ -277,7 +252,7 @@ async def diff_zfs_snapshots(
 
 
 # Health and Monitoring Tools
-async def check_zfs_health(device: str, timeout: int = 60) -> Dict[str, Any]:
+async def check_zfs_health(device: str, timeout: int = 60) -> dict[str, Any]:
     """Comprehensive ZFS health check."""
     logger.info(f"Checking ZFS health on device: {device}")
     try:
@@ -293,7 +268,7 @@ async def check_zfs_health(device: str, timeout: int = 60) -> Dict[str, Any]:
         raise Exception(f"Failed to check ZFS health on {device}: {str(e)}")
 
 
-async def get_zfs_arc_stats(device: str, timeout: int = 30) -> Dict[str, Any]:
+async def get_zfs_arc_stats(device: str, timeout: int = 30) -> dict[str, Any]:
     """Get ZFS ARC (Adaptive Replacement Cache) statistics."""
     logger.info(f"Getting ZFS ARC stats on device: {device}")
     try:
@@ -309,7 +284,7 @@ async def get_zfs_arc_stats(device: str, timeout: int = 30) -> Dict[str, Any]:
         raise Exception(f"Failed to get ARC stats on {device}: {str(e)}")
 
 
-async def monitor_zfs_events(device: str, timeout: int = 30) -> Dict[str, Any]:
+async def monitor_zfs_events(device: str, timeout: int = 30) -> dict[str, Any]:
     """Monitor ZFS events and error messages."""
     logger.info(f"Monitoring ZFS events on device: {device}")
     try:
@@ -326,7 +301,7 @@ async def monitor_zfs_events(device: str, timeout: int = 30) -> Dict[str, Any]:
 
 
 # Analysis and Reporting Tools
-async def generate_zfs_report(device: str, timeout: int = 120) -> Dict[str, Any]:
+async def generate_zfs_report(device: str, timeout: int = 120) -> dict[str, Any]:
     """Generate comprehensive ZFS report."""
     logger.info(f"Generating ZFS report for device: {device}")
     try:
@@ -342,7 +317,7 @@ async def generate_zfs_report(device: str, timeout: int = 120) -> Dict[str, Any]
         raise Exception(f"Failed to generate ZFS report on {device}: {str(e)}")
 
 
-async def analyze_snapshot_usage(device: str, timeout: int = 60) -> Dict[str, Any]:
+async def analyze_snapshot_usage(device: str, timeout: int = 60) -> dict[str, Any]:
     """Analyze snapshot space usage and provide cleanup recommendations."""
     logger.info(f"Analyzing snapshot usage on device: {device}")
     try:
@@ -358,7 +333,7 @@ async def analyze_snapshot_usage(device: str, timeout: int = 60) -> Dict[str, An
         raise Exception(f"Failed to analyze snapshot usage on {device}: {str(e)}")
 
 
-async def optimize_zfs_settings(device: str, timeout: int = 60) -> Dict[str, Any]:
+async def optimize_zfs_settings(device: str, timeout: int = 60) -> dict[str, Any]:
     """Analyze ZFS configuration and suggest optimizations."""
     logger.info(f"Optimizing ZFS settings for device: {device}")
     try:
@@ -375,7 +350,7 @@ async def optimize_zfs_settings(device: str, timeout: int = 60) -> Dict[str, Any
 
 
 # ZFS Tool Registration
-ZFS_TOOLS = {
+ZFS_TOOLS: dict[str, dict[str, Any]] = {
     # Pool Management
     "list_zfs_pools": {
         "function": list_zfs_pools,
@@ -394,7 +369,7 @@ ZFS_TOOLS = {
             "timeout": {"type": "integer", "description": "SSH timeout in seconds", "default": 30}
         }
     },
-    
+
     # Dataset Management
     "list_zfs_datasets": {
         "function": list_zfs_datasets,
@@ -414,7 +389,7 @@ ZFS_TOOLS = {
             "timeout": {"type": "integer", "description": "SSH timeout in seconds", "default": 30}
         }
     },
-    
+
     # Snapshot Management
     "list_zfs_snapshots": {
         "function": list_zfs_snapshots,
@@ -476,7 +451,7 @@ ZFS_TOOLS = {
             "timeout": {"type": "integer", "description": "SSH timeout in seconds", "default": 60}
         }
     },
-    
+
     # Health and Monitoring
     "check_zfs_health": {
         "function": check_zfs_health,
@@ -502,7 +477,7 @@ ZFS_TOOLS = {
             "timeout": {"type": "integer", "description": "SSH timeout in seconds", "default": 30}
         }
     },
-    
+
     # Analysis and Reporting
     "generate_zfs_report": {
         "function": generate_zfs_report,
