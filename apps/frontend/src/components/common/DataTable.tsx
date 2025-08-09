@@ -9,7 +9,6 @@ import {
 } from '@/components/ui/table';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { LoadingSpinner } from './LoadingSpinner';
 import { 
   ChevronUpIcon, 
   ChevronDownIcon, 
@@ -19,14 +18,14 @@ import {
 } from 'lucide-react';
 import { cn } from '@/lib/design-system';
 import { useResponsive } from '@/hooks';
-import { dataTable, spacing, forms, componentSizes, cards } from '@/lib/responsive';
+import { dataTable, spacing, componentSizes, cards } from '@/lib/responsive';
 
 export interface Column<T> {
   key: keyof T | string;
   title: string;
   sortable?: boolean;
   filterable?: boolean;
-  render?: (value: any, item: T, index: number) => React.ReactNode;
+  render?: (value: T[keyof T], item: T, index: number) => React.ReactNode;
   className?: string;
   width?: string;
   hideOnMobile?: boolean;
@@ -124,7 +123,7 @@ function MobileCard<T>({
   );
 }
 
-export function DataTable<T extends Record<string, any>>({
+export function DataTable<T extends Record<string, unknown>>({
   data,
   columns,
   loading = false,
@@ -144,7 +143,7 @@ export function DataTable<T extends Record<string, any>>({
   const [sortKey, setSortKey] = useState<string | null>(null);
   const [sortDirection, setSortDirection] = useState<SortDirection>(null);
   const [currentPage, setCurrentPage] = useState(1);
-  const [pageSize, setPageSize] = useState(pagination?.pageSize || 10);
+  const [pageSize] = useState(pagination?.pageSize || 10);
 
   // Filter columns based on screen size
   const visibleColumns = useMemo(() => {

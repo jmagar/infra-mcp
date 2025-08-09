@@ -6,6 +6,7 @@ import { cn } from "@/lib/design-system"
 const cardVariants = cva(
   [
     "bg-card text-card-foreground flex flex-col gap-6 rounded-xl border shadow-sm transition-all duration-200",
+    "outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2",
   ],
   {
     variants: {
