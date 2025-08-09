@@ -5,6 +5,7 @@ import type { ContainerResponse, ContainerStats } from '@infrastructor/shared-ty
 interface ContainerStore {
   // State
   containers: ContainerResponse[];
+  totalCount: number;
   selectedContainer: ContainerResponse | null;
   containerStats: Record<string, ContainerStats>;
   loading: boolean;
@@ -17,6 +18,7 @@ interface ContainerStore {
 
   // Actions
   setContainers: (containers: ContainerResponse[]) => void;
+  setTotalCount: (count: number) => void;
   addContainer: (container: ContainerResponse) => void;
   updateContainer: (id: string, updates: Partial<ContainerResponse>) => void;
   removeContainer: (id: string) => void;
@@ -37,6 +39,7 @@ export const useContainerStore = create<ContainerStore>()(
     (set, get) => ({
       // Initial state
       containers: [],
+      totalCount: 0,
       selectedContainer: null,
       containerStats: {},
       loading: false,
@@ -49,6 +52,7 @@ export const useContainerStore = create<ContainerStore>()(
 
       // Actions
       setContainers: (containers) => set({ containers }),
+      setTotalCount: (totalCount) => set({ totalCount }),
       
       addContainer: (container) =>
         set((state) => ({

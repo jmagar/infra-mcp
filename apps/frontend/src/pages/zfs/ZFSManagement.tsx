@@ -12,21 +12,22 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Progress } from '@/components/ui/progress';
 import { DataTable } from '@/components/common';
 import { useZFS } from '@/hooks/useZFS';
+import { useDevices } from '@/hooks/useDevices';
 import { useResponsive } from '@/hooks/useResponsive';
 import {
-  Database,
-  HardDrive,
-  Camera,
-  Activity,
-  TrendingUp,
-  AlertTriangle,
-  CheckCircle,
-  RefreshCw,
-  Plus,
-  Eye,
-  Trash2,
-  Download,
-  Upload
+  Database as DatabaseIcon,
+  HardDrive as HardDriveIcon,
+  Camera as CameraIcon,
+  Activity as ActivityIcon,
+  TrendingUp as TrendingUpIcon,
+  AlertTriangle as AlertTriangleIcon,
+  CheckCircle as CheckCircleIcon,
+  RefreshCw as RefreshCwIcon,
+  Plus as PlusIcon,
+  Eye as EyeIcon,
+  Trash2 as Trash2Icon,
+  Download as DownloadIcon,
+  Upload as UploadIcon
 } from 'lucide-react';
 import type { 
   ZFSPoolResponse, 
@@ -64,11 +65,7 @@ export function ZFSManagement({ hostname: propHostname }: ZFSManagementProps) {
   const [activeTab, setActiveTab] = useState('overview');
 
   if (!hostname) {
-    return (
-      <div className="flex items-center justify-center h-64">
-        <p className="text-muted-foreground">No hostname provided</p>
-      </div>
-    );
+    return <ZFSDeviceSelection />;
   }
 
   const formatBytes = (bytes: number) => {
@@ -97,14 +94,14 @@ export function ZFSManagement({ hostname: propHostname }: ZFSManagementProps) {
     switch (status.toLowerCase()) {
       case 'online':
       case 'healthy':
-        return <CheckCircle className="h-4 w-4" />;
+        return <CheckCircleIcon className="h-4 w-4" />;
       case 'degraded':
-        return <AlertTriangle className="h-4 w-4" />;
+        return <AlertTriangleIcon className="h-4 w-4" />;
       case 'faulted':
       case 'offline':
-        return <AlertTriangle className="h-4 w-4" />;
+        return <AlertTriangleIcon className="h-4 w-4" />;
       default:
-        return <Activity className="h-4 w-4" />;
+        return <ActivityIcon className="h-4 w-4" />;
     }
   };
 
@@ -116,7 +113,7 @@ export function ZFSManagement({ hostname: propHostname }: ZFSManagementProps) {
       sortable: true,
       render: (value, pool) => (
         <div className="flex items-center space-x-2">
-          <Database className="h-4 w-4 text-blue-500" />
+          <DatabaseIcon className="h-4 w-4 text-blue-500" />
           <div>
             <div className="font-medium">{pool.name}</div>
             <div className="text-sm text-muted-foreground">
@@ -172,7 +169,7 @@ export function ZFSManagement({ hostname: propHostname }: ZFSManagementProps) {
             size="sm"
             onClick={() => navigate(`/zfs/${hostname}/pools/${pool.name}`)}
           >
-            <Eye className="h-4 w-4" />
+            <EyeIcon className="h-4 w-4" />
             {!isMobile && <span className="ml-1">View</span>}
           </Button>
         </div>
@@ -188,7 +185,7 @@ export function ZFSManagement({ hostname: propHostname }: ZFSManagementProps) {
       sortable: true,
       render: (value, dataset) => (
         <div className="flex items-center space-x-2">
-          <HardDrive className="h-4 w-4 text-orange-500" />
+          <HardDriveIcon className="h-4 w-4 text-orange-500" />
           <div>
             <div className="font-medium">{dataset.name}</div>
             <div className="text-sm text-muted-foreground capitalize">
@@ -236,7 +233,7 @@ export function ZFSManagement({ hostname: propHostname }: ZFSManagementProps) {
             size="sm"
             onClick={() => navigate(`/zfs/${hostname}/datasets/${dataset.name}`)}
           >
-            <Eye className="h-4 w-4" />
+            <EyeIcon className="h-4 w-4" />
             {!isMobile && <span className="ml-1">View</span>}
           </Button>
         </div>
@@ -252,7 +249,7 @@ export function ZFSManagement({ hostname: propHostname }: ZFSManagementProps) {
       sortable: true,
       render: (value, snapshot) => (
         <div className="flex items-center space-x-2">
-          <Camera className="h-4 w-4 text-purple-500" />
+          <CameraIcon className="h-4 w-4 text-purple-500" />
           <div>
             <div className="font-medium">{snapshot.name}</div>
             <div className="text-sm text-muted-foreground">
@@ -296,7 +293,7 @@ export function ZFSManagement({ hostname: propHostname }: ZFSManagementProps) {
             onClick={() => cloneSnapshot(snapshot.name, `${snapshot.name}-clone`)}
             disabled={loading}
           >
-            <Download className="h-4 w-4" />
+            <DownloadIcon className="h-4 w-4" />
             {!isMobile && <span className="ml-1">Clone</span>}
           </Button>
           <Button
@@ -305,7 +302,7 @@ export function ZFSManagement({ hostname: propHostname }: ZFSManagementProps) {
             onClick={() => sendSnapshot(snapshot.name)}
             disabled={loading}
           >
-            <Upload className="h-4 w-4" />
+            <UploadIcon className="h-4 w-4" />
             {!isMobile && <span className="ml-1">Send</span>}
           </Button>
           <Button
@@ -315,7 +312,7 @@ export function ZFSManagement({ hostname: propHostname }: ZFSManagementProps) {
             className="text-red-600 hover:text-red-800"
             disabled={loading}
           >
-            <Trash2 className="h-4 w-4" />
+            <Trash2Icon className="h-4 w-4" />
           </Button>
         </div>
       ),
@@ -334,7 +331,7 @@ export function ZFSManagement({ hostname: propHostname }: ZFSManagementProps) {
         </div>
         <div className="flex space-x-2">
           <Button variant="outline" onClick={refetch} disabled={loading}>
-            <RefreshCw className={`h-4 w-4 mr-2 ${loading ? 'animate-spin' : ''}`} />
+            <RefreshCwIcon className={`h-4 w-4 mr-2 ${loading ? 'animate-spin' : ''}`} />
             Refresh
           </Button>
         </div>
@@ -345,7 +342,7 @@ export function ZFSManagement({ hostname: propHostname }: ZFSManagementProps) {
         <Card className="border-red-200 bg-red-50">
           <CardContent className="pt-6">
             <div className="flex items-center space-x-2">
-              <AlertTriangle className="h-4 w-4 text-red-600" />
+              <AlertTriangleIcon className="h-4 w-4 text-red-600" />
               <span className="text-red-800">{error}</span>
             </div>
           </CardContent>
@@ -368,7 +365,7 @@ export function ZFSManagement({ hostname: propHostname }: ZFSManagementProps) {
               <Card>
                 <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
                   <CardTitle className="text-sm font-medium">Overall Health</CardTitle>
-                  <Activity className="h-4 w-4 text-muted-foreground" />
+                  <ActivityIcon className="h-4 w-4 text-muted-foreground" />
                 </CardHeader>
                 <CardContent>
                   <div className={`text-2xl font-bold ${getHealthColor(healthCheck.overall_status)}`}>
@@ -383,7 +380,7 @@ export function ZFSManagement({ hostname: propHostname }: ZFSManagementProps) {
               <Card>
                 <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
                   <CardTitle className="text-sm font-medium">Total Capacity</CardTitle>
-                  <Database className="h-4 w-4 text-muted-foreground" />
+                  <DatabaseIcon className="h-4 w-4 text-muted-foreground" />
                 </CardHeader>
                 <CardContent>
                   <div className="text-2xl font-bold">
@@ -398,7 +395,7 @@ export function ZFSManagement({ hostname: propHostname }: ZFSManagementProps) {
               <Card>
                 <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
                   <CardTitle className="text-sm font-medium">Compression Ratio</CardTitle>
-                  <TrendingUp className="h-4 w-4 text-muted-foreground" />
+                  <TrendingUpIcon className="h-4 w-4 text-muted-foreground" />
                 </CardHeader>
                 <CardContent>
                   <div className="text-2xl font-bold">
@@ -413,7 +410,7 @@ export function ZFSManagement({ hostname: propHostname }: ZFSManagementProps) {
               <Card>
                 <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
                   <CardTitle className="text-sm font-medium">Dedup Ratio</CardTitle>
-                  <TrendingUp className="h-4 w-4 text-muted-foreground" />
+                  <TrendingUpIcon className="h-4 w-4 text-muted-foreground" />
                 </CardHeader>
                 <CardContent>
                   <div className="text-2xl font-bold">
@@ -437,7 +434,7 @@ export function ZFSManagement({ hostname: propHostname }: ZFSManagementProps) {
                 <ul className="space-y-2">
                   {healthCheck.recommendations.map((rec, index) => (
                     <li key={index} className="flex items-start space-x-2">
-                      <AlertTriangle className="h-4 w-4 text-yellow-600 mt-0.5 flex-shrink-0" />
+                      <AlertTriangleIcon className="h-4 w-4 text-yellow-600 mt-0.5 flex-shrink-0" />
                       <span className="text-sm">{rec}</span>
                     </li>
                   ))}
@@ -493,7 +490,7 @@ export function ZFSManagement({ hostname: propHostname }: ZFSManagementProps) {
                   console.log('Create snapshot dialog');
                 }}
               >
-                <Plus className="h-4 w-4 mr-2" />
+                <PlusIcon className="h-4 w-4 mr-2" />
                 Create Snapshot
               </Button>
             </CardHeader>
@@ -574,6 +571,113 @@ export function ZFSManagement({ hostname: propHostname }: ZFSManagementProps) {
           )}
         </TabsContent>
       </Tabs>
+    </div>
+  );
+}
+
+// Device Selection Component for ZFS Management
+function ZFSDeviceSelection() {
+  const navigate = useNavigate();
+  const { devices, loading } = useDevices();
+  const { isMobile } = useResponsive();
+
+  // Filter devices that might have ZFS support (servers, storage devices)
+  const zfsCapableDevices = devices?.filter(device => 
+    ['server', 'storage', 'nas'].includes(device.device_type.toLowerCase()) && 
+    device.status === 'online'
+  ) || [];
+
+  return (
+    <div className="space-y-6 p-6">
+      <div className="text-center">
+        <DatabaseIcon className="mx-auto h-12 w-12 text-muted-foreground mb-4" />
+        <h1 className="text-3xl font-bold text-gray-900">ZFS Management</h1>
+        <p className="text-muted-foreground mt-2">
+          Select a device to manage ZFS pools, datasets, and snapshots
+        </p>
+      </div>
+
+      {loading ? (
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+          {[...Array(6)].map((_, i) => (
+            <Card key={i} className="animate-pulse">
+              <CardContent className="p-6">
+                <div className="h-4 bg-muted rounded w-3/4 mb-2" />
+                <div className="h-3 bg-muted rounded w-1/2" />
+              </CardContent>
+            </Card>
+          ))}
+        </div>
+      ) : zfsCapableDevices.length > 0 ? (
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+          {zfsCapableDevices.map((device) => (
+            <Card 
+              key={device.id} 
+              className="hover:shadow-lg transition-shadow cursor-pointer border-2 hover:border-primary/50"
+              onClick={() => navigate(`/zfs/${device.hostname}`)}
+            >
+              <CardContent className="p-6">
+                <div className="flex items-center justify-between mb-4">
+                  <div className="flex items-center space-x-2">
+                    <HardDriveIcon className="h-5 w-5 text-primary" />
+                    <h3 className="font-semibold text-lg">{device.hostname}</h3>
+                  </div>
+                  <Badge variant={device.status === 'online' ? 'default' : 'secondary'}>
+                    {device.status}
+                  </Badge>
+                </div>
+                
+                <div className="space-y-2 text-sm text-muted-foreground">
+                  <div className="flex justify-between">
+                    <span>Type:</span>
+                    <span className="capitalize">{device.device_type}</span>
+                  </div>
+                  {device.ip_address && (
+                    <div className="flex justify-between">
+                      <span>IP:</span>
+                      <span>{device.ip_address}</span>
+                    </div>
+                  )}
+                  {device.description && (
+                    <div className="flex justify-between">
+                      <span>Description:</span>
+                      <span className="truncate max-w-[120px]" title={device.description}>
+                        {device.description}
+                      </span>
+                    </div>
+                  )}
+                </div>
+                
+                <Button 
+                  className="w-full mt-4" 
+                  variant="outline"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    navigate(`/zfs/${device.hostname}`);
+                  }}
+                >
+                  <DatabaseIcon className="w-4 h-4 mr-2" />
+                  Manage ZFS
+                </Button>
+              </CardContent>
+            </Card>
+          ))}
+        </div>
+      ) : (
+        <Card>
+          <CardContent className="p-12 text-center">
+            <AlertTriangleIcon className="mx-auto h-12 w-12 text-muted-foreground mb-4" />
+            <h3 className="text-lg font-semibold mb-2">No ZFS-Capable Devices Found</h3>
+            <p className="text-muted-foreground mb-4">
+              No online devices with ZFS support detected. Make sure your storage servers are properly configured and online.
+            </p>
+            <Button variant="outline" onClick={() => navigate('/devices')}>
+              <PlusIcon className="w-4 h-4 mr-2" />
+              Manage Devices
+            </Button>
+          </CardContent>
+        </Card>
+      )}
     </div>
   );
 }

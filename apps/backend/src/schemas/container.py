@@ -69,7 +69,7 @@ class ContainerSnapshotBase(BaseModel):
 
     @field_validator("memory_usage_bytes")
     @classmethod
-    def validate_memory_usage(cls, v: int | None, info) -> int | None:
+    def validate_memory_usage(cls, v: int | None, info: Any) -> int | None:
         if v is not None and info.data.get("memory_limit_bytes"):
             if v > info.data["memory_limit_bytes"]:
                 # Allow slight overflow for reporting accuracy

@@ -1,5 +1,4 @@
-"""
-Proxy Configuration MCP Resources
+"""Proxy Configuration MCP Resources
 
 MCP resources for exposing SWAG reverse proxy configurations
 with real-time file access and database integration.
@@ -10,13 +9,18 @@ import logging
 import os
 from pathlib import Path
 import re
-from typing import Any
+from typing import Any, cast
 from urllib.parse import parse_qs, urlparse
 
 # HTTP client for API access (resources should also use API, not direct SSH)
 import httpx
 
 from apps.backend.src.utils.nginx_parser import NginxConfigParser
+from apps.backend.src.core.config import get_settings
+from apps.backend.src.core.database import get_async_session
+from sqlalchemy import select, and_
+from apps.backend.src.models.proxy_config import ProxyConfig
+from apps.backend.src.utils.ssh_client import execute_ssh_command_simple
 
 logger = logging.getLogger(__name__)
 
@@ -27,7 +31,7 @@ API_TIMEOUT = float(os.getenv("API_TIMEOUT", "120.0"))
 
 class APIClient:
     """HTTP client for FastAPI endpoints"""
-    def __init__(self):
+    def __init__(self) -> None:
         headers = {"Content-Type": "application/json"}
         if API_KEY:
             headers["Authorization"] = f"Bearer {API_KEY}"
@@ -116,10 +120,10 @@ def _extract_service_name_from_path(file_path: str) -> str:
     return filename
 
 
-def _get_swag_config():
+def _get_swag_config() -> tuple[str, str]:
     """Get SWAG configuration settings"""
     settings = get_settings()
-    return settings.swag.swag_device, settings.swag.swag_config_dir
+    return str(settings.swag.swag_device), str(settings.swag.swag_config_dir)
 
 
 async def _format_resource_content(
@@ -292,17 +296,6 @@ async def _get_template_resource(
         # Get content
         content = await _get_real_time_file_content(device, template_path)
 
-        if content is None:
-            return {
-                "error": "Failed to read SWAG template file",
-                "template_filename": template_filename,
-                "device": device,
-                "file_path": template_path,
-                "file_info": file_info,
-                "timestamp": datetime.now(UTC).isoformat(),
-                "resource_type": "template_read_error",
-            }
-
         # Determine template type
         template_type = "subdomain" if "subdomain" in template_filename else "subfolder"
 
@@ -411,18 +404,8 @@ async def _get_sample_resource(
             }
 
         # Get content
+        assert sample_path is not None
         content = await _get_real_time_file_content(device, sample_path)
-
-        if content is None:
-            return {
-                "error": "Failed to read SWAG sample file",
-                "sample_filename": sample_filename,
-                "device": device,
-                "file_path": sample_path,
-                "file_info": file_info,
-                "timestamp": datetime.now(UTC).isoformat(),
-                "resource_type": "sample_read_error",
-            }
 
         # Parse sample info from filename
         path = Path(sample_path)
@@ -572,12 +555,12 @@ async def _get_service_config_resource(
         # Get database record if it exists
         async with get_async_session() as session:
             query = select(ProxyConfig).where(ProxyConfig.service_name == service_name)
-            result = await session.execute(query)
-            config = result.scalar_one_or_none()
+            db_result = await session.execute(query)
+            config = db_result.scalar_one_or_none()
 
             if config:
-                # Use database path
-                file_path = config.file_path
+                # Use database path (ensure native str)
+                file_path: str = str(config.file_path)
             else:
                 # Construct path based on SWAG convention: service.subdomain.conf
                 _, config_dir = _get_swag_config()
@@ -610,17 +593,6 @@ async def _get_service_config_resource(
 
         # Get content
         content = await _get_real_time_file_content(device, file_path)
-
-        if content is None:
-            return {
-                "error": "Failed to read service configuration file",
-                "service_name": service_name,
-                "device": device,
-                "file_path": file_path,
-                "file_info": file_info,
-                "timestamp": datetime.now(UTC).isoformat(),
-                "resource_type": "read_error",
-            }
 
         # Parse service info from filename
         path = Path(file_path)
@@ -701,7 +673,7 @@ async def _get_direct_file_resource(
     # Get content
     content = await _get_real_time_file_content(device, file_path)
 
-    if content is None:
+    if content == "":
         return {
             "error": "Failed to read file content",
             "file_path": file_path,
@@ -765,7 +737,8 @@ async def _get_database_config_resource(
                 }
 
             # Get real-time file info
-            file_info = await _get_real_time_file_info(device, config.file_path)
+            file_path_str: str = str(config.file_path)
+            file_info = await _get_real_time_file_info(device, file_path_str)
 
             # Determine if refresh is needed
             needs_refresh = (
@@ -814,7 +787,7 @@ async def _get_database_config_resource(
 
             # Get real-time content if refresh needed or requested
             if needs_refresh and file_info.get("exists", False):
-                real_time_content = await _get_real_time_file_content(device, config.file_path)
+                real_time_content = await _get_real_time_file_content(device, file_path_str)
                 if real_time_content:
                     resource_data["real_time_content"] = real_time_content
 
@@ -822,7 +795,7 @@ async def _get_database_config_resource(
                     if real_time_content != config.raw_content and include_parsed:
                         parser = NginxConfigParser()
                         real_time_parsed = parser.parse_config_content(
-                            real_time_content, config.file_path
+                            real_time_content, file_path_str
                         )
                         resource_data["real_time_parsed_config"] = real_time_parsed
 
@@ -934,37 +907,38 @@ async def _get_proxy_summary_resource(device: str) -> dict[str, Any]:
         subdomains = {f["subdomain"] for f in files}
 
         # Get database info if available
-        database_info = {}
+        database_info: dict[str, Any] = {}
         try:
             async with get_async_session() as session:
                 query = select(ProxyConfig).where(ProxyConfig.device_id == device)
                 result = await session.execute(query)
                 db_configs = result.scalars().all()
 
-                database_info = {
-                    "total_in_database": len(db_configs),
-                    "status_distribution": {},
-                    "sync_status_distribution": {},
-                    "last_sync": None,
-                }
+                status_distribution: dict[str, int] = {}
+                sync_status_distribution: dict[str, int] = {}
+                last_sync_dt: datetime | None = None
 
                 # Calculate distributions
                 for config in db_configs:
-                    status = config.status
-                    sync_status = config.sync_status
+                    status = str(config.status)
+                    sync_status = str(config.sync_status)
 
-                    database_info["status_distribution"][status] = (
-                        database_info["status_distribution"].get(status, 0) + 1
-                    )
-                    database_info["sync_status_distribution"][sync_status] = (
-                        database_info["sync_status_distribution"].get(sync_status, 0) + 1
+                    status_distribution[status] = status_distribution.get(status, 0) + 1
+                    sync_status_distribution[sync_status] = (
+                        sync_status_distribution.get(sync_status, 0) + 1
                     )
 
                     if config.sync_last_checked and (
-                        not database_info.get("last_sync")
-                        or config.sync_last_checked > database_info.get("last_sync")
+                        last_sync_dt is None or cast(datetime, config.sync_last_checked) > last_sync_dt
                     ):
-                        database_info["last_sync"] = config.sync_last_checked.isoformat()
+                        last_sync_dt = cast(datetime, config.sync_last_checked)
+
+                database_info = {
+                    "total_in_database": len(db_configs),
+                    "status_distribution": status_distribution,
+                    "sync_status_distribution": sync_status_distribution,
+                    "last_sync": last_sync_dt.isoformat() if last_sync_dt else None,
+                }
 
         except Exception as db_error:
             database_info["error"] = str(db_error)
@@ -1080,8 +1054,8 @@ async def list_proxy_config_resources(device: str | None = None) -> list[dict[st
             find {config_dir} -name '*.subdomain.conf' -o -name '*.subfolder.conf' | grep -v '\\.sample$' | sort
             """
 
-            result = await execute_ssh_command_simple(swag_device, ls_command, timeout=30)
-            output = result.stdout
+            ssh_result = await execute_ssh_command_simple(swag_device, ls_command, timeout=30)
+            output = ssh_result.stdout
 
             for line in output.strip().split("\n"):
                 if line and ".conf" in line:
@@ -1117,8 +1091,8 @@ async def list_proxy_config_resources(device: str | None = None) -> list[dict[st
             # Get all devices with proxy configs from database
             async with get_async_session() as session:
                 query = select(ProxyConfig.device_id).distinct()
-                result = await session.execute(query)
-                devices = [row[0] for row in result.fetchall()]
+                db_result = await session.execute(query)
+                devices = [row[0] for row in db_result.fetchall()]
 
         for device_id in devices:
             # Directory listing
@@ -1144,9 +1118,9 @@ async def list_proxy_config_resources(device: str | None = None) -> list[dict[st
             # Individual config files (get from database)
             try:
                 async with get_async_session() as session:
-                    query = select(ProxyConfig).where(ProxyConfig.device_id == device_id)
-                    result = await session.execute(query)
-                    configs = result.scalars().all()
+                    configs_query = select(ProxyConfig).where(ProxyConfig.device_id == device_id)
+                    cfg_result = await session.execute(configs_query)
+                    configs = cfg_result.scalars().all()
 
                     for config in configs:
                         # File resource

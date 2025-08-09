@@ -5,8 +5,8 @@ Service layer for metrics-related business logic.
 from datetime import UTC, datetime, timedelta
 import json
 import logging
+from typing import Any
 
-U
 from uuid import UUID
 
 from sqlalchemy import desc, select
@@ -30,8 +30,8 @@ from apps.backend.src.schemas.network import NetworkInterfaceResponse
 from apps.backend.src.schemas.system_metrics import SystemMetricResponse, SystemMetricsList
 from apps.backend.src.schemas.updates import UpdateSummary
 from apps.backend.src.schemas.vm import VMStatusList, VMStatusResponse
-from apps.backend.src.schemas.zfs import ZFSSnapshotList, ZFSStatusResponse
-from apps.backend.src.utils.ssh_client import SSHConnectionInfo, execute_ssh_command, get_ssh_client
+from apps.backend.src.schemas.zfs import ZFSSnapshotList, ZFSSnapshotResponse, ZFSStatusResponse
+from apps.backend.src.utils.ssh_client import SSHConnectionInfo, get_ssh_client
 
 logger = logging.getLogger(__name__)
 
@@ -50,7 +50,9 @@ class MetricsService:
 
     def create_ssh_connection_info(self, device: Device) -> SSHConnectionInfo:
         return SSHConnectionInfo(
-            host=device.hostname, port=device.ssh_port or 22, username=device.ssh_username or "root"
+            host=str(device.hostname), 
+            port=int(device.ssh_port or 22), 
+            username=str(device.ssh_username or "root")
         )
 
     async def get_device_metrics(
@@ -75,11 +77,11 @@ class MetricsService:
                 load_cmd = "cat /proc/loadavg | awk '{print $1, $2, $3}'"
                 uptime_cmd = "uptime -s"
 
-                cpu_result = await execute_ssh_command(ssh_info, cpu_cmd)
-                memory_result = await execute_ssh_command(ssh_info, memory_cmd)
-                disk_result = await execute_ssh_command(ssh_info, disk_cmd)
-                load_result = await execute_ssh_command(ssh_info, load_cmd)
-                uptime_result = await execute_ssh_command(ssh_info, uptime_cmd)
+                cpu_result = await self.ssh_client.execute_command(ssh_info, cpu_cmd)
+                memory_result = await self.ssh_client.execute_command(ssh_info, memory_cmd)
+                disk_result = await self.ssh_client.execute_command(ssh_info, disk_cmd)
+                load_result = await self.ssh_client.execute_command(ssh_info, load_cmd)
+                uptime_result = await self.ssh_client.execute_command(ssh_info, uptime_cmd)
 
                 # Parse results
                 cpu_usage = float(cpu_result.stdout.strip()) if cpu_result.stdout.strip() else 0.0
@@ -93,7 +95,6 @@ class MetricsService:
 
                 return SystemMetricResponse(
                     device_id=device_id,
-                    hostname=device.hostname,
                     cpu_usage_percent=cpu_usage,
                     memory_usage_percent=memory_usage,
                     disk_usage_percent=disk_usage,
@@ -101,12 +102,12 @@ class MetricsService:
                     load_average_5m=float(load_avg[1]) if len(load_avg) > 1 else 0.0,
                     load_average_15m=float(load_avg[2]) if len(load_avg) > 2 else 0.0,
                     uptime_seconds=0,  # Could parse uptime_result for actual value
-                    timestamp=datetime.now(UTC),
+                    time=datetime.now(UTC),
                 )
 
             except Exception as e:
                 logger.error(f"Error getting live metrics for device {device_id}: {e}")
-                raise SSHCommandError(f"Failed to get live metrics: {str(e)}")
+                raise SSHCommandError("ssh", f"Failed to get live metrics: {str(e)}")
 
         else:
             # Get historical metrics from database
@@ -129,12 +130,11 @@ class MetricsService:
 
             return SystemMetricsList(
                 items=[SystemMetricResponse.model_validate(metric) for metric in metrics],
-                total=len(metrics),
                 page=pagination.page if pagination else 1,
                 page_size=pagination.page_size if pagination else len(metrics),
                 total_pages=1,
                 has_next=False,
-                has_prev=False,
+                has_previous=False,
             )
 
     async def get_device_drives(
@@ -155,8 +155,8 @@ class MetricsService:
                 drives_cmd = "lsblk -J -o NAME,SIZE,TYPE,MOUNTPOINT,MODEL"
                 smart_cmd = "smartctl --scan | awk '{print $1}'"
 
-                drives_result = await execute_ssh_command(ssh_info, drives_cmd)
-                smart_result = await execute_ssh_command(ssh_info, smart_cmd)
+                drives_result = await self.ssh_client.execute_command(ssh_info, drives_cmd)
+                smart_result = await self.ssh_client.execute_command(ssh_info, smart_cmd)
 
                 drives_data = (
                     json.loads(drives_result.stdout)
@@ -183,17 +183,15 @@ class MetricsService:
 
                 return DriveInventory(
                     device_id=device_id,
-                    hostname=device.hostname,
+                    hostname=str(device.hostname),
                     drives=drives,
                     total_drives=len(drives),
-                    healthy_drives=0,
-                    failed_drives=0,
-                    last_updated=datetime.now(UTC),
+                    time=datetime.now(UTC),
                 )
 
             except Exception as e:
                 logger.error(f"Error getting live drive data for device {device_id}: {e}")
-                raise SSHCommandError(f"Failed to get drive data: {str(e)}")
+                raise SSHCommandError("ssh", f"Failed to get drive data: {str(e)}")
 
         else:
             # Get from database
@@ -208,16 +206,15 @@ class MetricsService:
                 )
 
             result = await self.db.execute(query)
-            drives = result.scalars().all()
+            drives_list = list(result.scalars().all())
 
             return DriveHealthList(
-                items=[DriveHealthResponse.model_validate(drive) for drive in drives],
-                total=len(drives),
+                items=[DriveHealthResponse.model_validate(drive) for drive in drives_list],
                 page=pagination.page if pagination else 1,
-                page_size=pagination.page_size if pagination else len(drives),
+                page_size=pagination.page_size if pagination else len(drives_list),
                 total_pages=1,
                 has_next=False,
-                has_prev=False,
+                has_previous=False,
             )
 
     async def get_device_network(
@@ -236,7 +233,7 @@ class MetricsService:
             else:
                 cmd = "ip -j addr show"
 
-            result = await execute_ssh_command(ssh_info, cmd)
+            result = await self.ssh_client.execute_command(ssh_info, cmd)
             interfaces_data = json.loads(result.stdout) if result.stdout else []
 
             interfaces = []
@@ -253,7 +250,7 @@ class MetricsService:
                         tx_bytes=0,
                         rx_packets=0,
                         tx_packets=0,
-                        timestamp=datetime.now(UTC),
+                        time=datetime.now(UTC),
                     )
                 )
 
@@ -261,7 +258,7 @@ class MetricsService:
 
         except Exception as e:
             logger.error(f"Error getting network interfaces for device {device_id}: {e}")
-            raise SSHCommandError(f"Failed to get network interfaces: {str(e)}")
+            raise SSHCommandError("ssh", f"Failed to get network interfaces: {str(e)}")
 
     async def get_device_zfs_status(
         self,
@@ -278,7 +275,7 @@ class MetricsService:
             else:
                 cmd = "zpool status"
 
-            result = await execute_ssh_command(ssh_info, cmd)
+            result = await self.ssh_client.execute_command(ssh_info, cmd)
 
             # Parse zpool status output (simplified)
             pools = []
@@ -288,9 +285,9 @@ class MetricsService:
 
                 for line in lines:
                     if line.strip().startswith("pool:"):
-                        pool_name = line.split(":")[1].strip()
+                        pool_name_found = line.split(":")[1].strip()
                         current_pool = {
-                            "pool_name": pool_name,
+                            "pool_name": pool_name_found,
                             "state": "unknown",
                             "status": "unknown",
                             "scan": "none",
@@ -303,10 +300,12 @@ class MetricsService:
                         pools.append(
                             ZFSStatusResponse(
                                 device_id=device_id,
-                                **current_pool,
-                                last_scrub=None,
-                                next_scrub=None,
-                                timestamp=datetime.now(UTC),
+                                pool_name=current_pool["pool_name"],
+                                state=current_pool["state"],
+                                status=current_pool["status"],
+                                scan=current_pool["scan"],
+                                errors=current_pool["errors"],
+                                time=datetime.now(UTC),
                             )
                         )
 
@@ -314,7 +313,7 @@ class MetricsService:
 
         except Exception as e:
             logger.error(f"Error getting ZFS status for device {device_id}: {e}")
-            raise SSHCommandError(f"Failed to get ZFS status: {str(e)}")
+            raise SSHCommandError("ssh", f"Failed to get ZFS status: {str(e)}")
 
     async def get_device_zfs_snapshots(
         self,
@@ -332,7 +331,7 @@ class MetricsService:
             else:
                 cmd = "zfs list -t snapshot -H -o name,used,creation"
 
-            result = await execute_ssh_command(ssh_info, cmd)
+            result = await self.ssh_client.execute_command(ssh_info, cmd)
 
             snapshots = []
             if result.stdout:
@@ -342,30 +341,29 @@ class MetricsService:
                         parts = line.split("\t")
                         if len(parts) >= 3:
                             snapshots.append(
-                                {
-                                    "name": parts[0],
-                                    "used": parts[1],
-                                    "creation": parts[2],
-                                    "dataset": parts[0].split("@")[0] if "@" in parts[0] else "",
-                                    "snapshot": parts[0].split("@")[1]
+                                ZFSSnapshotResponse(
+                                    name=parts[0],
+                                    used=parts[1],
+                                    creation=parts[2],
+                                    dataset=parts[0].split("@")[0] if "@" in parts[0] else "",
+                                    snapshot=parts[0].split("@")[1]
                                     if "@" in parts[0]
                                     else parts[0],
-                                }
+                                )
                             )
 
             return ZFSSnapshotList(
                 items=snapshots,
-                total=len(snapshots),
                 page=pagination.page if pagination else 1,
                 page_size=pagination.page_size if pagination else len(snapshots),
                 total_pages=1,
                 has_next=False,
-                has_prev=False,
+                has_previous=False,
             )
 
         except Exception as e:
             logger.error(f"Error getting ZFS snapshots for device {device_id}: {e}")
-            raise SSHCommandError(f"Failed to get ZFS snapshots: {str(e)}")
+            raise SSHCommandError("ssh", f"Failed to get ZFS snapshots: {str(e)}")
 
     async def get_device_vms(
         self,
@@ -384,7 +382,7 @@ class MetricsService:
 
             # Check for QEMU/KVM VMs
             cmd = "virsh list --all"
-            result = await execute_ssh_command(ssh_info, cmd)
+            result = await self.ssh_client.execute_command(ssh_info, cmd)
 
             if result.stdout and "Id" in result.stdout:
                 lines = result.stdout.strip().split("\n")[2:]  # Skip header
@@ -404,31 +402,25 @@ class MetricsService:
                             vms.append(
                                 VMStatusResponse(
                                     device_id=device_id,
-                                    vm_id=vm_id,
-                                    name=vm_name_found,
-                                    state=vm_state,
+                                    vm_id=vm_id or vm_name_found,
                                     cpu_count=0,
                                     memory_mb=0,
-                                    disk_gb=0,
-                                    uptime=None,
-                                    ip_address=None,
-                                    timestamp=datetime.now(UTC),
+                                    time=datetime.now(UTC),
                                 )
                             )
 
             return VMStatusList(
                 items=vms,
-                total=len(vms),
                 page=pagination.page if pagination else 1,
                 page_size=pagination.page_size if pagination else len(vms),
                 total_pages=1,
                 has_next=False,
-                has_prev=False,
+                has_previous=False,
             )
 
         except Exception as e:
             logger.error(f"Error getting VMs for device {device_id}: {e}")
-            raise SSHCommandError(f"Failed to get VMs: {str(e)}")
+            raise SSHCommandError("ssh", f"Failed to get VMs: {str(e)}")
 
     async def get_device_logs(
         self,
@@ -466,23 +458,21 @@ class MetricsService:
                     cmd_parts.extend(["-p", priority_map[severity.lower()]])
 
             cmd = " ".join(cmd_parts)
-            result = await execute_ssh_command(ssh_info, cmd)
+            result = await self.ssh_client.execute_command(ssh_info, cmd)
 
             logs = []
             if result.stdout:
-                lines = result.stdout.strip().split("\n")
-                for line in lines:
+                log_lines: list[str] = result.stdout.strip().split("\n")
+                for line in log_lines:
                     if line.strip():
                         logs.append(
                             SystemLogResponse(
                                 device_id=device_id,
-                                timestamp=datetime.now(
+                                time=datetime.now(
                                     UTC
                                 ),  # Would parse actual timestamp
-                                service=service or "system",
-                                severity=severity or "info",
                                 message=line.strip(),
-                                hostname=device.hostname,
+                                hostname=str(device.hostname),
                             )
                         )
 
@@ -490,7 +480,7 @@ class MetricsService:
 
         except Exception as e:
             logger.error(f"Error getting logs for device {device_id}: {e}")
-            raise SSHCommandError(f"Failed to get logs: {str(e)}")
+            raise SSHCommandError("ssh", f"Failed to get logs: {str(e)}")
 
     async def get_device_backups(
         self,
@@ -508,16 +498,13 @@ class MetricsService:
             backups = [
                 BackupStatusResponse(
                     device_id=device_id,
-                    backup_id="backup-001",
                     backup_type=backup_type or "full",
                     status=status or "completed",
                     start_time=datetime.now(UTC) - timedelta(hours=1),
                     end_time=datetime.now(UTC),
                     size_bytes=1024 * 1024 * 1024,  # 1GB
-                    destination="/backup/location",
-                    success=True,
+                    destination_path="/backup/location",
                     error_message=None,
-                    timestamp=datetime.now(UTC),
                 )
             ]
 
@@ -525,7 +512,7 @@ class MetricsService:
 
         except Exception as e:
             logger.error(f"Error getting backup status for device {device_id}: {e}")
-            raise SSHCommandError(f"Failed to get backup status: {str(e)}")
+            raise SSHCommandError("ssh", f"Failed to get backup status: {str(e)}")
 
     async def get_device_updates(
         self,
@@ -540,12 +527,12 @@ class MetricsService:
             # Check for updates based on system type
             updates_available = 0
             security_updates = 0
-            package_updates = []
+            package_updates: list[dict[str, Any]] = []
 
             # Try apt (Debian/Ubuntu)
             try:
                 cmd = "apt list --upgradable 2>/dev/null | wc -l"
-                result = await execute_ssh_command(ssh_info, cmd)
+                result = await self.ssh_client.execute_command(ssh_info, cmd)
                 if result.stdout.strip().isdigit():
                     updates_available = int(result.stdout.strip()) - 1  # Subtract header line
             except:
@@ -555,26 +542,22 @@ class MetricsService:
             if updates_available == 0:
                 try:
                     cmd = "yum check-update --quiet; echo $?"
-                    result = await execute_ssh_command(ssh_info, cmd)
+                    result = await self.ssh_client.execute_command(ssh_info, cmd)
                     # Non-zero exit code means updates available
                 except:
                     pass
 
             return UpdateSummary(
                 device_id=device_id,
-                hostname=device.hostname,
+                hostname=str(device.hostname),
                 total_updates=updates_available,
                 security_updates=security_updates,
-                package_updates=package_updates,
-                last_check=datetime.now(UTC),
-                next_check=datetime.now(UTC) + timedelta(hours=24),
-                auto_update_enabled=False,
-                reboot_required=False,
+                auto_updates_enabled=False,
             )
 
         except Exception as e:
             logger.error(f"Error checking updates for device {device_id}: {e}")
-            raise SSHCommandError(f"Failed to check updates: {str(e)}")
+            raise SSHCommandError("ssh", f"Failed to check updates: {str(e)}")
 
     def _parse_time_range(self, time_range: str) -> timedelta:
         """Parse time range string to timedelta"""

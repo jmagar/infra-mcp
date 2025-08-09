@@ -594,7 +594,7 @@ async def get_container_logs(
                     pass
 
             # Try to detect log level from content
-            content_lower = log_entry["content"].lower()
+            content_lower = str(log_entry["content"]).lower()
             if any(level in content_lower for level in ["error", "err", "fatal"]):
                 log_entry["log_level"] = "error"
             elif any(level in content_lower for level in ["warn", "warning"]):
@@ -612,7 +612,7 @@ async def get_container_logs(
         total_lines = len(log_entries)
         log_levels: dict[str, int] = {}
         for entry in log_entries:
-            level = entry.get("log_level", "unknown")
+            level = str(entry.get("log_level", "unknown"))
             log_levels[level] = log_levels.get(level, 0) + 1
 
         # Determine time range of logs
@@ -665,7 +665,8 @@ async def get_container_logs(
                 first_dt = datetime.fromisoformat(first_timestamp)
                 last_dt = datetime.fromisoformat(last_timestamp)
                 time_range_seconds = (last_dt - first_dt).total_seconds()
-                response["log_metadata"]["time_range_seconds"] = time_range_seconds
+                if "log_metadata" in response and isinstance(response["log_metadata"], dict):
+                    response["log_metadata"]["time_range_seconds"] = time_range_seconds
             except Exception as e:
                 logger.debug(f"Failed to calculate time range: {e}")
 
@@ -773,6 +774,13 @@ async def get_service_dependencies(
                 )
 
         # Parse target container details
+        if not target_details_result.parsed_data or not isinstance(target_details_result.parsed_data, list):
+            raise ContainerError(
+                message=f"No inspection data returned for container '{container_name}'",
+                container_id=container_name,
+                operation="get_service_dependencies",
+                hostname=device,
+            )
         target_container_data = target_details_result.parsed_data[0]
         target_config = target_container_data.get("Config", {})
         target_labels = target_config.get("Labels") or {}
@@ -793,7 +801,9 @@ async def get_service_dependencies(
 
         # Analyze all containers to build service mapping
         for container_info in containers_data:
-            container_id = container_info.get("ID", "")[:12]
+            if not isinstance(container_info, dict):
+                continue
+            container_id = str(container_info.get("ID", ""))[:12]
             if not container_id:
                 continue
 
@@ -811,7 +821,9 @@ async def get_service_dependencies(
                     )
                     continue
 
-                container_data = detail_result.parsed_data[0] if detail_result.parsed_data else {}
+                if not detail_result.parsed_data or not isinstance(detail_result.parsed_data, list):
+                    continue
+                container_data = detail_result.parsed_data[0]
                 config = container_data.get("Config", {})
                 labels = config.get("Labels") or {}
                 network_settings = container_data.get("NetworkSettings", {})
@@ -841,19 +853,22 @@ async def get_service_dependencies(
                     }
 
                     # Map networks to services
-                    for network_name in network_settings.get("Networks", {}):
-                        if network_name not in network_mappings:
-                            network_mappings[network_name] = []
-                        network_mappings[network_name].append(service_key)
+                    networks_dict = network_settings.get("Networks", {})
+                    if isinstance(networks_dict, dict):
+                        for network_name in networks_dict:
+                            if network_name not in network_mappings:
+                                network_mappings[network_name] = []
+                            network_mappings[network_name].append(service_key)
 
                     # Map volumes to services
-                    for mount in mounts:
-                        if mount.get("Type") in ["bind", "volume"]:
-                            volume_source = mount.get("Source", "")
-                            if volume_source:
-                                if volume_source not in volume_mappings:
-                                    volume_mappings[volume_source] = []
-                                volume_mappings[volume_source].append(service_key)
+                    if isinstance(mounts, list):
+                        for mount in mounts:
+                            if isinstance(mount, dict) and mount.get("Type") in ["bind", "volume"]:
+                                volume_source = mount.get("Source", "")
+                                if volume_source:
+                                    if volume_source not in volume_mappings:
+                                        volume_mappings[volume_source] = []
+                                    volume_mappings[volume_source].append(service_key)
 
             except Exception as e:
                 logger.warning(f"Error analyzing container {container_id}: {e}")
@@ -1023,7 +1038,7 @@ async def get_service_dependencies(
                     "container_name": service["container_name"],
                     "container_id": service["container_id"],
                     "running": service["running"],
-                    "networks": service["networknetwork"],
+                    "networks": service["networks"],
                     "volume_count": len(service["volumes"]),
                 }
                 for service in project_services

@@ -63,7 +63,7 @@ class ZFSHealthService(ZFSBaseService):
             cmd = "cat /proc/spl/kstat/zfs/arcstats"
             output = await self._execute_zfs_command(hostname, cmd, timeout)
 
-            arc_stats = {}
+            arc_stats: dict[str, int | str] = {}
             for line in output.strip().split("\n"):
                 if line.strip() and len(line.split()) >= 3:
                     parts = line.split()
@@ -78,8 +78,16 @@ class ZFSHealthService(ZFSBaseService):
                             arc_stats[key] = str(value)
 
             # Calculate hit ratios
-            hits = arc_stats.get("hits", 0)
-            misses = arc_stats.get("misses", 0)
+            def _to_int(v: int | str) -> int:
+                if isinstance(v, int):
+                    return v
+                try:
+                    return int(v)
+                except Exception:
+                    return 0
+
+            hits = _to_int(arc_stats.get("hits", 0))
+            misses = _to_int(arc_stats.get("misses", 0))
             total = hits + misses
             hit_ratio = (hits / total * 100) if total > 0 else 0
 

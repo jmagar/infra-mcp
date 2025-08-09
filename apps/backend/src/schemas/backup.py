@@ -61,7 +61,7 @@ class BackupStatusBase(BaseModel):
 
     @field_validator("end_time")
     @classmethod
-    def validate_time_range(cls, v: int | None, info) -> int | None:
+    def validate_time_range(cls, v: int | None, info: Any) -> int | None:
         if v and info.data.get("start_time"):
             if v <= info.data["start_time"]:
                 raise ValueError("end_time must be after start_time")

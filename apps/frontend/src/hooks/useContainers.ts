@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { containerService } from '@/services';
+import { api } from '@/services/api';
 import { useContainerStore } from '@/store/containerStore';
 import { useUIStore } from '@/store/uiStore';
 import type { 
@@ -10,9 +11,11 @@ import type {
 export function useContainers(deviceHostname?: string) {
   const { 
     containers, 
+    totalCount,
     loading, 
     error, 
     setContainers, 
+    setTotalCount,
     setLoading, 
     setError,
     addContainer,
@@ -30,6 +33,7 @@ export function useContainers(deviceHostname?: string) {
         ? await containerService.getByDevice(hostname)
         : await containerService.list();
       setContainers(containerList.items || []);
+      setTotalCount(containerList.total_count || 0);
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : 'Unknown error occurred';
       setError(errorMessage);
@@ -170,6 +174,7 @@ export function useContainers(deviceHostname?: string) {
 
   return {
     containers,
+    totalCount,
     loading,
     error,
     fetchContainers,

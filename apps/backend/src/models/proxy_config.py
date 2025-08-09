@@ -97,7 +97,7 @@ class ProxyConfig(Base):
     )
 
     @validates("service_name", "subdomain")
-    def validate_names(self, key, value) -> list[str] | None:
+    def validate_names(self, key: str, value: list[str] | None) -> list[str] | None:
         """Validate service and subdomain names"""
         if not value or not value.strip():
             raise ValueError(f"{key} cannot be empty")
@@ -111,7 +111,7 @@ class ProxyConfig(Base):
         return value.strip().lower()
 
     @validates("file_path")
-    def validate_file_path(self, key, value) -> str:
+    def validate_file_path(self, key: str, value: str) -> str:
         """Validate file path format"""
         if not value or not value.strip():
             raise ValueError("file_path cannot be empty")

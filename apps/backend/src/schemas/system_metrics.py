@@ -60,7 +60,7 @@ class SystemMetricBase(BaseModel):
 
     @field_validator("memory_available_bytes")
     @classmethod
-    def validate_memory_available(cls, v: int | None, info) -> int | None:
+    def validate_memory_available(cls, v: int | None, info: Any) -> int | None:
         if v is not None and "memory_total_bytes" in info.data and info.data["memory_total_bytes"]:
             if v > info.data["memory_total_bytes"]:
                 raise ValueError("Available memory cannot exceed total memory")
@@ -68,7 +68,7 @@ class SystemMetricBase(BaseModel):
 
     @field_validator("disk_available_bytes")
     @classmethod
-    def validate_disk_available(cls, v: int | None, info) -> int | None:
+    def validate_disk_available(cls, v: int | None, info: Any) -> int | None:
         if v is not None and "disk_total_bytes" in info.data and info.data["disk_total_bytes"]:
             if v > info.data["disk_total_bytes"]:
                 raise ValueError("Available disk space cannot exceed total disk space")
@@ -250,28 +250,28 @@ class SystemMetricsThresholds(BaseModel):
 
     @field_validator("cpu_critical")
     @classmethod
-    def validate_cpu_critical(cls, v: bool, info) -> bool:
+    def validate_cpu_critical(cls, v: bool, info: Any) -> bool:
         if "cpu_warning" in info.data and v <= info.data["cpu_warning"]:
             raise ValueError("CPU critical threshold must be higher than warning threshold")
         return v
 
     @field_validator("memory_critical")
     @classmethod
-    def validate_memory_critical(cls, v: bool, info) -> bool:
+    def validate_memory_critical(cls, v: bool, info: Any) -> bool:
         if "memory_warning" in info.data and v <= info.data["memory_warning"]:
             raise ValueError("Memory critical threshold must be higher than warning threshold")
         return v
 
     @field_validator("disk_critical")
     @classmethod
-    def validate_disk_critical(cls, v: bool, info) -> bool:
+    def validate_disk_critical(cls, v: bool, info: Any) -> bool:
         if "disk_warning" in info.data and v <= info.data["disk_warning"]:
             raise ValueError("Disk critical threshold must be higher than warning threshold")
         return v
 
     @field_validator("load_critical")
     @classmethod
-    def validate_load_critical(cls, v: bool, info) -> bool:
+    def validate_load_critical(cls, v: bool, info: Any) -> bool:
         if "load_warning" in info.data and v <= info.data["load_warning"]:
             raise ValueError("Load critical threshold must be higher than warning threshold")
         return v

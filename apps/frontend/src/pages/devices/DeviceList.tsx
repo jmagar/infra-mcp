@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { DataTable, StatusBadge } from '@/components/common';
+import { DataTable, StatusBadge, FormModal, ConfirmDialog, EmptyState, ActionDropdown } from '@/components/common';
 import { useDevices } from '@/hooks/useDevices';
 import { useResponsive, useResponsiveTable } from '@/hooks/useResponsive';
 import { gridConfigs, spacing, typography, layout } from '@/lib/responsive';
@@ -25,7 +25,8 @@ import {
   PencilIcon,
   EyeIcon,
   RefreshCwIcon,
-  FilterIcon 
+  FilterIcon,
+  SettingsIcon 
 } from 'lucide-react';
 import type { DeviceResponse, DeviceCreate } from '@infrastructor/shared-types';
 import type { Column } from '@/components/common/DataTable';
@@ -35,6 +36,9 @@ export function DeviceList() {
   const { devices, loading, createDevice, deleteDevice, refetch } = useDevices();
   const { isMobile, isTablet } = useResponsive();
   const [isAddDialogOpen, setIsAddDialogOpen] = useState(false);
+  const [isDeleteDialogOpen, setIsDeleteDialogOpen] = useState(false);
+  const [deviceToDelete, setDeviceToDelete] = useState<string | null>(null);
+  const [isDeleteLoading, setIsDeleteLoading] = useState(false);
   const [statusFilter, setStatusFilter] = useState<string>('all');
   const [typeFilter, setTypeFilter] = useState<string>('all');
   const [newDevice, setNewDevice] = useState<DeviceCreate>({
@@ -76,9 +80,21 @@ export function DeviceList() {
     }
   };
 
-  const handleDeleteDevice = async (hostname: string) => {
-    if (confirm(`Are you sure you want to delete device "${hostname}"?`)) {
-      await deleteDevice(hostname);
+  const handleDeleteDevice = (hostname: string) => {
+    setDeviceToDelete(hostname);
+    setIsDeleteDialogOpen(true);
+  };
+
+  const confirmDelete = async () => {
+    if (!deviceToDelete) return;
+    
+    setIsDeleteLoading(true);
+    try {
+      await deleteDevice(deviceToDelete);
+      setIsDeleteDialogOpen(false);
+      setDeviceToDelete(null);
+    } finally {
+      setIsDeleteLoading(false);
     }
   };
 
@@ -157,38 +173,32 @@ export function DeviceList() {
       key: 'actions',
       title: 'Actions',
       render: (_, device) => (
-        <div className="flex items-center space-x-1">
-          <Button
-            variant="ghost"
-            size="sm"
-            onClick={() => navigate(`/devices/${device.hostname}`)}
-            title="View details"
-          >
-            <EyeIcon className="h-4 w-4" />
-            {isMobile && <span className="ml-1 text-xs">View</span>}
-          </Button>
-          {!isMobile && (
-            <>
-              <Button
-                variant="ghost"
-                size="sm"
-                onClick={() => navigate(`/devices/${device.hostname}/edit`)}
-                title="Edit device"
-              >
-                <PencilIcon className="h-4 w-4" />
-              </Button>
-              <Button
-                variant="ghost"
-                size="sm"
-                onClick={() => handleDeleteDevice(device.hostname)}
-                className="text-red-600 hover:text-red-800"
-                title="Delete device"
-              >
-                <TrashIcon className="h-4 w-4" />
-              </Button>
-            </>
-          )}
-        </div>
+        <ActionDropdown
+          actions={[
+            {
+              label: 'View Details',
+              icon: EyeIcon,
+              onClick: () => navigate(`/devices/${device.hostname}`),
+            },
+            {
+              label: 'Edit Device',
+              icon: PencilIcon,
+              onClick: () => navigate(`/devices/${device.hostname}/edit`),
+            },
+            {
+              label: 'Settings',
+              icon: SettingsIcon,
+              onClick: () => navigate(`/devices/${device.hostname}/settings`),
+              separator: true,
+            },
+            {
+              label: 'Delete Device',
+              icon: TrashIcon,
+              onClick: () => handleDeleteDevice(device.hostname),
+              variant: 'destructive',
+            },
+          ]}
+        />
       ),
     },
   ];
@@ -211,98 +221,13 @@ export function DeviceList() {
             <RefreshCwIcon className="h-4 w-4 mr-2" />
             {!isMobile && "Refresh"}
           </Button>
-          <Dialog open={isAddDialogOpen} onOpenChange={setIsAddDialogOpen}>
-            <DialogTrigger asChild>
-              <Button size={isMobile ? "sm" : "default"}>
-                <PlusIcon className="h-4 w-4 mr-2" />
-                {isMobile ? "Add" : "Add Device"}
-              </Button>
-            </DialogTrigger>
-            <DialogContent className="sm:max-w-[425px]">
-              <DialogHeader>
-                <DialogTitle>Add New Device</DialogTitle>
-                <DialogDescription>
-                  Add a new device to your infrastructure for monitoring.
-                </DialogDescription>
-              </DialogHeader>
-              <div className="grid gap-4 py-4">
-                <div className="grid grid-cols-4 items-center gap-4">
-                  <Label htmlFor="hostname" className="text-right">
-                    Hostname
-                  </Label>
-                  <Input
-                    id="hostname"
-                    value={newDevice.hostname}
-                    onChange={(e) => setNewDevice({ ...newDevice, hostname: e.target.value })}
-                    className="col-span-3"
-                    placeholder="server-01"
-                  />
-                </div>
-                <div className="grid grid-cols-4 items-center gap-4">
-                  <Label htmlFor="ip_address" className="text-right">
-                    IP Address
-                  </Label>
-                  <Input
-                    id="ip_address"
-                    value={newDevice.ip_address || ''}
-                    onChange={(e) => setNewDevice({ ...newDevice, ip_address: e.target.value })}
-                    className="col-span-3"
-                    placeholder="192.168.1.100"
-                  />
-                </div>
-                <div className="grid grid-cols-4 items-center gap-4">
-                  <Label htmlFor="device_type" className="text-right">
-                    Type
-                  </Label>
-                  <select
-                    id="device_type"
-                    value={newDevice.device_type}
-                    onChange={(e) => setNewDevice({ ...newDevice, device_type: e.target.value })}
-                    className="col-span-3 flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background"
-                  >
-                    <option value="server">Server</option>
-                    <option value="workstation">Workstation</option>
-                    <option value="vm">Virtual Machine</option>
-                    <option value="container">Container Host</option>
-                    <option value="network">Network Device</option>
-                    <option value="storage">Storage Device</option>
-                  </select>
-                </div>
-                <div className="grid grid-cols-4 items-center gap-4">
-                  <Label htmlFor="ssh_username" className="text-right">
-                    SSH User
-                  </Label>
-                  <Input
-                    id="ssh_username"
-                    value={newDevice.ssh_username || ''}
-                    onChange={(e) => setNewDevice({ ...newDevice, ssh_username: e.target.value })}
-                    className="col-span-3"
-                    placeholder="root"
-                  />
-                </div>
-                <div className="grid grid-cols-4 items-center gap-4">
-                  <Label htmlFor="description" className="text-right">
-                    Description
-                  </Label>
-                  <Input
-                    id="description"
-                    value={newDevice.description || ''}
-                    onChange={(e) => setNewDevice({ ...newDevice, description: e.target.value })}
-                    className="col-span-3"
-                    placeholder="Web server"
-                  />
-                </div>
-              </div>
-              <DialogFooter>
-                <Button variant="outline" onClick={() => setIsAddDialogOpen(false)}>
-                  Cancel
-                </Button>
-                <Button onClick={handleAddDevice} disabled={!newDevice.hostname}>
-                  Add Device
-                </Button>
-              </DialogFooter>
-            </DialogContent>
-          </Dialog>
+          <Button 
+            size={isMobile ? "sm" : "default"}
+            onClick={() => setIsAddDialogOpen(true)}
+          >
+            <PlusIcon className="h-4 w-4 mr-2" />
+            {isMobile ? "Add" : "Add Device"}
+          </Button>
         </div>
       </div>
 
@@ -413,6 +338,115 @@ export function DeviceList() {
         pagination={{ pageSize: 10 }}
         onRowClick={(device) => navigate(`/devices/${device.hostname}`)}
         emptyMessage="No devices found. Add your first device to get started."
+      />
+
+      {/* Add Device Modal */}
+      <FormModal
+        isOpen={isAddDialogOpen}
+        onClose={() => setIsAddDialogOpen(false)}
+        onSubmit={handleAddDevice}
+        title="Add New Device"
+        description="Add a new device to your infrastructure for monitoring."
+        isSubmitDisabled={!newDevice.hostname}
+        size="md"
+      >
+        <div className="grid gap-4">
+          <div className="grid grid-cols-4 items-center gap-4">
+            <Label htmlFor="hostname" className="text-right">
+              Hostname *
+            </Label>
+            <Input
+              id="hostname"
+              value={newDevice.hostname}
+              onChange={(e) => setNewDevice({ ...newDevice, hostname: e.target.value })}
+              className="col-span-3"
+              placeholder="server-01"
+              required
+            />
+          </div>
+          <div className="grid grid-cols-4 items-center gap-4">
+            <Label htmlFor="ip_address" className="text-right">
+              IP Address
+            </Label>
+            <Input
+              id="ip_address"
+              value={newDevice.ip_address || ''}
+              onChange={(e) => setNewDevice({ ...newDevice, ip_address: e.target.value })}
+              className="col-span-3"
+              placeholder="192.168.1.100"
+            />
+          </div>
+          <div className="grid grid-cols-4 items-center gap-4">
+            <Label htmlFor="device_type" className="text-right">
+              Type
+            </Label>
+            <select
+              id="device_type"
+              value={newDevice.device_type}
+              onChange={(e) => setNewDevice({ ...newDevice, device_type: e.target.value })}
+              className="col-span-3 flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background"
+            >
+              <option value="server">Server</option>
+              <option value="workstation">Workstation</option>
+              <option value="vm">Virtual Machine</option>
+              <option value="container">Container Host</option>
+              <option value="network">Network Device</option>
+              <option value="storage">Storage Device</option>
+            </select>
+          </div>
+          <div className="grid grid-cols-4 items-center gap-4">
+            <Label htmlFor="ssh_username" className="text-right">
+              SSH User
+            </Label>
+            <Input
+              id="ssh_username"
+              value={newDevice.ssh_username || ''}
+              onChange={(e) => setNewDevice({ ...newDevice, ssh_username: e.target.value })}
+              className="col-span-3"
+              placeholder="root"
+            />
+          </div>
+          <div className="grid grid-cols-4 items-center gap-4">
+            <Label htmlFor="ssh_port" className="text-right">
+              SSH Port
+            </Label>
+            <Input
+              id="ssh_port"
+              type="number"
+              value={newDevice.ssh_port || 22}
+              onChange={(e) => setNewDevice({ ...newDevice, ssh_port: parseInt(e.target.value) || 22 })}
+              className="col-span-3"
+              placeholder="22"
+            />
+          </div>
+          <div className="grid grid-cols-4 items-center gap-4">
+            <Label htmlFor="description" className="text-right">
+              Description
+            </Label>
+            <Input
+              id="description"
+              value={newDevice.description || ''}
+              onChange={(e) => setNewDevice({ ...newDevice, description: e.target.value })}
+              className="col-span-3"
+              placeholder="Web server"
+            />
+          </div>
+        </div>
+      </FormModal>
+
+      {/* Delete Confirmation Dialog */}
+      <ConfirmDialog
+        isOpen={isDeleteDialogOpen}
+        onClose={() => {
+          setIsDeleteDialogOpen(false);
+          setDeviceToDelete(null);
+        }}
+        onConfirm={confirmDelete}
+        title="Delete Device"
+        description={`Are you sure you want to delete device "${deviceToDelete}"? This action cannot be undone.`}
+        confirmLabel="Delete Device"
+        isLoading={isDeleteLoading}
+        variant="danger"
       />
     </div>
   );

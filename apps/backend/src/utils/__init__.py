@@ -5,7 +5,7 @@ This package provides comprehensive utilities for SSH communication,
 device management, error handling, and infrastructure monitoring.
 """
 
-from .device_manager import DeviceManager, get_device_manager
+# Device manager imports removed to avoid circular dependency - import directly when needed
 from .ssh_client import (
     SSHClient,
     SSHConnectionInfo,
@@ -42,7 +42,5 @@ __all__ = [
     "SSHHealthChecker",
     "get_common_ssh_errors",
     "is_infrastructure_command_available",
-    # Device Management
-    "DeviceManager",
-    "get_device_manager",
+    # Device Management - import directly to avoid circular dependencies
 ]

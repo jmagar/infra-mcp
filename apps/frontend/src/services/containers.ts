@@ -13,13 +13,16 @@ import type {
 } from '@infrastructor/shared-types';
 
 export const containerService = {
-  // List all containers across all devices or for a specific device
+  // List all containers across all devices
   async list(params?: PaginationParams & { device_id?: string; status?: string }): Promise<ContainerList> {
-    // Since containers require a hostname, we need to aggregate from all devices
-    // For now, return empty list until we implement device-aware container listing
-    // This should be called with a specific hostname via getByDevice instead
-    console.warn('containerService.list() called without hostname - containers require device hostnames');
-    return { items: [], total_count: 0, page: 1, page_size: 20, total_pages: 0, has_next: false, has_previous: false };
+    try {
+      // Use the aggregated containers endpoint that gets containers from all devices
+      const response = await api.get<ContainerList>('/containers', { params });
+      return response.data || { items: [], total_count: 0, page: 1, page_size: 20, total_pages: 0, has_next: false, has_previous: false };
+    } catch (error) {
+      console.error('Failed to fetch containers:', error);
+      return { items: [], total_count: 0, page: 1, page_size: 20, total_pages: 0, has_next: false, has_previous: false };
+    }
   },
 
   // Get containers for a specific device

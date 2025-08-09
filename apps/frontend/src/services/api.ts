@@ -177,6 +177,15 @@ export const deviceApi = {
     assertNonEmpty('hostname', hostname);
     return api.get(`/devices/${hostname}/ports`);
   },
+  getMetrics: (hostname: string, params?: { include_processes?: boolean; timeout?: number }) => {
+    assertNonEmpty('hostname', hostname);
+    return api.get(`/devices/${hostname}/metrics`, { params });
+  },
+  getDriveStats: (hostname: string, params?: { drive?: string; timeout?: number }) => {
+    assertNonEmpty('hostname', hostname);
+    return api.get(`/devices/${hostname}/drives/stats`, { params });
+  },
+  import: (data: unknown) => api.post('/devices/import', data),
   create: (data: unknown) => api.post('/devices', data),
   update: (hostname: string, data: unknown) => {
     assertNonEmpty('hostname', hostname);
@@ -224,6 +233,156 @@ export const containerApi = {
     assertNonEmpty('containerName', containerName);
     return api.post(`/containers/${hostname}/${containerName}/restart`, {} as Record<string, never>);
   },
+  exec: (hostname: string, containerName: string, command: string) => {
+    assertNonEmpty('hostname', hostname);
+    assertNonEmpty('containerName', containerName);
+    return api.post(`/containers/${hostname}/${containerName}/exec`, { command });
+  },
+  remove: (hostname: string, containerName: string, options?: { force?: boolean; remove_volumes?: boolean }) => {
+    assertNonEmpty('hostname', hostname);
+    assertNonEmpty('containerName', containerName);
+    return api.delete(`/containers/${hostname}/${containerName}`, { params: options });
+  },
+};
+
+// API endpoints for Docker Compose
+export const composeApi = {
+  modify: (data: unknown) => api.post('/compose/modify', data),
+  deploy: (data: unknown) => api.post('/compose/deploy', data),
+  modifyAndDeploy: (data: unknown) => api.post('/compose/modify-and-deploy', data),
+  scanPorts: (data: unknown) => api.post('/compose/scan-ports', data),
+  scanNetworks: (data: unknown) => api.post('/compose/scan-networks', data),
+  downloadModified: (device: string) => {
+    assertNonEmpty('device', device);
+    return api.get(`/compose/download-modified/${device}`);
+  },
+  getProxyConfigs: (device: string, serviceName: string) => {
+    assertNonEmpty('device', device);
+    assertNonEmpty('serviceName', serviceName);
+    return api.get(`/compose/proxy-configs/${device}/${serviceName}`);
+  },
+};
+
+// API endpoints for Proxy Configuration
+export const proxyApi = {
+  listConfigs: (params?: { device?: string; service_name?: string; ssl_enabled?: boolean; status?: string }) => 
+    api.get('/proxies/configs', { params }),
+  getConfig: (serviceName: string) => {
+    assertNonEmpty('serviceName', serviceName);
+    return api.get(`/proxies/configs/${serviceName}`);
+  },
+  getConfigContent: (serviceName: string) => {
+    assertNonEmpty('serviceName', serviceName);
+    return api.get(`/proxies/configs/${serviceName}/content`);
+  },
+  syncConfig: (serviceName: string) => {
+    assertNonEmpty('serviceName', serviceName);
+    return api.post(`/proxies/configs/${serviceName}/sync`, {});
+  },
+  scan: () => api.post('/proxies/scan', {}),
+  getSummary: () => api.get('/proxies/summary'),
+  listSamples: () => api.get('/proxies/samples'),
+  getSample: (sampleName: string) => {
+    assertNonEmpty('sampleName', sampleName);
+    return api.get(`/proxies/samples/${sampleName}`);
+  },
+  getTemplate: (templateType: string) => {
+    assertNonEmpty('templateType', templateType);
+    return api.get(`/proxies/templates/${templateType}`);
+  },
+};
+
+// API endpoints for ZFS Management
+export const zfsApi = {
+  listPools: (hostname: string) => {
+    assertNonEmpty('hostname', hostname);
+    return api.get(`/zfs/${hostname}/pools`);
+  },
+  getPoolStatus: (hostname: string, poolName: string) => {
+    assertNonEmpty('hostname', hostname);
+    assertNonEmpty('poolName', poolName);
+    return api.get(`/zfs/${hostname}/pools/${poolName}/status`);
+  },
+  listDatasets: (hostname: string) => {
+    assertNonEmpty('hostname', hostname);
+    return api.get(`/zfs/${hostname}/datasets`);
+  },
+  getDatasetProperties: (hostname: string, datasetName: string) => {
+    assertNonEmpty('hostname', hostname);
+    assertNonEmpty('datasetName', datasetName);
+    return api.get(`/zfs/${hostname}/datasets/${datasetName}/properties`);
+  },
+  listSnapshots: (hostname: string) => {
+    assertNonEmpty('hostname', hostname);
+    return api.get(`/zfs/${hostname}/snapshots`);
+  },
+  createSnapshot: (hostname: string, data: unknown) => {
+    assertNonEmpty('hostname', hostname);
+    return api.post(`/zfs/${hostname}/snapshots`, data);
+  },
+  cloneSnapshot: (hostname: string, snapshotName: string, data: unknown) => {
+    assertNonEmpty('hostname', hostname);
+    assertNonEmpty('snapshotName', snapshotName);
+    return api.post(`/zfs/${hostname}/snapshots/${snapshotName}/clone`, data);
+  },
+  sendSnapshot: (hostname: string, snapshotName: string, data: unknown) => {
+    assertNonEmpty('hostname', hostname);
+    assertNonEmpty('snapshotName', snapshotName);
+    return api.post(`/zfs/${hostname}/snapshots/${snapshotName}/send`, data);
+  },
+  diffSnapshots: (hostname: string, snapshotName: string, data: unknown) => {
+    assertNonEmpty('hostname', hostname);
+    assertNonEmpty('snapshotName', snapshotName);
+    return api.post(`/zfs/${hostname}/snapshots/${snapshotName}/diff`, data);
+  },
+  receiveSnapshot: (hostname: string, data: unknown) => {
+    assertNonEmpty('hostname', hostname);
+    return api.post(`/zfs/${hostname}/receive`, data);
+  },
+  getHealth: (hostname: string) => {
+    assertNonEmpty('hostname', hostname);
+    return api.get(`/zfs/${hostname}/health`);
+  },
+  getARCStats: (hostname: string) => {
+    assertNonEmpty('hostname', hostname);
+    return api.get(`/zfs/${hostname}/arc-stats`);
+  },
+  getEvents: (hostname: string) => {
+    assertNonEmpty('hostname', hostname);
+    return api.get(`/zfs/${hostname}/events`);
+  },
+  getReport: (hostname: string) => {
+    assertNonEmpty('hostname', hostname);
+    return api.get(`/zfs/${hostname}/report`);
+  },
+  getSnapshotUsage: (hostname: string) => {
+    assertNonEmpty('hostname', hostname);
+    return api.get(`/zfs/${hostname}/snapshots/usage`);
+  },
+  optimize: (hostname: string) => {
+    assertNonEmpty('hostname', hostname);
+    return api.post(`/zfs/${hostname}/optimize`, {});
+  },
+};
+
+// API endpoints for VM Management  
+export const vmApi = {
+  getLogs: (hostname: string, params?: { service?: string; since?: string; lines?: number }) => {
+    assertNonEmpty('hostname', hostname);
+    return api.get(`/vms/${hostname}/logs`, { params });
+  },
+  getVMLogs: (hostname: string, vmName: string, params?: { since?: string; lines?: number }) => {
+    assertNonEmpty('hostname', hostname);
+    assertNonEmpty('vmName', vmName);
+    return api.get(`/vms/${hostname}/logs/${vmName}`, { params });
+  },
+};
+
+// API endpoints for System Information
+export const systemApi = {
+  getStatus: () => api.get('/status'),
+  getSystemInfo: () => api.get('/system-info'),
+  testError: () => api.get('/test-error'),
 };
 
 // Health check function

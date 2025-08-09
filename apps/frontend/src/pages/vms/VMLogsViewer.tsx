@@ -13,15 +13,15 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { useVMLogs } from '@/hooks/useVMLogs';
 import { useResponsive } from '@/hooks/useResponsive';
 import {
-  Monitor,
-  RefreshCw,
-  Search,
-  Download,
-  AlertTriangle,
-  Clock,
-  Play,
-  Pause,
-  Terminal,
+  Monitor as MonitorIcon,
+  RefreshCw as RefreshCwIcon,
+  Search as SearchIcon,
+  Download as DownloadIcon,
+  AlertTriangle as AlertTriangleIcon,
+  Clock as ClockIcon,
+  Play as PlayIcon,
+  Pause as PauseIcon,
+  Terminal as TerminalIcon,
 } from 'lucide-react';
 
 interface VMLogsViewerProps {
@@ -130,11 +130,11 @@ export function VMLogsViewer({ hostname: propHostname }: VMLogsViewerProps) {
             onClick={() => setAutoRefresh(!autoRefresh)}
             disabled={loading}
           >
-            {autoRefresh ? <Pause className="h-4 w-4 mr-2" /> : <Play className="h-4 w-4 mr-2" />}
+            {autoRefresh ? <PauseIcon className="h-4 w-4 mr-2" /> : <PlayIcon className="h-4 w-4 mr-2" />}
             {autoRefresh ? 'Stop' : 'Auto Refresh'}
           </Button>
           <Button variant="outline" onClick={refetch} disabled={loading}>
-            <RefreshCw className={`h-4 w-4 mr-2 ${loading ? 'animate-spin' : ''}`} />
+            <RefreshCwIcon className={`h-4 w-4 mr-2 ${loading ? 'animate-spin' : ''}`} />
             {!isMobile && 'Refresh'}
           </Button>
         </div>
@@ -145,7 +145,7 @@ export function VMLogsViewer({ hostname: propHostname }: VMLogsViewerProps) {
         <Card className="border-red-200 bg-red-50">
           <CardContent className="pt-6">
             <div className="flex items-center space-x-2">
-              <AlertTriangle className="h-4 w-4 text-red-600" />
+              <AlertTriangleIcon className="h-4 w-4 text-red-600" />
               <span className="text-red-800">{error}</span>
             </div>
           </CardContent>
@@ -156,7 +156,7 @@ export function VMLogsViewer({ hostname: propHostname }: VMLogsViewerProps) {
       <Card>
         <CardHeader>
           <CardTitle className="flex items-center space-x-2">
-            <Search className="h-5 w-5" />
+            <SearchIcon className="h-5 w-5" />
             <span>Log Search & Filters</span>
           </CardTitle>
         </CardHeader>
@@ -198,11 +198,11 @@ export function VMLogsViewer({ hostname: propHostname }: VMLogsViewerProps) {
       <Tabs defaultValue="libvirt" className="space-y-4">
         <TabsList className="grid w-full grid-cols-2">
           <TabsTrigger value="libvirt" className="flex items-center space-x-2">
-            <Terminal className="h-4 w-4" />
+            <TerminalIcon className="h-4 w-4" />
             <span>Libvirt Logs</span>
           </TabsTrigger>
           <TabsTrigger value="vm-specific" className="flex items-center space-x-2">
-            <Monitor className="h-4 w-4" />
+            <MonitorIcon className="h-4 w-4" />
             <span>VM-Specific Logs</span>
             {selectedVM && (
               <Badge variant="secondary" className="ml-2">
@@ -216,11 +216,11 @@ export function VMLogsViewer({ hostname: propHostname }: VMLogsViewerProps) {
           <Card>
             <CardHeader className="flex flex-row items-center justify-between">
               <CardTitle className="flex items-center space-x-2">
-                <Terminal className="h-5 w-5" />
+                <TerminalIcon className="h-5 w-5" />
                 <span>Libvirt Daemon Logs</span>
                 {logs?.success && (
                   <Badge variant="default">
-                    <Clock className="h-3 w-3 mr-1" />
+                    <ClockIcon className="h-3 w-3 mr-1" />
                     Live
                   </Badge>
                 )}
@@ -232,7 +232,7 @@ export function VMLogsViewer({ hostname: propHostname }: VMLogsViewerProps) {
                     size="sm"
                     onClick={() => downloadLogs(logs.logs, `libvirt-logs-${hostname}-${new Date().toISOString().slice(0, 19)}.txt`)}
                   >
-                    <Download className="h-4 w-4 mr-2" />
+                    <DownloadIcon className="h-4 w-4 mr-2" />
                     Download
                   </Button>
                 )}
@@ -242,7 +242,7 @@ export function VMLogsViewer({ hostname: propHostname }: VMLogsViewerProps) {
               {loading ? (
                 <div className="flex items-center justify-center h-64">
                   <div className="text-center">
-                    <RefreshCw className="h-8 w-8 animate-spin mx-auto mb-2" />
+                    <RefreshCwIcon className="h-8 w-8 animate-spin mx-auto mb-2" />
                     <p className="text-muted-foreground">Loading libvirt logs...</p>
                   </div>
                 </div>
@@ -286,11 +286,11 @@ export function VMLogsViewer({ hostname: propHostname }: VMLogsViewerProps) {
           <Card>
             <CardHeader className="flex flex-row items-center justify-between">
               <CardTitle className="flex items-center space-x-2">
-                <Monitor className="h-5 w-5" />
+                <MonitorIcon className="h-5 w-5" />
                 <span>VM-Specific Logs</span>
                 {selectedVM && vmLogs?.[selectedVM]?.success && (
                   <Badge variant="default">
-                    <Clock className="h-3 w-3 mr-1" />
+                    <ClockIcon className="h-3 w-3 mr-1" />
                     Live
                   </Badge>
                 )}
@@ -305,7 +305,7 @@ export function VMLogsViewer({ hostname: propHostname }: VMLogsViewerProps) {
                       `vm-logs-${selectedVM}-${hostname}-${new Date().toISOString().slice(0, 19)}.txt`
                     )}
                   >
-                    <Download className="h-4 w-4 mr-2" />
+                    <DownloadIcon className="h-4 w-4 mr-2" />
                     Download
                   </Button>
                 )}
@@ -315,14 +315,14 @@ export function VMLogsViewer({ hostname: propHostname }: VMLogsViewerProps) {
               {!selectedVM ? (
                 <div className="text-center h-64 flex items-center justify-center">
                   <div>
-                    <Monitor className="h-12 w-12 text-muted-foreground mx-auto mb-4" />
+                    <MonitorIcon className="h-12 w-12 text-muted-foreground mx-auto mb-4" />
                     <p className="text-muted-foreground">Select a VM to view its logs</p>
                   </div>
                 </div>
               ) : loading ? (
                 <div className="flex items-center justify-center h-64">
                   <div className="text-center">
-                    <RefreshCw className="h-8 w-8 animate-spin mx-auto mb-2" />
+                    <RefreshCwIcon className="h-8 w-8 animate-spin mx-auto mb-2" />
                     <p className="text-muted-foreground">Loading VM logs for {selectedVM}...</p>
                   </div>
                 </div>

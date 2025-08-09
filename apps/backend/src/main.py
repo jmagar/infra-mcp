@@ -46,6 +46,7 @@ from apps.backend.src.core.exceptions import (
     ServiceUnavailableError,
 )
 from apps.backend.src.models.device import Device
+from apps.backend.src.utils.database_utils import get_database_helper
 from apps.backend.src.schemas.common import HealthCheckResponse
 from apps.backend.src.services.configuration_monitoring import get_configuration_monitoring_service
 from apps.backend.src.services.polling_service import PollingService
@@ -207,6 +208,151 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
         logger.info("Shutdown complete")
 
 
+async def _setup_monitoring_service(
+    service_type: str,
+    db_session_factory: Any, 
+    ssh_client: Any, 
+    unified_data_service: Any
+) -> Any:
+    """
+    Generic monitoring setup for different service types (SWAG, Docker, etc).
+    
+    Args:
+        service_type: Type of service to monitor ('swag', 'docker')
+        db_session_factory: Database session factory
+        ssh_client: SSH client instance
+        unified_data_service: Unified data collection service
+    
+    Returns:
+        ConfigurationMonitoringService if devices found, None otherwise
+    """
+    monitoring_configs = {
+        'swag': {
+            'query_conditions': [
+                Device.monitoring_enabled == True,
+                Device.tags.op("?")("swag_running"),
+                Device.tags["swag_running"].astext.cast(Boolean) == True
+            ],
+            'default_paths_key': 'swag_config_path',
+            'default_paths': ["/mnt/appdata/swag/nginx/proxy-confs"],
+            'device_key': 'proxy_conf_dir',
+            'custom_path_logic': lambda device: device.tags.get("swag_config_path") or "/mnt/appdata/swag/nginx/proxy-confs"
+        },
+        'docker': {
+            'query_conditions': [
+                Device.monitoring_enabled == True,
+                Device.tags.op("?")("docker")
+            ],
+            'default_paths': ["/opt", "/srv", "/home/docker", "/docker"],
+            'device_key': 'compose_dirs',
+            'custom_path_logic': lambda device: _get_docker_compose_paths(device)
+        }
+    }
+    
+    if service_type not in monitoring_configs:
+        raise ValueError(f"Unknown service type: {service_type}")
+    
+    config = monitoring_configs[service_type]
+    
+    try:
+        db_helper = get_database_helper(db_session_factory)
+        
+        # Build query operation based on service type
+        async def query_devices(session) -> list[Device]:
+            from sqlalchemy import and_
+            result = await session.execute(
+                select(Device).where(and_(*config['query_conditions']))
+            )
+            return result.scalars().all()
+        
+        devices = await db_helper.execute_query(query_devices)
+        
+        devices_found = []
+        for device in devices:
+            if service_type == 'swag':
+                paths = config['custom_path_logic'](device)
+                devices_found.append({
+                    'device': device,
+                    config['device_key']: paths
+                })
+            elif service_type == 'docker':
+                paths = config['custom_path_logic'](device)
+                devices_found.append({
+                    'device': device,
+                    config['device_key']: paths
+                })
+            
+            logger.info(f"Found {service_type.upper()} device: {device.hostname}")
+        
+        if devices_found:
+            config_monitoring_service = get_configuration_monitoring_service(
+                db_session_factory=db_session_factory,
+                ssh_client=ssh_client,
+                unified_data_service=unified_data_service
+            )
+            
+            successful_setups = 0
+            for device_config in devices_found:
+                device = device_config['device']
+                paths = device_config[config['device_key']]
+                
+                # Ensure paths is a list
+                if not isinstance(paths, list):
+                    paths = [paths]
+                
+                success = await config_monitoring_service.setup_device_monitoring(
+                    device_id=device.id,
+                    custom_watch_paths=paths
+                )
+                
+                if success:
+                    successful_setups += 1
+                    logger.info(f"Started file watching for {service_type.upper()} device {device.hostname} at {paths}")
+                else:
+                    logger.warning(f"Failed to start file watching for {service_type.upper()} device {device.hostname}")
+            
+            if successful_setups > 0:
+                logger.info(f"Successfully set up {service_type.upper()} monitoring for {successful_setups}/{len(devices_found)} device(s)")
+                return config_monitoring_service
+            else:
+                logger.error(f"Failed to set up monitoring for any {service_type.upper()} devices")
+                return None
+        else:
+            logger.info(f"No {service_type.upper()} devices found - {service_type} monitoring not needed")
+            return None
+                
+    except Exception as e:
+        logger.error(f"Failed to set up {service_type.upper()} monitoring: {e}")
+        return None
+
+
+def _get_docker_compose_paths(device: Device) -> list[str]:
+    """Extract and validate Docker compose paths for a device."""
+    compose_dirs = ["/opt", "/srv", "/home/docker", "/docker"]
+    
+    # Also check if device has custom compose paths stored (but validate them)
+    stored_paths = device.tags.get("all_docker_compose_paths", [])
+    if stored_paths:
+        # Filter out obviously wrong paths like Go modules
+        valid_paths = []
+        for path in stored_paths:
+            # Skip paths in Go modules, node_modules, etc.
+            if not any(exclude in path for exclude in [
+                "/go/pkg/mod/",
+                "/node_modules/",
+                "/.git/",
+                "/.cache/",
+                "/vendor/"
+            ]):
+                valid_paths.append(str(Path(path).parent))
+        
+        if valid_paths:
+            compose_dirs.extend(valid_paths)
+    
+    # Remove duplicates
+    return list(set(compose_dirs))
+
+
 async def _setup_swag_monitoring(db_session_factory: Any, ssh_client: Any, unified_data_service: Any) -> Any:
     """
     Detect SWAG devices and set up monitoring only if found.
@@ -214,75 +360,7 @@ async def _setup_swag_monitoring(db_session_factory: Any, ssh_client: Any, unifi
     Returns:
         ConfigurationMonitoringService if SWAG devices found, None otherwise
     """
-    try:
-        async with db_session_factory() as session:
-            # Query for devices with SWAG capability and running SWAG container
-            result = await session.execute(
-                select(Device).where(
-                    and_(
-                        Device.monitoring_enabled == True,
-                        Device.tags.op("?")("swag_running"),  # Check if swag_running key exists
-                        Device.tags["swag_running"].astext.cast(Boolean) == True  # And it's true
-                    )
-                )
-            )
-            devices = result.scalars().all()
-
-            swag_devices_found = []
-
-            for device in devices:
-                # Use the actual SWAG config path from device analysis or fall back to defaults
-                # Check for swag_config_path in tags first, then use common defaults
-                if "swag_config_path" in device.tags:
-                    proxy_conf_dir = device.tags["swag_config_path"]
-                else:
-                    # Try common paths
-                    proxy_conf_dir = "/mnt/appdata/swag/nginx/proxy-confs"
-
-                swag_devices_found.append({
-                    'device': device,
-                    'proxy_conf_dir': proxy_conf_dir
-                })
-                logger.info(f"Found SWAG device from database: {device.hostname} with running SWAG container")
-
-            # Only initialize ConfigurationMonitoringService if we found SWAG devices
-            if swag_devices_found:
-                config_monitoring_service = get_configuration_monitoring_service(
-                    db_session_factory=db_session_factory,
-                    ssh_client=ssh_client,
-                    unified_data_service=unified_data_service
-                )
-
-                # Set up monitoring for each SWAG device found
-                successful_setups = 0
-                for swag_device in swag_devices_found:
-                    device = swag_device['device']
-                    proxy_conf_dir = swag_device['proxy_conf_dir']
-
-                    success = await config_monitoring_service.setup_device_monitoring(
-                        device_id=device.id,
-                        custom_watch_paths=[proxy_conf_dir]
-                    )
-
-                    if success:
-                        successful_setups += 1
-                        logger.info(f"Started file watching for SWAG device {device.hostname} at {proxy_conf_dir}")
-                    else:
-                        logger.warning(f"Failed to start file watching for SWAG device {device.hostname}")
-
-                if successful_setups > 0:
-                    logger.info(f"Successfully set up SWAG monitoring for {successful_setups}/{len(swag_devices_found)} device(s)")
-                    return config_monitoring_service
-                else:
-                    logger.error("Failed to set up monitoring for any SWAG devices")
-                    return None
-            else:
-                logger.info("No SWAG devices found - configuration monitoring not needed")
-                return None
-
-    except Exception as e:
-        logger.error(f"Failed to set up SWAG monitoring: {e}")
-        return None
+    return await _setup_monitoring_service('swag', db_session_factory, ssh_client, unified_data_service)
 
 
 async def _setup_docker_monitoring(db_session_factory: Any, ssh_client: Any, unified_data_service: Any) -> Any:
@@ -292,98 +370,7 @@ async def _setup_docker_monitoring(db_session_factory: Any, ssh_client: Any, uni
     Returns:
         ConfigurationMonitoringService if Docker devices found, None otherwise
     """
-    try:
-        async with db_session_factory() as session:
-            # Get all monitoring-enabled devices with Docker capability
-            from sqlalchemy import and_
-            # Query for devices with Docker capability
-            result = await session.execute(
-                select(Device).where(
-                    and_(
-                        Device.monitoring_enabled == True,
-                        Device.tags.op("?")("docker")  # JSONB contains "docker" key
-                    )
-                )
-            )
-            devices = result.scalars().all()
-
-            docker_devices_found = []
-            for device in devices:
-                # For Docker devices, monitor common docker-compose locations
-                # We'll scan for actual compose files during bulk scan
-                compose_dirs = [
-                    "/opt",
-                    "/srv",
-                    "/home/docker",
-                    "/docker"
-                ]
-
-                # Also check if device has custom compose paths stored (but validate them)
-                stored_paths = device.tags.get("all_docker_compose_paths", [])
-                if stored_paths:
-                    # Filter out obviously wrong paths like Go modules
-                    valid_paths = []
-                    for path in stored_paths:
-                        # Skip paths in Go modules, node_modules, etc.
-                        if not any(exclude in path for exclude in [
-                            "/go/pkg/mod/",
-                            "/node_modules/",
-                            "/.git/",
-                            "/.cache/",
-                            "/vendor/"
-                        ]):
-                            valid_paths.append(str(Path(path).parent))
-
-                    if valid_paths:
-                        compose_dirs.extend(valid_paths)
-
-                # Remove duplicates
-                compose_dirs = list(set(compose_dirs))
-
-                docker_devices_found.append({
-                    'device': device,
-                    'compose_dirs': compose_dirs
-                })
-                logger.info(f"Found Docker device: {device.hostname} - will scan for compose files in: {compose_dirs}")
-
-            # Only initialize ConfigurationMonitoringService if we found Docker devices
-            if docker_devices_found:
-                config_monitoring_service = get_configuration_monitoring_service(
-                    db_session_factory=db_session_factory,
-                    ssh_client=ssh_client,
-                    unified_data_service=unified_data_service
-                )
-
-                # Set up monitoring for each Docker device found
-                successful_setups = 0
-                for docker_device in docker_devices_found:
-                    device = docker_device['device']
-                    compose_dirs = docker_device['compose_dirs']
-
-                    success = await config_monitoring_service.setup_device_monitoring(
-                        device_id=device.id,
-                        custom_watch_paths=compose_dirs
-                    )
-
-                    if success:
-                        successful_setups += 1
-                        logger.info(f"Started file watching for Docker device {device.hostname} at {compose_dirs}")
-                    else:
-                        logger.warning(f"Failed to start file watching for Docker device {device.hostname}")
-
-                if successful_setups > 0:
-                    logger.info(f"Successfully set up Docker monitoring for {successful_setups}/{len(docker_devices_found)} device(s)")
-                    return config_monitoring_service
-                else:
-                    logger.error("Failed to set up monitoring for any Docker devices")
-                    return None
-            else:
-                logger.info("No Docker devices found - Docker configuration monitoring not needed")
-                return None
-
-    except Exception as e:
-        logger.error(f"Failed to set up Docker monitoring: {e}")
-        return None
+    return await _setup_monitoring_service('docker', db_session_factory, ssh_client, unified_data_service)
 
 
 # Create FastAPI application

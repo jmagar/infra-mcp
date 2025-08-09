@@ -12,7 +12,7 @@ import json
 import logging
 from pathlib import Path
 import shlex
-from typing import Any
+from typing import Any, cast
 from urllib.parse import parse_qs, urlparse
 
 from sqlalchemy import select
@@ -224,10 +224,10 @@ async def _resolve_compose_file_path(device: str, service_name: str) -> str | No
         docker ps --format '{{json .}}' --filter "label=com.docker.compose.service" | head -20
         """
 
-        result = await execute_ssh_command_simple(device, docker_ps_cmd, timeout=30)
+        ssh_result = await execute_ssh_command_simple(device, docker_ps_cmd, timeout=30)
 
-        if result.return_code == 0:
-            for line in result.stdout.strip().split("\n"):
+        if ssh_result.return_code == 0:
+            for line in ssh_result.stdout.strip().split("\n"):
                 if not line.strip():
                     continue
 
@@ -256,7 +256,7 @@ async def _resolve_compose_file_path(device: str, service_name: str) -> str | No
                                         logger.info(
                                             f"Found compose file via container labels: {file_paths[0]}"
                                         )
-                                        return file_paths[0]
+                                        return cast(str, file_paths[0])
 
                 except json.JSONDecodeError:
                     continue
@@ -270,26 +270,28 @@ async def _resolve_compose_file_path(device: str, service_name: str) -> str | No
     try:
         async with get_async_session() as session:
             query = select(Device).where(Device.hostname == device)
-            result = await session.execute(query)
-            device_record = result.scalar_one_or_none()
+            db_result = await session.execute(query)
+            device_record = db_result.scalar_one_or_none()
 
             if device_record:
 
-                search_paths = []
+                search_paths: list[str] = []
 
-                # Add primary paths from database
+                # Add primary paths from database (normalize to str)
                 if device_record.docker_compose_path:
-                    search_paths.append(device_record.docker_compose_path)
+                    search_paths.append(str(device_record.docker_compose_path))
 
                 if device_record.docker_appdata_path:
-                    search_paths.append(device_record.docker_appdata_path)
+                    search_paths.append(str(device_record.docker_appdata_path))
 
-                # Add additional paths from tags
-                all_compose_paths = device_record.tags.get("all_docker_compose_paths", [])
-                search_paths.extend(all_compose_paths)
+                # Add additional paths from tags, normalize any non-str entries
+                raw_compose_paths = device_record.tags.get("all_docker_compose_paths", [])
+                if isinstance(raw_compose_paths, list):
+                    search_paths.extend([str(p) for p in raw_compose_paths])
 
-                all_appdata_paths = device_record.tags.get("appdata_paths", [])
-                search_paths.extend(all_appdata_paths)
+                raw_appdata_paths = device_record.tags.get("appdata_paths", [])
+                if isinstance(raw_appdata_paths, list):
+                    search_paths.extend([str(p) for p in raw_appdata_paths])
 
                 # Try to find compose file in these paths
                 for base_path in search_paths:
@@ -618,13 +620,14 @@ async def _get_global_compose_listing() -> dict[str, Any]:
     try:
         async with get_async_session() as session:
             query = select(Device).where(Device.monitoring_enabled.is_(True))
-            result = await session.execute(query)
-            devices = result.scalars().all()
+            db_result = await session.execute(query)
+            devices = db_result.scalars().all()
 
-            global_listing = {
+            devices_list: list[dict[str, Any]] = []
+            global_listing: dict[str, Any] = {
                 "uri": "docker://configs",
                 "total_devices": len(devices),
-                "devices": [],
+                "devices": devices_list,
                 "timestamp": datetime.now(UTC).isoformat(),
                 "resource_type": "docker_compose_global",
             }
@@ -647,7 +650,7 @@ async def _get_global_compose_listing() -> dict[str, Any]:
                         "resource_uri": f"docker://{device.hostname}/stacks",
                     }
 
-                    global_listing["devices"].append(device_info)
+                    devices_list.append(device_info)
 
                 except Exception as e:
                     logger.error(f"Error getting stacks for device {device.hostname}: {e}")
@@ -656,12 +659,12 @@ async def _get_global_compose_listing() -> dict[str, Any]:
                         "error": str(e),
                         "resource_uri": f"docker://{device.hostname}/stacks",
                     }
-                    global_listing["devices"].append(device_info)
+                    devices_list.append(device_info)
 
             # Calculate totals
-            total_stacks = sum(d.get("total_stacks", 0) for d in global_listing["devices"])
-            total_running = sum(d.get("running_stacks", 0) for d in global_listing["devices"])
-            total_discovered = sum(d.get("discovered_stacks", 0) for d in global_listing["devices"])
+            total_stacks = sum(d.get("total_stacks", 0) for d in devices_list)
+            total_running = sum(d.get("running_stacks", 0) for d in devices_list)
+            total_discovered = sum(d.get("discovered_stacks", 0) for d in devices_list)
 
             global_listing.update(
                 {
@@ -670,7 +673,7 @@ async def _get_global_compose_listing() -> dict[str, Any]:
                         "total_running_stacks": total_running,
                         "total_discovered_stacks": total_discovered,
                         "devices_with_compose": len(
-                            [d for d in global_listing["devices"] if d.get("total_stacks", 0) > 0]
+                            [d for d in devices_list if d.get("total_stacks", 0) > 0]
                         ),
                     }
                 }

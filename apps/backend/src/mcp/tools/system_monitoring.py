@@ -21,6 +21,126 @@ from apps.backend.src.utils.ssh_client import get_ssh_client
 logger = logging.getLogger(__name__)
 
 
+class SystemMonitoringOperations:
+    """Utility class for system monitoring operations to eliminate duplicate collection methods."""
+    
+    @staticmethod
+    async def collect_drive_health(device: str, drive: str | None = None, timeout: int = 60) -> dict[str, Any]:
+        """Collect S.M.A.R.T. drive health information."""
+        from apps.backend.src.utils.ssh_client import execute_ssh_command_simple
+        
+        # S.M.A.R.T. data collection logic
+        if drive:
+            cmd = f"sudo smartctl -a {drive} 2>/dev/null || echo 'SMART_ERROR'"
+        else:
+            cmd = 'lsblk -d -n -o NAME,TYPE | grep disk | while read name type; do echo "=== /dev/$name ==="; sudo smartctl -a /dev/$name 2>/dev/null || echo "SMART_ERROR"; done'
+
+        result = await execute_ssh_command_simple(device, cmd, timeout)
+        if not result.success:
+            raise DataCollectionError(
+                message=f"Failed to collect drive health data: {result.stderr}",
+                operation="drive_health_collection"
+            )
+
+        return {
+            "device": device,
+            "drive_filter": drive,
+            "raw_output": result.stdout,
+            "collection_time": datetime.now(UTC).isoformat(),
+            "status": "success"
+        }
+
+    @staticmethod
+    async def collect_system_logs(
+        device: str, 
+        service: str | None = None,
+        since: str | None = None,
+        lines: int = 100,
+        timeout: int = 60
+    ) -> dict[str, Any]:
+        """Collect system logs from journald or syslog."""
+        from apps.backend.src.utils.ssh_client import execute_ssh_command_simple
+        
+        cmd_parts = ["journalctl", "--no-pager"]
+        if service:
+            cmd_parts.extend(["-u", service])
+        if since:
+            cmd_parts.extend(["--since", f"'{since}'"])
+        if lines:
+            cmd_parts.extend(["-n", str(lines)])
+        
+        cmd = " ".join(cmd_parts)
+        result = await execute_ssh_command_simple(device, cmd, timeout)
+        
+        if not result.success:
+            raise DataCollectionError(
+                message=f"Failed to collect system logs: {result.stderr}",
+                operation="system_logs_collection"
+            )
+
+        return {
+            "device": device,
+            "service_filter": service,
+            "since_filter": since,
+            "lines_limit": lines,
+            "logs": result.stdout,
+            "collection_time": datetime.now(UTC).isoformat(),
+            "status": "success"
+        }
+
+    @staticmethod
+    async def collect_drive_stats(device: str, drive: str | None = None, timeout: int = 60) -> dict[str, Any]:
+        """Collect drive usage statistics and I/O performance metrics."""
+        from apps.backend.src.utils.ssh_client import execute_ssh_command_simple
+        
+        if drive:
+            iostat_cmd = f"iostat -x 1 2 {drive} | tail -n +4 | grep -E '^{drive}'"
+            df_cmd = f"df -h | grep {drive}"
+        else:
+            iostat_cmd = "iostat -x 1 2 | tail -n +4 | grep -E '^[a-z]+[0-9]*'"
+            df_cmd = "df -h | grep -E '^/dev/'"
+        
+        # Collect I/O stats
+        iostat_result = await execute_ssh_command_simple(device, iostat_cmd, timeout)
+        df_result = await execute_ssh_command_simple(device, df_cmd, timeout)
+        
+        return {
+            "device": device,
+            "drive_filter": drive,
+            "io_stats": iostat_result.stdout if iostat_result.success else "I/O stats unavailable",
+            "disk_usage": df_result.stdout if df_result.success else "Disk usage unavailable",
+            "collection_time": datetime.now(UTC).isoformat(),
+            "status": "success"
+        }
+
+    @staticmethod
+    async def collect_network_ports(device: str, timeout: int = 30) -> dict[str, Any]:
+        """Collect network port analysis and process mapping."""
+        from apps.backend.src.utils.ssh_client import execute_ssh_command_simple
+        
+        # Try ss command first (modern), fallback to netstat
+        ss_cmd = "ss -tulpn"
+        netstat_cmd = "netstat -tulpn 2>/dev/null || echo 'NETSTAT_NOT_AVAILABLE'"
+        
+        ss_result = await execute_ssh_command_simple(device, ss_cmd, timeout)
+        if not ss_result.success:
+            # Fallback to netstat
+            netstat_result = await execute_ssh_command_simple(device, netstat_cmd, timeout)
+            port_data = netstat_result.stdout if netstat_result.success else "No port data available"
+            tool_used = "netstat"
+        else:
+            port_data = ss_result.stdout
+            tool_used = "ss"
+
+        return {
+            "device": device,
+            "ports_data": port_data,
+            "tool_used": tool_used,
+            "collection_time": datetime.now(UTC).isoformat(),
+            "status": "success"
+        }
+
+
 # Note: SMART data parsing functions removed as they are now handled by the unified data collection service
 # All SMART data collection, parsing, and caching is managed by the polling service and cached in the database
 
@@ -57,34 +177,11 @@ async def get_drive_health(
             ssh_client=ssh_client
         )
 
-        # Create collection method for drive health
+        # Create collection method using utility class
         async def collect_drive_health() -> dict[str, Any]:
-            from apps.backend.src.utils.ssh_client import execute_ssh_command_simple
-
-            # S.M.A.R.T. data collection logic
-            if drive:
-                # Query specific drive
-                cmd = f"sudo smartctl -a {drive} 2>/dev/null || echo 'SMART_ERROR'"
-            else:
-                # Query all drives
-                cmd = 'lsblk -d -n -o NAME,TYPE | grep disk | while read name type; do echo "=== /dev/$name ==="; sudo smartctl -a /dev/$name 2>/dev/null || echo "SMART_ERROR"; done'
-
-            result = await execute_ssh_command_simple(device, cmd, timeout)
-
-            if not result.success:
-                raise DataCollectionError(
-                    message=f"Failed to collect drive health data: {result.stderr}",
-                    operation="drive_health_collection"
-                )
-
-            # Parse S.M.A.R.T. output (simplified)
-            return {
-                "device": device,
-                "drive_filter": drive,
-                "raw_output": result.stdout,
-                "collection_time": datetime.now(UTC).isoformat(),
-                "status": "success"
-            }
+            return await SystemMonitoringOperations.collect_drive_health(
+                device=device, drive=drive, timeout=timeout
+            )
 
         # Use unified data collection
         result = await unified_service.collect_and_store_data(
@@ -142,39 +239,15 @@ async def get_system_logs(
             ssh_client=ssh_client
         )
 
-        # Create collection method for system logs
+        # Create collection method using utility class
         async def collect_system_logs() -> dict[str, Any]:
-            from apps.backend.src.utils.ssh_client import execute_ssh_command_simple
-
-            # Build journalctl command
-            cmd_parts = ["journalctl", "--no-pager"]
-
-            if service:
-                cmd_parts.extend(["-u", service])
-            if since:
-                cmd_parts.extend(["--since", f"'{since}'"])
-            if lines:
-                cmd_parts.extend(["-n", str(lines)])
-
-            cmd = " ".join(cmd_parts)
-
-            result = await execute_ssh_command_simple(device, cmd, timeout)
-
-            if not result.success:
-                raise DataCollectionError(
-                    message=f"Failed to collect system logs: {result.stderr}",
-                    operation="system_logs_collection"
-                )
-
-            return {
-                "device": device,
-                "service_filter": service,
-                "since_filter": since,
-                "lines_requested": lines,
-                "log_content": result.stdout,
-                "collection_time": datetime.now(UTC).isoformat(),
-                "status": "success"
-            }
+            result = await SystemMonitoringOperations.collect_system_logs(
+                device=device, service=service, since=since, lines=lines, timeout=timeout
+            )
+            # Adjust field name for API consistency
+            result["lines_requested"] = result.pop("lines_limit")
+            result["log_content"] = result.pop("logs")
+            return result
 
         # Use unified data collection
         result = await unified_service.collect_and_store_data(
@@ -226,39 +299,15 @@ async def get_drive_stats(
             ssh_client=ssh_client
         )
 
-        # Create collection method for drive stats
+        # Create collection method using utility class
         async def collect_drive_stats() -> dict[str, Any]:
-            from apps.backend.src.utils.ssh_client import execute_ssh_command_simple
-
-            # Collect I/O stats and filesystem usage
-            if drive:
-                # Specific drive stats
-                iostat_cmd = f"iostat -x 1 2 {drive} | tail -n +4 | grep -E '^{drive}'"
-                df_cmd = f"df -h | grep {drive}"
-            else:
-                # All drives stats
-                iostat_cmd = "iostat -x 1 2 | tail -n +4 | grep -E '^[a-z]+[0-9]*'"
-                df_cmd = "df -h | grep -E '^/dev/'"
-
-            # Get I/O statistics
-            iostat_result = await execute_ssh_command_simple(device, iostat_cmd, timeout)
-            # Get filesystem usage
-            df_result = await execute_ssh_command_simple(device, df_cmd, timeout)
-
-            if not iostat_result.success:
-                raise DataCollectionError(
-                    message=f"Failed to collect iostat data: {iostat_result.stderr}",
-                    operation="drive_stats_collection"
-                )
-
-            return {
-                "device": device,
-                "drive_filter": drive,
-                "iostat_output": iostat_result.stdout,
-                "filesystem_usage": df_result.stdout if df_result.success else "",
-                "collection_time": datetime.now(UTC).isoformat(),
-                "status": "success"
-            }
+            result = await SystemMonitoringOperations.collect_drive_stats(
+                device=device, drive=drive, timeout=timeout
+            )
+            # Adjust field names for API consistency
+            result["io_statistics"] = result.pop("io_stats")
+            result["disk_usage"] = result.pop("disk_usage")
+            return result
 
         # Use unified data collection
         result = await unified_service.collect_and_store_data(
@@ -307,37 +356,15 @@ async def get_network_ports(device: str, timeout: int = 30) -> dict[str, Any]:
             ssh_client=ssh_client
         )
 
-        # Create collection method for network ports
+        # Create collection method using utility class
         async def collect_network_ports() -> dict[str, Any]:
-            from apps.backend.src.utils.ssh_client import execute_ssh_command_simple
-
-            # Try ss command first (modern), fallback to netstat
-            ss_cmd = "ss -tulpn"
-            netstat_cmd = "netstat -tulpn 2>/dev/null || echo 'NETSTAT_NOT_AVAILABLE'"
-
-            ss_result = await execute_ssh_command_simple(device, ss_cmd, timeout)
-
-            if not ss_result.success:
-                # Fallback to netstat
-                netstat_result = await execute_ssh_command_simple(device, netstat_cmd, timeout)
-                if not netstat_result.success:
-                    raise DataCollectionError(
-                        message=f"Failed to collect network port data: {netstat_result.stderr}",
-                        operation="network_ports_collection"
-                    )
-                port_output = netstat_result.stdout
-                method_used = "netstat"
-            else:
-                port_output = ss_result.stdout
-                method_used = "ss"
-
-            return {
-                "device": device,
-                "port_output": port_output,
-                "method_used": method_used,
-                "collection_time": datetime.now(UTC).isoformat(),
-                "status": "success"
-            }
+            result = await SystemMonitoringOperations.collect_network_ports(
+                device=device, timeout=timeout
+            )
+            # Adjust field names for API consistency
+            result["ports_info"] = result.pop("ports_data")
+            result["command_used"] = result.pop("tool_used")
+            return result
 
         # Use unified data collection
         result = await unified_service.collect_and_store_data(

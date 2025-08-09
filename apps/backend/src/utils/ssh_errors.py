@@ -523,7 +523,7 @@ class SSHHealthChecker:
         Returns:
             Dict containing diagnostic information and suggestions
         """
-        diagnosis = {
+        diagnosis: dict[str, Any] = {
             "original_error": str(original_error),
             "error_type": SSHErrorClassifier.classify_error(exception=original_error),
             "tests_performed": [],
@@ -540,46 +540,56 @@ class SSHHealthChecker:
             )
             if basic_result.success:
                 diagnosis["connectivity_status"] = "connected"
-                diagnosis["tests_performed"].append("basic_connectivity: PASS")
+                tests_performed = diagnosis["tests_performed"]
+                if isinstance(tests_performed, list):
+                    tests_performed.append("basic_connectivity: PASS")
             else:
                 diagnosis["connectivity_status"] = "command_failed"
-                diagnosis["issues_found"].append(f"Command execution failed: {basic_result.stderr}")
+                issues_found = diagnosis["issues_found"]
+                if isinstance(issues_found, list):
+                    issues_found.append(f"Command execution failed: {basic_result.stderr}")
 
         except Exception as e:
             diagnosis["connectivity_status"] = "connection_failed"
-            diagnosis["issues_found"].append(f"Connection failed: {str(e)}")
+            issues_found = diagnosis["issues_found"]
+            if isinstance(issues_found, list):
+                issues_found.append(f"Connection failed: {str(e)}")
 
         # Add suggestions based on error type
         error_info = diagnosis["error_type"]
-        if hasattr(error_info, 'recovery_suggestion') and error_info.recovery_suggestion:
-            diagnosis["suggestions"].append(error_info.recovery_suggestion)
+        if isinstance(error_info, SSHErrorInfo) and error_info.recovery_suggestion:
+            suggestions = diagnosis["suggestions"]
+            if isinstance(suggestions, list):
+                suggestions.append(error_info.recovery_suggestion)
 
         # Add specific diagnostic suggestions
-        if hasattr(error_info, 'error_type'):
-            if error_info.error_type == SSHErrorType.CONNECTION_REFUSED:
-                diagnosis["suggestions"].extend(
-                    [
-                        "Verify SSH service is running: systemctl status sshd",
-                        f"Check if port {getattr(connection_info, 'port', 22)} is open",
-                        "Check firewall rules on target host",
-                    ]
-                )
-            elif error_info.error_type == SSHErrorType.AUTH_FAILED:
-                diagnosis["suggestions"].extend(
-                    [
-                        "Verify SSH username and credentials",
-                        "Check SSH key file permissions (should be 600)",
-                        "Verify user exists on target system",
-                    ]
-                )
-            elif error_info.error_type == SSHErrorType.DNS_RESOLUTION_FAILED:
-                diagnosis["suggestions"].extend(
-                    [
-                        f"Try using IP address instead of hostname: {getattr(connection_info, 'host', 'unknown')}",
-                        "Check DNS configuration",
-                        "Verify hostname spelling",
-                    ]
-                )
+        if isinstance(error_info, SSHErrorInfo):
+            suggestions = diagnosis["suggestions"]
+            if isinstance(suggestions, list):
+                if error_info.error_type == SSHErrorType.CONNECTION_REFUSED:
+                    suggestions.extend(
+                        [
+                            "Verify SSH service is running: systemctl status sshd",
+                            f"Check if port {getattr(connection_info, 'port', 22)} is open",
+                            "Check firewall rules on target host",
+                        ]
+                    )
+                elif error_info.error_type == SSHErrorType.AUTH_FAILED:
+                    suggestions.extend(
+                        [
+                            "Verify SSH username and credentials",
+                            "Check SSH key file permissions (should be 600)",
+                            "Verify user exists on target system",
+                        ]
+                    )
+                elif error_info.error_type == SSHErrorType.DNS_RESOLUTION_FAILED:
+                    suggestions.extend(
+                        [
+                            f"Try using IP address instead of hostname: {getattr(connection_info, 'host', 'unknown')}",
+                            "Check DNS configuration",
+                            "Verify hostname spelling",
+                        ]
+                    )
 
         return diagnosis
 

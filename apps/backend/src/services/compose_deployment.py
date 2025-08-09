@@ -11,7 +11,7 @@ import logging
 from pathlib import Path
 import re
 
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, cast
 from sqlalchemy import select
 import yaml
 
@@ -107,6 +107,7 @@ class ComposeDeploymentService:
             if request.deployment_path:
                 result.deployment_path = request.deployment_path
             elif device_config.docker_compose_path:
+                # Normalize possible Column[str] to str for typing
                 result.deployment_path = str(device_config.docker_compose_path)
             else:
                 result.deployment_path = "/opt/docker-compose"
@@ -307,13 +308,18 @@ class ComposeDeploymentService:
     def _parse_compose_content(self, content: str) -> dict[str, Any]:
         """Parse docker-compose YAML content."""
         try:
-            return yaml.safe_load(content)
+            data = yaml.safe_load(content)
+            if not isinstance(data, dict):
+                raise ValidationError("docker-compose content must be a mapping at the top level")
+            return cast(dict[str, Any], data)
         except yaml.YAMLError as e:
             raise ValidationError(f"Invalid docker-compose YAML: {e}")
 
     def _compose_to_yaml(self, content: dict[str, Any]) -> str:
         """Convert compose data back to YAML string."""
-        return yaml.dump(content, default_flow_style=False, sort_keys=False)
+        dumped = yaml.dump(content, default_flow_style=False, sort_keys=False)
+        # Some stubs return Any for yaml.dump; ensure str
+        return cast(str, dumped)
 
     def _calculate_content_hash(self, content: str) -> str:
         """Calculate hash of content for change detection."""
@@ -328,7 +334,13 @@ class ComposeDeploymentService:
     ) -> None:
         """Update volume paths to use device appdata path."""
         services = compose_data.get('services', {})
-        base_appdata_path = request.custom_appdata_path or device_config.docker_appdata_path or "/mnt/appdata"
+        base_appdata_path_value = (
+            request.custom_appdata_path
+            or getattr(device_config, "docker_appdata_path", None)
+            or "/mnt/appdata"
+        )
+        # Normalize to str for typing
+        base_appdata_path = cast(str, base_appdata_path_value)
 
         for service_name, service_config in services.items():
             if request.service_name and service_name != request.service_name:
@@ -386,7 +398,9 @@ class ComposeDeploymentService:
         port_scan_request = PortScanRequest(
             device=request.target_device,
             port_range_start=request.port_range_start,
-            port_range_end=request.port_range_end
+            port_range_end=request.port_range_end,
+            protocol="tcp",
+            timeout=5,
         )
         port_scan_result = await self.scan_available_ports(port_scan_request)
 
@@ -456,7 +470,7 @@ class ComposeDeploymentService:
     ) -> None:
         """Configure Docker networks for services."""
         # Scan existing networks
-        network_scan_request = NetworkScanRequest(device=request.target_device)
+        network_scan_request = NetworkScanRequest(device=request.target_device, include_system_networks=False)
         network_scan_result = await self.scan_docker_networks(network_scan_request)
 
         # Use specified network or recommended one
@@ -527,7 +541,7 @@ class ComposeDeploymentService:
                     service_name=service_name,
                     upstream_port=http_port,
                     domain=f"{service_name}.{base_domain}",
-                    device_hostname=device_config.hostname
+                    device_hostname=str(device_config.hostname)
                 )
 
                 result.proxy_configs.append({

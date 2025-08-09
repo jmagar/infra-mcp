@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { DataTable, StatusBadge, MetricCard } from '@/components/common';
+import { DataTable, StatusBadge, MetricCard, ActionDropdown, ConfirmDialog } from '@/components/common';
 import { useContainers } from '@/hooks/useContainers';
 import { useDevices } from '@/hooks/useDevices';
 import { useResponsive, useResponsiveTable } from '@/hooks/useResponsive';
@@ -27,7 +27,7 @@ import type { Column } from '@/components/common/DataTable';
 
 export function ContainerList() {
   const navigate = useNavigate();
-  const { containers, loading, startContainer, stopContainer, restartContainer, removeContainer, refetch } = useContainers();
+  const { containers, totalCount, loading, startContainer, stopContainer, restartContainer, removeContainer, refetch } = useContainers();
   const { devices } = useDevices();
   const { isMobile, isTablet } = useResponsive();
   const { notifyContainerAction } = useNotificationEvents();
@@ -35,6 +35,19 @@ export function ContainerList() {
   const [statusFilter, setStatusFilter] = useState<string>('all');
   const [deviceFilter, setDeviceFilter] = useState<string>('all');
   const [searchTerm, setSearchTerm] = useState('');
+  const [confirmDialog, setConfirmDialog] = useState<{
+    isOpen: boolean;
+    action: 'remove' | null;
+    containerName: string;
+    deviceHostname: string;
+    isLoading: boolean;
+  }>({
+    isOpen: false,
+    action: null,
+    containerName: '',
+    deviceHostname: '',
+    isLoading: false,
+  });
 
   // Filter containers based on selected filters and search
   const filteredContainers = containers?.filter(container => {
@@ -49,7 +62,7 @@ export function ContainerList() {
   const deviceHostnames = [...new Set(containers?.map(c => c.device_hostname) || [])];
   const containerStatuses = [...new Set(containers?.map(c => c.status) || [])];
 
-  const handleContainerAction = async (action: 'start' | 'stop' | 'restart' | 'remove', deviceHostname: string, containerName: string) => {
+  const handleContainerAction = async (action: 'start' | 'stop' | 'restart', deviceHostname: string, containerName: string) => {
     try {
       switch (action) {
         case 'start':
@@ -64,18 +77,44 @@ export function ContainerList() {
           await restartContainer(deviceHostname, containerName);
           notifyContainerAction('restart', containerName, deviceHostname, true);
           break;
-        case 'remove':
-          if (confirm(`Are you sure you want to remove container "${containerName}"?`)) {
-            await removeContainer(deviceHostname, containerName);
-            notifyContainerAction('remove', containerName, deviceHostname, true);
-          }
-          break;
       }
       await refetch();
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : 'Unknown error';
       console.error(`Failed to ${action} container:`, error);
       notifyContainerAction(action, containerName, deviceHostname, false, errorMessage);
+    }
+  };
+
+  const handleRemoveContainer = (deviceHostname: string, containerName: string) => {
+    setConfirmDialog({
+      isOpen: true,
+      action: 'remove',
+      containerName,
+      deviceHostname,
+      isLoading: false,
+    });
+  };
+
+  const confirmRemoveContainer = async () => {
+    setConfirmDialog(prev => ({ ...prev, isLoading: true }));
+    
+    try {
+      await removeContainer(confirmDialog.deviceHostname, confirmDialog.containerName);
+      notifyContainerAction('remove', confirmDialog.containerName, confirmDialog.deviceHostname, true);
+      await refetch();
+      setConfirmDialog({
+        isOpen: false,
+        action: null,
+        containerName: '',
+        deviceHostname: '',
+        isLoading: false,
+      });
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+      console.error('Failed to remove container:', error);
+      notifyContainerAction('remove', confirmDialog.containerName, confirmDialog.deviceHostname, false, errorMessage);
+      setConfirmDialog(prev => ({ ...prev, isLoading: false }));
     }
   };
 
@@ -193,62 +232,42 @@ export function ContainerList() {
     {
       key: 'actions',
       title: 'Actions',
-      render: (_, container) => (
-        <div className="flex items-center space-x-1">
-          <Button
-            variant="ghost"
-            size="sm"
-            onClick={() => navigate(`/containers/${container.device_hostname}/${container.name}`)}
-            title="View details"
-          >
-            <EyeIcon className="h-4 w-4" />
-            {isMobile && <span className="ml-1 text-xs">View</span>}
-          </Button>
-          
-          {!isMobile && (
-            <>
-              {container.status === 'running' ? (
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  onClick={() => handleContainerAction('stop', container.device_hostname, container.name)}
-                  title="Stop container"
-                >
-                  <PauseIcon className="h-4 w-4 text-yellow-600" />
-                </Button>
-              ) : (
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  onClick={() => handleContainerAction('start', container.device_hostname, container.name)}
-                  title="Start container"
-                >
-                  <PlayIcon className="h-4 w-4 text-green-600" />
-                </Button>
-              )}
-              
-              <Button
-                variant="ghost"
-                size="sm"
-                onClick={() => handleContainerAction('restart', container.device_hostname, container.name)}
-                title="Restart container"
-              >
-                <ArrowPathIcon className="h-4 w-4 text-blue-600" />
-              </Button>
-              
-              <Button
-                variant="ghost"
-                size="sm"
-                onClick={() => handleContainerAction('remove', container.device_hostname, container.name)}
-                className="text-red-600 hover:text-red-800"
-                title="Remove container"
-              >
-                <TrashIcon className="h-4 w-4" />
-              </Button>
-            </>
-          )}
-        </div>
-      ),
+      render: (_, container) => {
+        const actions = [
+          {
+            label: 'View Details',
+            icon: EyeIcon,
+            onClick: () => navigate(`/containers/${container.device_hostname}/${container.name}`),
+          },
+          ...(container.status === 'running' ? [
+            {
+              label: 'Stop Container',
+              icon: PauseIcon,
+              onClick: () => handleContainerAction('stop', container.device_hostname, container.name),
+            }
+          ] : [
+            {
+              label: 'Start Container',
+              icon: PlayIcon,
+              onClick: () => handleContainerAction('start', container.device_hostname, container.name),
+            }
+          ]),
+          {
+            label: 'Restart Container',
+            icon: ArrowPathIcon,
+            onClick: () => handleContainerAction('restart', container.device_hostname, container.name),
+            separator: true,
+          },
+          {
+            label: 'Remove Container',
+            icon: TrashIcon,
+            onClick: () => handleRemoveContainer(container.device_hostname, container.name),
+            variant: 'destructive' as const,
+          },
+        ];
+
+        return <ActionDropdown actions={actions} />;
+      },
     },
   ];
 
@@ -256,10 +275,10 @@ export function ContainerList() {
   const columns = useResponsiveTable(allColumns);
 
   // Calculate stats
-  const totalContainers = containers?.length || 0;
-  const runningContainers = containers?.filter(c => c.status === 'running')?.length || 0;
-  const stoppedContainers = containers?.filter(c => c.status === 'exited')?.length || 0;
-  const errorContainers = containers?.filter(c => c.status === 'failed' || c.status === 'error')?.length || 0;
+  const totalContainers = totalCount || 0;
+  const runningContainers = containers?.filter(c => c.state === 'running')?.length || 0;
+  const stoppedContainers = containers?.filter(c => c.state === 'stopped')?.length || 0;
+  const errorContainers = containers?.filter(c => c.status?.includes('failed') || c.status?.includes('error'))?.length || 0;
 
   return (
     <div className={`${spacing.padding.page} ${layout.sectionWrapper}`}>
@@ -400,6 +419,25 @@ export function ContainerList() {
         pagination={{ pageSize: 15 }}
         onRowClick={(container) => navigate(`/containers/${container.device_hostname}/${container.name}`)}
         emptyMessage="No containers found. Deploy your first container to get started."
+      />
+
+      {/* Confirmation Dialog */}
+      <ConfirmDialog
+        isOpen={confirmDialog.isOpen}
+        title="Remove Container"
+        description={`Are you sure you want to remove container "${confirmDialog.containerName}" from ${confirmDialog.deviceHostname}? This action cannot be undone and will permanently delete the container.`}
+        confirmText="Remove Container"
+        cancelText="Cancel"
+        variant="destructive"
+        onConfirm={confirmRemoveContainer}
+        onCancel={() => setConfirmDialog({
+          isOpen: false,
+          action: null,
+          containerName: '',
+          deviceHostname: '',
+          isLoading: false,
+        })}
+        isLoading={confirmDialog.isLoading}
       />
     </div>
   );

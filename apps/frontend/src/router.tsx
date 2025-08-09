@@ -6,6 +6,9 @@ import { DeviceList } from './pages/devices/DeviceList';
 import { DeviceDetails } from './pages/devices/DeviceDetails';
 import { ContainerList } from './pages/containers/ContainerList';
 import { ContainerDetails } from './pages/containers/ContainerDetails';
+import { ComposeList, ComposeEditor, ComposeDeployment } from './pages/compose';
+import { ProxyList, ProxyEditor, ProxyTemplates } from './pages/proxies';
+import { VMManagement, VMLogsViewer } from './pages/vms';
 import { StorageOverview } from './pages/storage/StorageOverview';
 import { ZFSPools } from './pages/storage/ZFSPools';
 import { ZFSDatasets } from './pages/storage/ZFSDatasets';
@@ -14,6 +17,7 @@ import { DriveHealth } from './pages/storage/DriveHealth';
 import { NetworkOverview } from './pages/networking/NetworkOverview';
 import { ProxyConfigs } from './pages/networking/ProxyConfigs';
 import { Deployments } from './pages/deployments/Deployments';
+import { ZFSManagement } from './pages/zfs/ZFSManagement';
 import { Monitoring } from './pages/monitoring/Monitoring';
 import { SystemOverview } from './pages/system/SystemOverview';
 import { Updates } from './pages/system/Updates';
@@ -21,6 +25,7 @@ import { Backups } from './pages/system/Backups';
 import { VMs } from './pages/system/VMs';
 import { Settings } from './pages/Settings';
 import { NotificationDemo } from './pages/notifications/NotificationDemo';
+import { RealTimeDashboardPage } from './pages/RealTimeDashboard';
 import { ErrorBoundary } from './components/common/ErrorBoundary';
 
 export const router = createBrowserRouter([
@@ -43,6 +48,10 @@ export const router = createBrowserRouter([
       {
         path: 'dashboard-old',
         element: <Dashboard />,
+      },
+      {
+        path: 'live',
+        element: <RealTimeDashboardPage />,
       },
       
       // Device Management
@@ -71,6 +80,48 @@ export const router = createBrowserRouter([
           {
             path: ':device/:containerName',
             element: <ContainerDetails />,
+          },
+        ],
+      },
+      
+      // Docker Compose Management
+      {
+        path: 'compose',
+        children: [
+          {
+            index: true,
+            element: <ComposeList />,
+          },
+          {
+            path: ':deviceHostname/:stackName',
+            element: <ComposeDeployment />,
+          },
+          {
+            path: ':deviceHostname/:stackName/edit',
+            element: <ComposeEditor />,
+          },
+        ],
+      },
+      
+      // Proxy Configuration Management
+      {
+        path: 'proxies',
+        children: [
+          {
+            index: true,
+            element: <ProxyList />,
+          },
+          {
+            path: 'templates',
+            element: <ProxyTemplates />,
+          },
+          {
+            path: ':deviceHostname/:configId',
+            element: <ProxyEditor />,
+          },
+          {
+            path: ':deviceHostname/:configId/edit',
+            element: <ProxyEditor />,
           },
         ],
       },
@@ -119,10 +170,56 @@ export const router = createBrowserRouter([
         ],
       },
       
-      // Deployments
+      // Deployments (Docker Compose)
       {
         path: 'deployments',
         element: <Deployments />,
+      },
+      
+      // ZFS Management (dedicated section)
+      {
+        path: 'zfs',
+        children: [
+          {
+            index: true,
+            element: <ZFSManagement />,
+          },
+          {
+            path: ':hostname',
+            element: <ZFSManagement />,
+          },
+        ],
+      },
+      
+      // Virtual Machines
+      {
+        path: 'vms',
+        children: [
+          {
+            index: true,
+            element: <VMManagement />,
+          },
+          {
+            path: ':hostname',
+            element: <VMManagement />,
+          },
+          {
+            path: ':hostname/:vmId',
+            element: <VMManagement />, // VM details view
+          },
+          {
+            path: ':hostname/:vmId/logs',
+            element: <VMLogsViewer />,
+          },
+          {
+            path: ':hostname/:vmId/console',
+            element: <VMLogsViewer />, // TODO: Create VMConsole component
+          },
+          {
+            path: 'logs/:hostname?',
+            element: <VMLogsViewer />,
+          },
+        ],
       },
       
       // Monitoring

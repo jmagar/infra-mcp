@@ -8,7 +8,7 @@ monitoring status checks, and device information retrieval.
 from datetime import UTC, datetime
 import logging
 import time
-from typing import Any
+from typing import Any, cast
 from uuid import UUID
 
 # UUID import removed - now using hostname-only approach
@@ -275,12 +275,15 @@ async def list_devices(
                 }
                 device_list.append(device_info)
 
-                # Count statuses - handle both string and enum values
-                device_status = device.status
-                if hasattr(device_status, 'value'):
-                    device_status = device_status.value
-                if device_status in status_counts:
-                    status_counts[device_status] += 1
+                # Count statuses - handle both string/enum/Column cases
+                device_status_obj = device.status
+                status_key = (
+                    str(device_status_obj.value)
+                    if hasattr(device_status_obj, "value")
+                    else str(device_status_obj)
+                )
+                if status_key in status_counts:
+                    status_counts[status_key] += 1
 
             # Prepare response
             response = {
@@ -408,7 +411,7 @@ async def get_device_info(
             }
 
             # Initialize connectivity info
-            connectivity_info = {
+            connectivity_info: dict[str, Any] = {
                 "test_performed": test_connectivity,
                 "is_reachable": False,
                 "ssh_accessible": False,
@@ -418,7 +421,7 @@ async def get_device_info(
             }
 
             # System info (only available if connected)
-            system_info = None
+            system_info: dict[str, Any] | None = None
 
             # Test connectivity if requested
             if test_connectivity:
@@ -484,9 +487,10 @@ async def get_device_info(
                             "timestamp": datetime.now(UTC).isoformat(),
                         }
 
-                        # Update device last_seen in database
-                        device_record.last_seen = datetime.now(UTC)
-                        device_record.status = "online"
+                        # Update device last_seen in database (typing workaround for Column[])
+                        rec_any = cast(Any, device_record)
+                        rec_any.last_seen = datetime.now(UTC)
+                        rec_any.status = "online"
                         await db.commit()
 
                 except Exception as e:
@@ -504,7 +508,7 @@ async def get_device_info(
             }
 
             # Monitoring status
-            monitoring_status = {
+            monitoring_status: dict[str, Any] = {
                 "enabled": device_record.monitoring_enabled,
                 "last_check": device_record.last_seen.isoformat()
                 if device_record.last_seen
@@ -625,7 +629,7 @@ async def get_device_summary(device: str, timeout: int = 30) -> dict[str, Any]:
             }
 
             # Initialize system summary
-            system_summary = {
+            system_summary: dict[str, float | int | None] = {
                 "cpu_usage_percent": None,
                 "memory_usage_percent": None,
                 "disk_usage_percent": None,
@@ -634,7 +638,7 @@ async def get_device_summary(device: str, timeout: int = 30) -> dict[str, Any]:
             }
 
             # Initialize Docker summary
-            docker_summary = {
+            docker_summary: dict[str, int | bool] = {
                 "docker_available": False,
                 "containers_total": 0,
                 "containers_running": 0,
@@ -792,9 +796,10 @@ async def get_device_summary(device: str, timeout: int = 30) -> dict[str, Any]:
                         except Exception:
                             pass
 
-                        # Update device status
-                        device_record.last_seen = datetime.now(UTC)
-                        device_record.status = "online"
+                        # Update device status (typing workaround for Column[])
+                        rec_any = cast(Any, device_record)
+                        rec_any.last_seen = datetime.now(UTC)
+                        rec_any.status = "online"
                         await db.commit()
 
                         # Calculate health score
@@ -803,27 +808,27 @@ async def get_device_summary(device: str, timeout: int = 30) -> dict[str, Any]:
                         warnings = []
 
                         # Check system metrics for issues
-                        cpu_usage = system_summary.get("cpu_usage_percent")
-                        if cpu_usage is not None and cpu_usage > 90:
+                        cpu_usage_val = system_summary.get("cpu_usage_percent")
+                        if isinstance(cpu_usage_val, (int, float)) and float(cpu_usage_val) > 90:
                             issues.append("High CPU usage")
                             health_score -= 20
-                        elif cpu_usage is not None and cpu_usage > 70:
+                        elif isinstance(cpu_usage_val, (int, float)) and float(cpu_usage_val) > 70:
                             warnings.append("Elevated CPU usage")
                             health_score -= 10
 
-                        memory_usage = system_summary.get("memory_usage_percent")
-                        if memory_usage is not None and memory_usage > 90:
+                        memory_usage_val = system_summary.get("memory_usage_percent")
+                        if isinstance(memory_usage_val, (int, float)) and float(memory_usage_val) > 90:
                             issues.append("High memory usage")
                             health_score -= 20
-                        elif memory_usage is not None and memory_usage > 75:
+                        elif isinstance(memory_usage_val, (int, float)) and float(memory_usage_val) > 75:
                             warnings.append("Elevated memory usage")
                             health_score -= 10
 
-                        disk_usage = system_summary.get("disk_usage_percent")
-                        if disk_usage is not None and disk_usage > 90:
+                        disk_usage_val = system_summary.get("disk_usage_percent")
+                        if isinstance(disk_usage_val, (int, float)) and float(disk_usage_val) > 90:
                             issues.append("High disk usage")
                             health_score -= 25
-                        elif disk_usage is not None and disk_usage > 80:
+                        elif isinstance(disk_usage_val, (int, float)) and float(disk_usage_val) > 80:
                             warnings.append("Elevated disk usage")
                             health_score -= 10
 

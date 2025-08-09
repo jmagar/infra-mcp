@@ -237,14 +237,14 @@ class DriveHealthThresholds(BaseModel):
 
     @field_validator("temperature_critical")
     @classmethod
-    def validate_temperature_critical(cls, v: int, info) -> int:
+    def validate_temperature_critical(cls, v: int, info: Any) -> int:
         if "temperature_warning" in info.data and v <= info.data["temperature_warning"]:
             raise ValueError("Temperature critical threshold must be higher than warning threshold")
         return v
 
     @field_validator("reallocated_sectors_critical")
     @classmethod
-    def validate_reallocated_critical(cls, v: int, info) -> int:
+    def validate_reallocated_critical(cls, v: int, info: Any) -> int:
         if (
             "reallocated_sectors_warning" in info.data
             and v <= info.data["reallocated_sectors_warning"]

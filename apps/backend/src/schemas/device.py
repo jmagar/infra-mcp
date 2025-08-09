@@ -261,7 +261,7 @@ class DeviceImportRequest(BaseModel):
 
     @field_validator("ssh_config_path")
     @classmethod
-    def validate_ssh_config_path(cls, v):
+    def validate_ssh_config_path(cls, v: str) -> str:
         # Expand tilde if present
         if v.startswith("~"):
             from pathlib import Path
@@ -271,7 +271,7 @@ class DeviceImportRequest(BaseModel):
 
     @field_validator("default_device_type")
     @classmethod
-    def validate_default_device_type(cls, v):
+    def validate_default_device_type(cls, v: str) -> str:
         valid_types = [
             "server",
             "container_host",

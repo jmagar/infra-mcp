@@ -1032,7 +1032,10 @@ async def get_system_logs(
 
         # Parse log entries based on source
         log_entries = []
-        lines = result.stdout.strip().split("\n")
+        if result.stdout:
+            lines = result.stdout.strip().split("\n")
+        else:
+            lines = []
 
         if log_source == "journalctl":
             # Parse JSON log entries from journalctl

@@ -282,7 +282,7 @@ async def polling_health_check(request: Request) -> dict[str, Any]:
 
         # Calculate polling efficiency
         total_expected_collections = len(monitored_devices) * 12  # Assuming 12 collections per hour
-        actual_collections = sum(int(d["recent_metrics_1h"]) for d in device_health)
+        actual_collections = sum(int(d["recent_metrics_1h"]) for d in device_health if isinstance(d["recent_metrics_1h"], (int, str)))
         efficiency = (actual_collections / max(total_expected_collections, 1)) * 100
 
         return {
@@ -307,9 +307,22 @@ async def polling_health_check(request: Request) -> dict[str, Any]:
                 "expected_collections_1h": total_expected_collections,
             },
             "health_summary": {
-                "healthy_devices": len([d for d in device_health if (d.get("health_score") or 0) >= 8]),
-                "warning_devices": len([d for d in device_health if 3 <= (d.get("health_score") or 0) < 8]),
-                "unhealthy_devices": len([d for d in device_health if (d.get("health_score") or 0) < 3]),
+                "healthy_devices": len([
+                    d for d in device_health 
+                    if isinstance(d.get("health_score"), (int, float)) and 
+                    isinstance(d.get("health_score"), (int, float)) and 
+                    float(d.get("health_score", 0)) >= 8
+                ]),
+                "warning_devices": len([
+                    d for d in device_health 
+                    if isinstance(d.get("health_score"), (int, float)) and 
+                    3 <= float(d.get("health_score", 0)) < 8
+                ]),
+                "unhealthy_devices": len([
+                    d for d in device_health 
+                    if isinstance(d.get("health_score"), (int, float)) and 
+                    float(d.get("health_score", 0)) < 3
+                ]),
             },
             "timestamp": datetime.now(UTC).isoformat(),
         }
@@ -541,9 +554,13 @@ async def monitoring_dashboard_data(request: Request, hours: int = 24) -> dict[s
         }
 
         # Remove None alerts
-        dashboard_data["alerts"] = [
-            alert for alert in dashboard_data["alerts"] if alert is not None
-        ]
+        alerts_list = dashboard_data.get("alerts", [])
+        if isinstance(alerts_list, list):
+            dashboard_data["alerts"] = [
+                alert for alert in alerts_list if alert is not None
+            ]
+        else:
+            dashboard_data["alerts"] = []
 
         return dashboard_data
 

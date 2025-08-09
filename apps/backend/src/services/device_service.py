@@ -18,7 +18,7 @@ from apps.backend.src.core.exceptions import (
 from apps.backend.src.core.exceptions import (
     ValidationError as CustomValidationError,
 )
-from apps.backend.src.mcp.tools.device_info import get_device_info
+# Import moved to function level to avoid circular dependency
 from apps.backend.src.models.device import Device
 from apps.backend.src.schemas.common import DeviceStatus, PaginationParams
 from apps.backend.src.schemas.device import (
@@ -299,6 +299,9 @@ class DeviceService:
             Analysis failures are logged but do not propagate.
         """
         try:
+            # Import here to avoid circular dependency
+            from apps.backend.src.mcp.tools.device_info import get_device_info
+            
             logger.info(f"Triggering automatic device analysis for {hostname}")
 
             # Use the comprehensive device analysis tool

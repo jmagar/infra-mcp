@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { MetricCard, StatusBadge, DataTable } from '@/components/common';
+import { MetricCard, StatusBadge, DataTable, ActionDropdown, EmptyState } from '@/components/common';
 import { useDevice } from '@/hooks/useDevices';
 import { useContainers } from '@/hooks/useContainers';
 import { useSystemMetrics } from '@/hooks/useSystemMetrics';
@@ -22,7 +22,11 @@ import {
   RefreshCw as RefreshCwIcon,
   PlayIcon,
   StopCircleIcon as StopIcon,
-  RotateCcwIcon as RestartIcon
+  RotateCcwIcon as RestartIcon,
+  MonitorIcon,
+  ShieldIcon,
+  SettingsIcon,
+  EditIcon
 } from 'lucide-react';
 import type { ContainerResponse } from '@infrastructor/shared-types';
 import type { Column } from '@/components/common/DataTable';
@@ -169,10 +173,37 @@ export function DeviceDetails() {
             </div>
           </div>
         </div>
-        <Button variant="outline">
-          <RefreshCwIcon className="h-4 w-4 mr-2" />
-          Refresh
-        </Button>
+        <div className="flex items-center space-x-2">
+          <Button variant="outline">
+            <RefreshCwIcon className="h-4 w-4 mr-2" />
+            Refresh
+          </Button>
+          <ActionDropdown
+            actions={[
+              {
+                label: 'Edit Device',
+                icon: EditIcon,
+                onClick: () => navigate(`/devices/${hostname}/edit`),
+              },
+              {
+                label: 'Device Settings',
+                icon: SettingsIcon,
+                onClick: () => navigate(`/devices/${hostname}/settings`),
+              },
+              {
+                label: 'Monitor Device',
+                icon: MonitorIcon,
+                onClick: () => setActiveTab('monitoring'),
+                separator: true,
+              },
+              {
+                label: 'Security Scan',
+                icon: ShieldIcon,
+                onClick: () => setActiveTab('security'),
+              },
+            ]}
+          />
+        </div>
       </div>
 
       {/* Tabs */}
@@ -181,6 +212,8 @@ export function DeviceDetails() {
           <TabsTrigger value="overview">Overview</TabsTrigger>
           <TabsTrigger value="metrics">Metrics</TabsTrigger>
           <TabsTrigger value="containers">Containers</TabsTrigger>
+          <TabsTrigger value="storage">Storage</TabsTrigger>
+          <TabsTrigger value="network">Network</TabsTrigger>
           <TabsTrigger value="logs">Logs</TabsTrigger>
         </TabsList>
 
@@ -355,6 +388,56 @@ export function DeviceDetails() {
             searchPlaceholder="Search containers..."
             emptyMessage="No containers found on this device"
           />
+        </TabsContent>
+
+        <TabsContent value="storage" className="space-y-6">
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+            <Card>
+              <CardHeader>
+                <CardTitle>Drive Health</CardTitle>
+              </CardHeader>
+              <CardContent>
+                <div className="text-center py-8 text-gray-500">
+                  Drive health monitoring will be implemented here
+                </div>
+              </CardContent>
+            </Card>
+            <Card>
+              <CardHeader>
+                <CardTitle>Drive Statistics</CardTitle>
+              </CardHeader>
+              <CardContent>
+                <div className="text-center py-8 text-gray-500">
+                  Drive I/O statistics will be displayed here
+                </div>
+              </CardContent>
+            </Card>
+          </div>
+        </TabsContent>
+
+        <TabsContent value="network" className="space-y-6">
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+            <Card>
+              <CardHeader>
+                <CardTitle>Network Ports</CardTitle>
+              </CardHeader>
+              <CardContent>
+                <div className="text-center py-8 text-gray-500">
+                  Network port information will be displayed here
+                </div>
+              </CardContent>
+            </Card>
+            <Card>
+              <CardHeader>
+                <CardTitle>Network Configuration</CardTitle>
+              </CardHeader>
+              <CardContent>
+                <div className="text-center py-8 text-gray-500">
+                  Network configuration details will be shown here
+                </div>
+              </CardContent>
+            </Card>
+          </div>
         </TabsContent>
 
         <TabsContent value="logs" className="space-y-6">

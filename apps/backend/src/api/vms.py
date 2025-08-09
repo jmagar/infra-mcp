@@ -15,6 +15,7 @@ from fastapi import APIRouter, Depends, HTTPException, Path, Query
 from apps.backend.src.api.common import get_current_user
 from apps.backend.src.core.database import get_async_session_factory
 from apps.backend.src.services.device_service import DeviceService
+from apps.backend.src.utils.database_utils import get_database_helper
 from apps.backend.src.services.unified_data_collection import get_unified_data_collection_service
 from apps.backend.src.utils.ssh_client import execute_ssh_command_simple, get_ssh_client
 
@@ -40,10 +41,8 @@ async def get_vm_logs(
         )
 
         # Get device ID from hostname
-        async with session_factory() as db:
-            device_service = DeviceService(db)
-            device = await device_service.get_device_by_hostname(hostname)
-            device_id = cast(UUID, device.id)
+        db_helper = get_database_helper(session_factory)
+        device_id = await db_helper.get_device_id_by_hostname(hostname)
 
         # Define collection method for VM logs
         async def collect_vm_logs() -> Dict[str, Any]:
@@ -99,10 +98,8 @@ async def get_vm_specific_logs(
         )
 
         # Get device ID from hostname
-        async with session_factory() as db:
-            device_service = DeviceService(db)
-            device = await device_service.get_device_by_hostname(hostname)
-            device_id = cast(UUID, device.id)
+        db_helper = get_database_helper(session_factory)
+        device_id = await db_helper.get_device_id_by_hostname(hostname)
 
         # Define collection method for specific VM logs
         async def collect_vm_specific_logs() -> Dict[str, Any]:

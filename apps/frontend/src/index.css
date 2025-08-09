@@ -5,24 +5,125 @@
 
 /* Custom theme variables for Tailwind CSS v4 */
 @theme {
-  /* Custom fonts */
-  --font-sans: system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, "Noto Sans", sans-serif;
-  --font-mono: "SF Mono", "Monaco", "Inconsolata", "Fira Code", "Fira Mono", "Roboto Mono", monospace;
+  /* Typography - Modern font stack with fallbacks */
+  --font-sans: "Inter", system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, "Noto Sans", sans-serif;
+  --font-mono: "JetBrains Mono", "Fira Code", "SF Mono", "Monaco", "Inconsolata", "Roboto Mono", monospace;
+  --font-display: "Inter", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
 
-  /* Custom colors - you can extend these */
-  --color-primary-50: oklch(0.95 0.02 240);
-  --color-primary-100: oklch(0.90 0.04 240);
-  --color-primary-200: oklch(0.80 0.08 240);
-  --color-primary-300: oklch(0.70 0.12 240);
-  --color-primary-400: oklch(0.60 0.16 240);
-  --color-primary-500: oklch(0.50 0.20 240);
-  --color-primary-600: oklch(0.45 0.18 240);
-  --color-primary-700: oklch(0.40 0.16 240);
-  --color-primary-800: oklch(0.35 0.14 240);
-  --color-primary-900: oklch(0.30 0.12 240);
+  /* Enhanced color palette with semantic meanings */
+  --color-primary-50: oklch(0.97 0.01 240);
+  --color-primary-100: oklch(0.94 0.02 240);
+  --color-primary-200: oklch(0.86 0.04 240);
+  --color-primary-300: oklch(0.76 0.08 240);
+  --color-primary-400: oklch(0.64 0.12 240);
+  --color-primary-500: oklch(0.52 0.16 240);
+  --color-primary-600: oklch(0.42 0.14 240);
+  --color-primary-700: oklch(0.34 0.12 240);
+  --color-primary-800: oklch(0.27 0.10 240);
+  --color-primary-900: oklch(0.21 0.08 240);
+  --color-primary-950: oklch(0.15 0.06 240);
 
-  /* Custom breakpoints if needed */
-  --breakpoint-3xl: 120rem;
+  /* Status colors with consistent lightness across hues */
+  --color-success-50: oklch(0.97 0.02 142);
+  --color-success-500: oklch(0.64 0.17 142);
+  --color-success-900: oklch(0.31 0.13 142);
+  
+  --color-warning-50: oklch(0.97 0.02 85);
+  --color-warning-500: oklch(0.70 0.15 85);
+  --color-warning-900: oklch(0.35 0.12 85);
+  
+  --color-error-50: oklch(0.97 0.02 25);
+  --color-error-500: oklch(0.63 0.21 25);
+  --color-error-900: oklch(0.32 0.17 25);
+  
+  --color-info-50: oklch(0.97 0.02 220);
+  --color-info-500: oklch(0.62 0.18 220);
+  --color-info-900: oklch(0.31 0.14 220);
+
+  /* Neutral colors with better contrast ratios */
+  --color-gray-50: oklch(0.985 0 0);
+  --color-gray-100: oklch(0.96 0 0);
+  --color-gray-200: oklch(0.922 0 0);
+  --color-gray-300: oklch(0.863 0 0);
+  --color-gray-400: oklch(0.702 0 0);
+  --color-gray-500: oklch(0.556 0 0);
+  --color-gray-600: oklch(0.439 0 0);
+  --color-gray-700: oklch(0.337 0 0);
+  --color-gray-800: oklch(0.248 0 0);
+  --color-gray-900: oklch(0.205 0 0);
+  --color-gray-950: oklch(0.145 0 0);
+
+  /* Extended breakpoints for better responsive design */
+  --breakpoint-xs: 475px;
+  --breakpoint-3xl: 1920px;
+  --breakpoint-4xl: 2560px;
+
+  /* Animation timing functions */
+  --ease-spring: cubic-bezier(0.68, -0.55, 0.265, 1.55);
+  --ease-smooth: cubic-bezier(0.4, 0, 0.2, 1);
+  --ease-bounce: cubic-bezier(0.68, -0.6, 0.32, 1.6);
+
+  /* Consistent spacing scale based on 4px grid */
+  --spacing-px: 1px;
+  --spacing-0: 0px;
+  --spacing-0-5: 2px;
+  --spacing-1: 4px;
+  --spacing-1-5: 6px;
+  --spacing-2: 8px;
+  --spacing-2-5: 10px;
+  --spacing-3: 12px;
+  --spacing-3-5: 14px;
+  --spacing-4: 16px;
+  --spacing-5: 20px;
+  --spacing-6: 24px;
+  --spacing-7: 28px;
+  --spacing-8: 32px;
+  --spacing-9: 36px;
+  --spacing-10: 40px;
+  --spacing-11: 44px;
+  --spacing-12: 48px;
+  --spacing-14: 56px;
+  --spacing-16: 64px;
+  --spacing-20: 80px;
+  --spacing-24: 96px;
+  --spacing-28: 112px;
+  --spacing-32: 128px;
+  --spacing-36: 144px;
+  --spacing-40: 160px;
+  --spacing-44: 176px;
+  --spacing-48: 192px;
+  --spacing-52: 208px;
+  --spacing-56: 224px;
+  --spacing-60: 240px;
+  --spacing-64: 256px;
+  --spacing-72: 288px;
+  --spacing-80: 320px;
+  --spacing-96: 384px;
+
+  /* Typography scale with consistent line heights */
+  --font-size-xs: 12px;
+  --font-size-sm: 14px;
+  --font-size-base: 16px;
+  --font-size-lg: 18px;
+  --font-size-xl: 20px;
+  --font-size-2xl: 24px;
+  --font-size-3xl: 30px;
+  --font-size-4xl: 36px;
+  --font-size-5xl: 48px;
+  --font-size-6xl: 60px;
+  --font-size-7xl: 72px;
+  --font-size-8xl: 96px;
+  --font-size-9xl: 128px;
+
+  /* Line heights that pair well with font sizes */
+  --line-height-3: 12px;
+  --line-height-4: 16px;
+  --line-height-5: 20px;
+  --line-height-6: 24px;
+  --line-height-7: 28px;
+  --line-height-8: 32px;
+  --line-height-9: 36px;
+  --line-height-10: 40px;
 }
 
 /* Global styles */
@@ -33,9 +134,17 @@
     box-sizing: border-box;
   }
 
+  *::before,
+  *::after {
+    box-sizing: border-box;
+  }
+
   html {
     font-family: var(--font-sans);
     scroll-behavior: smooth;
+    text-size-adjust: 100%;
+    tab-size: 4;
+    overflow-x: hidden;
   }
 
   body {
@@ -43,6 +152,109 @@
     text-rendering: optimizeLegibility;
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
+    font-feature-settings: "cv02", "cv03", "cv04", "cv11";
+    font-variant-numeric: oldstyle-nums;
+    line-height: 1.6;
+    overflow-x: hidden;
+  }
+
+  /* Improved focus styles */
+  :focus-visible {
+    outline: 2px solid hsl(var(--ring));
+    outline-offset: 2px;
+  }
+
+  /* Hide focus styles if not using keyboard */
+  :focus:not(:focus-visible) {
+    outline: none;
+  }
+
+  /* Better heading styles */
+  h1, h2, h3, h4, h5, h6 {
+    line-height: 1.2;
+    letter-spacing: -0.025em;
+    font-weight: 600;
+  }
+
+  /* Improved paragraph spacing */
+  p {
+    margin-bottom: 1em;
+  }
+
+  p:last-child {
+    margin-bottom: 0;
+  }
+
+  /* Better list styles */
+  ul, ol {
+    padding-left: 1.5em;
+  }
+
+  li {
+    margin-bottom: 0.25em;
+  }
+
+  /* Code styles */
+  code {
+    font-family: var(--font-mono);
+    font-size: 0.875em;
+  }
+
+  pre {
+    font-family: var(--font-mono);
+    overflow-x: auto;
+    white-space: pre;
+    word-wrap: normal;
+  }
+
+  /* Image optimization */
+  img {
+    max-width: 100%;
+    height: auto;
+    vertical-align: middle;
+  }
+
+  /* Table improvements */
+  table {
+    border-collapse: collapse;
+    width: 100%;
+  }
+
+  th, td {
+    text-align: left;
+    padding: 0.75rem;
+  }
+
+  /* Form element improvements */
+  button, input, optgroup, select, textarea {
+    font-family: inherit;
+    font-size: 100%;
+    line-height: 1.15;
+    margin: 0;
+  }
+
+  /* Remove default button styles */
+  button {
+    border: none;
+    background: none;
+    cursor: pointer;
+    padding: 0;
+  }
+
+  /* Improve input placeholders */
+  ::placeholder {
+    opacity: 0.6;
+  }
+
+  /* Selection colors */
+  ::selection {
+    background-color: hsl(var(--primary) / 0.2);
+    color: hsl(var(--primary-foreground));
+  }
+
+  ::-moz-selection {
+    background-color: hsl(var(--primary) / 0.2);
+    color: hsl(var(--primary-foreground));
   }
 }
 
@@ -54,6 +266,157 @@
   &::-webkit-scrollbar {
     display: none;
   }
+}
+
+@utility scrollbar-thin {
+  scrollbar-width: thin;
+  scrollbar-color: hsl(var(--border)) transparent;
+
+  &::-webkit-scrollbar {
+    width: 6px;
+    height: 6px;
+  }
+
+  &::-webkit-scrollbar-track {
+    background: transparent;
+    border-radius: 3px;
+  }
+
+  &::-webkit-scrollbar-thumb {
+    background: hsl(var(--border));
+    border-radius: 3px;
+    transition: background-color 0.2s ease;
+  }
+
+  &::-webkit-scrollbar-thumb:hover {
+    background: hsl(var(--muted-foreground) / 0.5);
+  }
+}
+
+@utility scrollbar-styled {
+  scrollbar-width: auto;
+  scrollbar-color: hsl(var(--muted-foreground) / 0.3) hsl(var(--muted) / 0.3);
+
+  &::-webkit-scrollbar {
+    width: 12px;
+    height: 12px;
+  }
+
+  &::-webkit-scrollbar-track {
+    background: hsl(var(--muted) / 0.3);
+    border-radius: 6px;
+  }
+
+  &::-webkit-scrollbar-thumb {
+    background: hsl(var(--muted-foreground) / 0.3);
+    border-radius: 6px;
+    border: 2px solid hsl(var(--background));
+    transition: all 0.2s ease;
+  }
+
+  &::-webkit-scrollbar-thumb:hover {
+    background: hsl(var(--muted-foreground) / 0.5);
+    border: 2px solid hsl(var(--background));
+  }
+
+  &::-webkit-scrollbar-corner {
+    background: hsl(var(--background));
+  }
+}
+
+/* Glass morphism utility */
+@utility glass {
+  background: hsl(var(--background) / 0.8);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  border: 1px solid hsl(var(--border) / 0.2);
+}
+
+@utility glass-strong {
+  background: hsl(var(--background) / 0.95);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  border: 1px solid hsl(var(--border) / 0.3);
+}
+
+/* Gradient utilities */
+@utility gradient-primary {
+  background: linear-gradient(135deg, 
+    hsl(var(--primary)) 0%, 
+    hsl(var(--primary) / 0.8) 100%
+  );
+}
+
+@utility gradient-subtle {
+  background: linear-gradient(135deg, 
+    hsl(var(--background)) 0%, 
+    hsl(var(--muted) / 0.3) 100%
+  );
+}
+
+/* Animation utilities */
+@utility animate-fade-in {
+  animation: fade-in 0.3s ease-out;
+}
+
+@utility animate-slide-up {
+  animation: slide-up 0.3s ease-out;
+}
+
+@utility animate-scale-in {
+  animation: scale-in 0.2s ease-out;
+}
+
+@keyframes fade-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes slide-up {
+  from {
+    transform: translateY(16px);
+    opacity: 0;
+  }
+  to {
+    transform: translateY(0);
+    opacity: 1;
+  }
+}
+
+@keyframes scale-in {
+  from {
+    transform: scale(0.95);
+    opacity: 0;
+  }
+  to {
+    transform: scale(1);
+    opacity: 1;
+  }
+}
+
+/* Layout utilities */
+@utility grid-fit {
+  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+}
+
+@utility grid-fill {
+  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+}
+
+@utility flex-center {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+@utility flex-between {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
 }
 
 @theme inline {

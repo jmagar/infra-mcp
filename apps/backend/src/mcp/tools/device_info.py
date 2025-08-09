@@ -381,7 +381,7 @@ async def _analyze_system_metrics(ssh_client: SSHClient, connection_info: SSHCon
                         "swap_used_mb": round(swap_used_kb / 1024, 2),
                         "swap_usage_percent": round((swap_used_kb / swap_total_kb) * 100, 2)
                         if swap_total_kb > 0
-                        else 0,
+                        else 0.0,
                     }
                 )
 
@@ -515,7 +515,7 @@ async def _analyze_system_metrics(ssh_client: SSHClient, connection_info: SSHCon
             system_info["boot_time"] = boot_time.isoformat()
 
     except Exception as e:
-        logger.warning(f"Failed to collect system info: {e}")
+        logger.warning(f"Failed to collect system info: {e}");
         system_info["error"] = str(e)
 
     return {
@@ -609,8 +609,8 @@ async def _analyze_docker(
                 timeout=20,
             )
 
-            containers_info = []
-            swag_containers = []
+            containers_info: list[dict[str, Any]] = []
+            swag_containers: list[str] = []
             swag_running = False
 
             if containers_result.return_code == 0 and containers_result.stdout.strip():
@@ -742,6 +742,8 @@ async def _analyze_storage_info(
 
         else:
             storage_info["zfs_available"] = False
+            storage_info["zfs_pools"] = []
+            storage_info["zfs_snapshots"] = []
 
     except Exception as e:
         storage_info["zfs_error"] = str(e)

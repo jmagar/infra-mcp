@@ -1,5 +1,5 @@
 import { useEffect } from 'react';
-import { useNotifications } from '@/contexts/NotificationContext';
+import { useNotifications } from '@/components/common';
 
 interface NotificationEventConfig {
   device?: string;
@@ -8,7 +8,7 @@ interface NotificationEventConfig {
 }
 
 export function useNotificationEvents(config: NotificationEventConfig = {}) {
-  const { showToast, showAlert } = useNotifications();
+  const { success, error, warning, info } = useNotifications();
 
   // Container lifecycle notifications
   const notifyContainerAction = (
@@ -26,16 +26,14 @@ export function useNotificationEvents(config: NotificationEventConfig = {}) {
     }[action];
 
     if (success) {
-      showToast(
-        'success',
-        `Container "${containerName}" has been ${actionPast} successfully`,
-        'Container Action Complete'
+      success(
+        'Container Action Complete',
+        `Container "${containerName}" has been ${actionPast} successfully`
       );
     } else {
-      showToast(
-        'error',
-        error || `Failed to ${action} container "${containerName}"`,
-        'Container Action Failed'
+      error(
+        'Container Action Failed',
+        error || `Failed to ${action} container "${containerName}"`
       );
     }
   };
@@ -52,13 +50,13 @@ export function useNotificationEvents(config: NotificationEventConfig = {}) {
       error: { type: 'error' as const, title: 'Device Error' },
     }[status];
 
-    showAlert({
-      type: config.type,
-      title: config.title,
-      message: message || `Device "${device}" is now ${status}`,
-      device,
-      auto_dismiss: status === 'online',
-    });
+    const notificationFn = config.type === 'success' ? success : 
+                         config.type === 'warning' ? warning : error;
+    
+    notificationFn(
+      config.title,
+      message || `Device "${device}" is now ${status}`
+    );
   };
 
   // System resource alerts
@@ -74,13 +72,12 @@ export function useNotificationEvents(config: NotificationEventConfig = {}) {
       disk: 'Disk',
     };
 
-    showAlert({
-      type: level === 'critical' ? 'error' : 'warning',
-      title: `${resourceNames[resource]} Usage ${level === 'critical' ? 'Critical' : 'High'}`,
-      message: `${resourceNames[resource]} usage is at ${usage.toFixed(1)}% on device "${device}"`,
-      device,
-      auto_dismiss: false,
-    });
+    const notificationFn = level === 'critical' ? error : warning;
+    
+    notificationFn(
+      `${resourceNames[resource]} Usage ${level === 'critical' ? 'Critical' : 'High'}`,
+      `${resourceNames[resource]} usage is at ${usage.toFixed(1)}% on device "${device}"`
+    );
   };
 
   // Service status notifications
@@ -96,14 +93,13 @@ export function useNotificationEvents(config: NotificationEventConfig = {}) {
       degraded: { type: 'warning' as const, title: 'Service Degraded' },
     }[status];
 
-    showAlert({
-      type: config.type,
-      title: config.title,
-      message: details || `Service "${service}" is ${status}${device ? ` on device "${device}"` : ''}`,
-      device,
-      service,
-      auto_dismiss: status === 'healthy',
-    });
+    const notificationFn = config.type === 'success' ? success : 
+                         config.type === 'warning' ? warning : error;
+    
+    notificationFn(
+      config.title,
+      details || `Service "${service}" is ${status}${device ? ` on device "${device}"` : ''}`
+    );
   };
 
   // ZFS health notifications
@@ -119,13 +115,42 @@ export function useNotificationEvents(config: NotificationEventConfig = {}) {
       faulted: { type: 'error' as const, title: 'ZFS Pool Faulted' },
     }[status];
 
-    showAlert({
-      type: config.type,
-      title: config.title,
-      message: details || `ZFS pool "${pool}" is ${status} on device "${device}"`,
-      device,
-      auto_dismiss: status === 'healthy',
-    });
+    const notificationFn = config.type === 'success' ? success : 
+                         config.type === 'warning' ? warning : error;
+    
+    notificationFn(
+      config.title,
+      details || `ZFS pool "${pool}" is ${status} on device "${device}"`
+    );
+  };
+
+  // Compose stack notifications
+  const notifyComposeAction = (
+    action: 'deploy' | 'stop' | 'restart' | 'remove' | 'modify',
+    stackName: string,
+    device: string,
+    success: boolean = true,
+    error?: string
+  ) => {
+    const actionPast = {
+      deploy: 'deployed',
+      stop: 'stopped',
+      restart: 'restarted',
+      remove: 'removed',
+      modify: 'modified',
+    }[action];
+
+    if (success) {
+      success(
+        'Compose Action Complete',
+        `Stack "${stackName}" has been ${actionPast} successfully`
+      );
+    } else {
+      error(
+        'Compose Action Failed',
+        error || `Failed to ${action} stack "${stackName}"`
+      );
+    }
   };
 
   // Deployment notifications
@@ -141,10 +166,12 @@ export function useNotificationEvents(config: NotificationEventConfig = {}) {
       failed: { type: 'error' as const, title: 'Deployment Failed' },
     }[status];
 
-    showToast(
-      config.type,
-      error || `Deployment of "${service}" ${status} on device "${device}"`,
-      config.title
+    const notificationFn = config.type === 'success' ? success : 
+                         config.type === 'info' ? info : error;
+    
+    notificationFn(
+      config.title,
+      error || `Deployment of "${service}" ${status} on device "${device}"`
     );
   };
 
@@ -155,17 +182,8 @@ export function useNotificationEvents(config: NotificationEventConfig = {}) {
     device?: string,
     persistent: boolean = false
   ) => {
-    if (persistent) {
-      showAlert({
-        type: 'error',
-        title,
-        message,
-        device,
-        auto_dismiss: false,
-      });
-    } else {
-      showToast('error', message, title);
-    }
+    // Use error notification for both persistent and non-persistent
+    error(title, message);
   };
 
   // Generic success notifications
@@ -174,11 +192,12 @@ export function useNotificationEvents(config: NotificationEventConfig = {}) {
     message: string,
     device?: string
   ) => {
-    showToast('success', message, title);
+    success(title, message);
   };
 
   return {
     notifyContainerAction,
+    notifyComposeAction,
     notifyDeviceStatus,
     notifyResourceAlert,
     notifyServiceStatus,

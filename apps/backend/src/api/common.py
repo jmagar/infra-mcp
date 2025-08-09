@@ -10,6 +10,7 @@ import logging
 import platform
 import random
 import sys
+from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, Request
 
@@ -41,7 +42,7 @@ limiter = Limiter(
 )
 
 
-async def get_current_user(credentials: HTTPAuthorizationCredentials = Depends(security)):
+async def get_current_user(credentials: HTTPAuthorizationCredentials = Depends(security)) -> dict[str, Any]:
     """Authentication dependency for protected endpoints"""
     settings = get_settings()
 
@@ -76,7 +77,7 @@ router = APIRouter()
 
 @router.get("/status", response_model=StatusResponse)
 @limiter.limit("60/minute")
-async def api_status(request: Request):
+async def api_status(request: Request) -> dict[str, Any]:
     """
     API status endpoint with structured response.
 
@@ -92,7 +93,7 @@ async def api_status(request: Request):
 
 @router.get("/system-info", response_model=SystemInfo)
 @limiter.limit("30/minute")
-async def get_system_info(request: Request):
+async def get_system_info(request: Request) -> dict[str, Any]:
     """
     Get system information.
 
@@ -112,7 +113,7 @@ async def get_system_info(request: Request):
 
 @router.get("/test-error", response_model=OperationResult[dict[str, str]])
 @limiter.limit("10/minute")  # Lower limit for test endpoint
-async def test_error_handling(request: Request):
+async def test_error_handling(request: Request) -> dict[str, Any]:
     """
     Test endpoint for error handling (for development/testing).
 
