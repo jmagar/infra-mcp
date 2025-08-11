@@ -15,7 +15,6 @@ import { LoadingSpinner, ConfirmDialog } from '@/components/common';
 import { DynamicFormModal } from '@/components/common/DynamicFormModal';
 import {
   FileTextIcon,
-  SearchIcon,
   PlayIcon,
   EyeIcon,
   ArrowLeftIcon,
@@ -23,7 +22,6 @@ import {
   BookOpenIcon,
   SettingsIcon,
   ShieldIcon,
-  GlobeIcon
 } from 'lucide-react';
 
 interface ProxyTemplate {
@@ -48,7 +46,7 @@ interface ProxyTemplate {
 export function ProxyTemplates() {
   const navigate = useNavigate();
   // const { templates, loading } = useProxyTemplates(); // TODO: Implement when backend is ready
-  const templates: any[] = []; // Mock empty array for now
+  const templates: ProxyTemplate[] = []; // Mock empty array for now
   const loading = false;
   const [searchTerm, setSearchTerm] = useState('');
   const [categoryFilter, setCategoryFilter] = useState('all');

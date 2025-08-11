@@ -30,6 +30,11 @@ class DeviceBase(BaseModel):
     location: str | None = Field(None, max_length=255, description="Physical location")
     tags: dict[str, Any] = Field(default_factory=dict, description="Device tags")
     monitoring_enabled: bool = Field(default=True, description="Whether monitoring is enabled")
+    
+    # Glances API configuration
+    glances_enabled: bool = Field(default=True, description="Enable Glances API monitoring")
+    glances_port: int = Field(default=61208, ge=1, le=65535, description="Glances API port")
+    glances_url: str | None = Field(None, max_length=512, description="Custom Glances API URL override")
 
     @field_validator("ip_address")
     @classmethod
@@ -94,6 +99,11 @@ class DeviceUpdate(BaseModel):
     tags: dict[str, Any] | None = Field(None)
     monitoring_enabled: bool | None = Field(None)
     status: DeviceStatus | None = Field(None)
+    
+    # Glances API configuration
+    glances_enabled: bool | None = Field(None, description="Enable Glances API monitoring")
+    glances_port: int | None = Field(None, ge=1, le=65535, description="Glances API port")
+    glances_url: str | None = Field(None, max_length=512, description="Custom Glances API URL")
 
     @field_validator("ip_address")
     @classmethod
@@ -126,6 +136,11 @@ class DeviceResponse(DeviceBase):
     last_seen: datetime | None = Field(description="Last time device was seen")
     created_at: datetime = Field(description="Device creation timestamp")
     updated_at: datetime = Field(description="Device last update timestamp")
+    
+    # Glances API configuration (inherited from DeviceBase but made explicit for documentation)
+    glances_enabled: bool = Field(description="Whether Glances API monitoring is enabled")
+    glances_port: int = Field(description="Glances API port number")
+    glances_url: str | None = Field(description="Custom Glances API URL override")
 
     @field_validator("ip_address", mode="before")
     @classmethod

@@ -6,25 +6,11 @@ utilizing the ZFS REST API endpoints for operation execution.
 """
 
 import logging
-from typing import Any
+from typing import Any, cast
 
 import httpx
 
 logger = logging.getLogger(__name__)
-
-
-def _get_api_config():
-    """Get API configuration settings"""
-    import os
-    return {
-        "base_url": "http://localhost:9101",
-        "api_key": os.getenv("API_KEY", "your-api-key-for-authentication"),
-        "timeout": 60,
-    }
-
-
-async def _make_api_request(method: str, endpoint: str, json_data: dict | None = None) -> dict[str, Any]:
-    """Make authenticated request to the ZFS API"""
 
 
 # Pool Management Tools
@@ -32,34 +18,34 @@ async def list_zfs_pools(device: str, timeout: int = 30) -> dict[str, Any]:
     """List all ZFS pools on a device."""
     logger.info(f"Listing ZFS pools on device: {device}")
     try:
-        endpoint = f"/api/zfs/{device}/pools?timeout={timeout}"
-        result = await _make_api_request("GET", endpoint)
-        return {
-            "device": device,
-            "pools": result.get("pools", []),
-            "total_pools": result.get("total_pools", 0),
-            "success": True
-        }
+        from ..server import api_client
+        params = {"timeout": str(timeout)}
+        response = await api_client.client.get(f"/zfs/{device}/pools", params=params)
+        response.raise_for_status()
+        return cast(dict[str, Any], response.json())
+    except httpx.HTTPError as e:
+        logger.error(f"HTTP error listing ZFS pools on {device}: {e}")
+        raise Exception(f"Failed to list ZFS pools on {device}: {str(e)}") from e
     except Exception as e:
         logger.error(f"Error listing ZFS pools on {device}: {e}")
-        raise Exception(f"Failed to list ZFS pools on {device}: {str(e)}")
+        raise Exception(f"Failed to list ZFS pools on {device}: {str(e)}") from e
 
 
 async def get_zfs_pool_status(device: str, pool_name: str, timeout: int = 30) -> dict[str, Any]:
     """Get detailed status for a specific ZFS pool."""
     logger.info(f"Getting ZFS pool status for {pool_name} on device: {device}")
     try:
-        endpoint = f"/api/zfs/{device}/pools/{pool_name}/status?timeout={timeout}"
-        result = await _make_api_request("GET", endpoint)
-        return {
-            "device": device,
-            "pool_name": pool_name,
-            "status": result,
-            "success": True
-        }
+        from ..server import api_client
+        params = {"timeout": str(timeout)}
+        response = await api_client.client.get(f"/zfs/{device}/pools/{pool_name}/status", params=params)
+        response.raise_for_status()
+        return cast(dict[str, Any], response.json())
+    except httpx.HTTPError as e:
+        logger.error(f"HTTP error getting pool status for {pool_name} on {device}: {e}")
+        raise Exception(f"Failed to get pool status for {pool_name} on {device}: {str(e)}") from e
     except Exception as e:
         logger.error(f"Error getting pool status for {pool_name} on {device}: {e}")
-        raise Exception(f"Failed to get pool status for {pool_name} on {device}: {str(e)}")
+        raise Exception(f"Failed to get pool status for {pool_name} on {device}: {str(e)}") from e
 
 
 # Dataset Management Tools
@@ -67,38 +53,37 @@ async def list_zfs_datasets(device: str, pool_name: str | None = None, timeout: 
     """List ZFS datasets, optionally filtered by pool."""
     logger.info(f"Listing ZFS datasets on device: {device} (pool: {pool_name or 'all'})")
     try:
-        endpoint = f"/api/zfs/{device}/datasets?timeout={timeout}"
+        from ..server import api_client
+        params = {"timeout": str(timeout)}
         if pool_name:
-            endpoint += f"&pool_name={pool_name}"
+            params["pool_name"] = pool_name
 
-        result = await _make_api_request("GET", endpoint)
-        return {
-            "device": device,
-            "pool_name": pool_name,
-            "datasets": result.get("datasets", []),
-            "total_datasets": result.get("total_datasets", 0),
-            "success": True
-        }
+        response = await api_client.client.get(f"/zfs/{device}/datasets", params=params)
+        response.raise_for_status()
+        return cast(dict[str, Any], response.json())
+    except httpx.HTTPError as e:
+        logger.error(f"HTTP error listing ZFS datasets on {device}: {e}")
+        raise Exception(f"Failed to list ZFS datasets on {device}: {str(e)}") from e
     except Exception as e:
         logger.error(f"Error listing ZFS datasets on {device}: {e}")
-        raise Exception(f"Failed to list ZFS datasets on {device}: {str(e)}")
+        raise Exception(f"Failed to list ZFS datasets on {device}: {str(e)}") from e
 
 
 async def get_zfs_dataset_properties(device: str, dataset_name: str, timeout: int = 30) -> dict[str, Any]:
     """Get all properties for a specific ZFS dataset."""
     logger.info(f"Getting properties for dataset {dataset_name} on device: {device}")
     try:
-        endpoint = f"/api/zfs/{device}/datasets/{dataset_name}/properties?timeout={timeout}"
-        result = await _make_api_request("GET", endpoint)
-        return {
-            "device": device,
-            "dataset_name": dataset_name,
-            "properties": result,
-            "success": True
-        }
+        from ..server import api_client
+        params = {"timeout": str(timeout)}
+        response = await api_client.client.get(f"/zfs/{device}/datasets/{dataset_name}/properties", params=params)
+        response.raise_for_status()
+        return cast(dict[str, Any], response.json())
+    except httpx.HTTPError as e:
+        logger.error(f"HTTP error getting dataset properties for {dataset_name} on {device}: {e}")
+        raise Exception(f"Failed to get dataset properties for {dataset_name} on {device}: {str(e)}") from e
     except Exception as e:
         logger.error(f"Error getting dataset properties for {dataset_name} on {device}: {e}")
-        raise Exception(f"Failed to get dataset properties for {dataset_name} on {device}: {str(e)}")
+        raise Exception(f"Failed to get dataset properties for {dataset_name} on {device}: {str(e)}") from e
 
 
 # Snapshot Management Tools
@@ -106,21 +91,20 @@ async def list_zfs_snapshots(device: str, dataset_name: str | None = None, timeo
     """List ZFS snapshots, optionally filtered by dataset."""
     logger.info(f"Listing ZFS snapshots on device: {device} (dataset: {dataset_name or 'all'})")
     try:
-        endpoint = f"/api/zfs/{device}/snapshots?timeout={timeout}"
+        from ..server import api_client
+        params = {"timeout": str(timeout)}
         if dataset_name:
-            endpoint += f"&dataset_name={dataset_name}"
+            params["dataset_name"] = dataset_name
 
-        result = await _make_api_request("GET", endpoint)
-        return {
-            "device": device,
-            "dataset_name": dataset_name,
-            "snapshots": result.get("snapshots", []),
-            "total_snapshots": result.get("total_snapshots", 0),
-            "success": True
-        }
+        response = await api_client.client.get(f"/zfs/{device}/snapshots", params=params)
+        response.raise_for_status()
+        return cast(dict[str, Any], response.json())
+    except httpx.HTTPError as e:
+        logger.error(f"HTTP error listing ZFS snapshots on {device}: {e}")
+        raise Exception(f"Failed to list ZFS snapshots on {device}: {str(e)}") from e
     except Exception as e:
         logger.error(f"Error listing ZFS snapshots on {device}: {e}")
-        raise Exception(f"Failed to list ZFS snapshots on {device}: {str(e)}")
+        raise Exception(f"Failed to list ZFS snapshots on {device}: {str(e)}") from e
 
 
 async def create_zfs_snapshot(
@@ -133,24 +117,22 @@ async def create_zfs_snapshot(
     """Create a new ZFS snapshot."""
     logger.info(f"Creating ZFS snapshot {snapshot_name} for dataset {dataset_name} on device: {device} (recursive: {recursive})")
     try:
-        endpoint = f"/api/zfs/{device}/snapshots?timeout={timeout}"
+        from ..server import api_client
+        params = {"timeout": str(timeout)}
         payload = {
             "dataset_name": dataset_name,
             "snapshot_name": snapshot_name,
             "recursive": recursive
         }
-        result = await _make_api_request("POST", endpoint, payload)
-        return {
-            "device": device,
-            "dataset_name": dataset_name,
-            "snapshot_name": snapshot_name,
-            "recursive": recursive,
-            "result": result,
-            "success": True
-        }
+        response = await api_client.client.post(f"/zfs/{device}/snapshots", json=payload, params=params)
+        response.raise_for_status()
+        return cast(dict[str, Any], response.json())
+    except httpx.HTTPError as e:
+        logger.error(f"HTTP error creating snapshot {snapshot_name} on {device}: {e}")
+        raise Exception(f"Failed to create snapshot {snapshot_name} on {device}: {str(e)}") from e
     except Exception as e:
         logger.error(f"Error creating snapshot {snapshot_name} on {device}: {e}")
-        raise Exception(f"Failed to create snapshot {snapshot_name} on {device}: {str(e)}")
+        raise Exception(f"Failed to create snapshot {snapshot_name} on {device}: {str(e)}") from e
 
 
 async def clone_zfs_snapshot(
@@ -162,19 +144,18 @@ async def clone_zfs_snapshot(
     """Clone a ZFS snapshot."""
     logger.info(f"Cloning ZFS snapshot {snapshot_name} to {clone_name} on device: {device}")
     try:
-        endpoint = f"/api/zfs/{device}/snapshots/{snapshot_name}/clone?timeout={timeout}"
+        from ..server import api_client
+        params = {"timeout": str(timeout)}
         payload = {"clone_name": clone_name}
-        result = await _make_api_request("POST", endpoint, payload)
-        return {
-            "device": device,
-            "snapshot_name": snapshot_name,
-            "clone_name": clone_name,
-            "result": result,
-            "success": True
-        }
+        response = await api_client.client.post(f"/zfs/{device}/snapshots/{snapshot_name}/clone", json=payload, params=params)
+        response.raise_for_status()
+        return cast(dict[str, Any], response.json())
+    except httpx.HTTPError as e:
+        logger.error(f"HTTP error cloning snapshot {snapshot_name} on {device}: {e}")
+        raise Exception(f"Failed to clone snapshot {snapshot_name} on {device}: {str(e)}") from e
     except Exception as e:
         logger.error(f"Error cloning snapshot {snapshot_name} on {device}: {e}")
-        raise Exception(f"Failed to clone snapshot {snapshot_name} on {device}: {str(e)}")
+        raise Exception(f"Failed to clone snapshot {snapshot_name} on {device}: {str(e)}") from e
 
 
 async def send_zfs_snapshot(
@@ -187,23 +168,21 @@ async def send_zfs_snapshot(
     """Send a ZFS snapshot for replication/backup."""
     logger.info(f"Sending ZFS snapshot {snapshot_name} from device: {device} (destination: {destination}, incremental: {incremental})")
     try:
-        endpoint = f"/api/zfs/{device}/snapshots/{snapshot_name}/send?timeout={timeout}"
+        from ..server import api_client
+        params = {"timeout": str(timeout)}
         payload = {
             "destination": destination,
             "incremental": incremental
         }
-        result = await _make_api_request("POST", endpoint, payload)
-        return {
-            "device": device,
-            "snapshot_name": snapshot_name,
-            "destination": destination,
-            "incremental": incremental,
-            "result": result,
-            "success": True
-        }
+        response = await api_client.client.post(f"/zfs/{device}/snapshots/{snapshot_name}/send", json=payload, params=params)
+        response.raise_for_status()
+        return cast(dict[str, Any], response.json())
+    except httpx.HTTPError as e:
+        logger.error(f"HTTP error sending snapshot {snapshot_name} from {device}: {e}")
+        raise Exception(f"Failed to send snapshot {snapshot_name} from {device}: {str(e)}") from e
     except Exception as e:
         logger.error(f"Error sending snapshot {snapshot_name} from {device}: {e}")
-        raise Exception(f"Failed to send snapshot {snapshot_name} from {device}: {str(e)}")
+        raise Exception(f"Failed to send snapshot {snapshot_name} from {device}: {str(e)}") from e
 
 
 async def receive_zfs_snapshot(
@@ -214,18 +193,18 @@ async def receive_zfs_snapshot(
     """Receive a ZFS snapshot stream."""
     logger.info(f"Receiving ZFS snapshot stream for dataset {dataset_name} on device: {device}")
     try:
-        endpoint = f"/api/zfs/{device}/receive?timeout={timeout}"
+        from ..server import api_client
+        params = {"timeout": str(timeout)}
         payload = {"dataset_name": dataset_name}
-        result = await _make_api_request("POST", endpoint, payload)
-        return {
-            "device": device,
-            "dataset_name": dataset_name,
-            "result": result,
-            "success": True
-        }
+        response = await api_client.client.post(f"/zfs/{device}/receive", json=payload, params=params)
+        response.raise_for_status()
+        return cast(dict[str, Any], response.json())
+    except httpx.HTTPError as e:
+        logger.error(f"HTTP error receiving snapshot for {dataset_name} on {device}: {e}")
+        raise Exception(f"Failed to receive snapshot for {dataset_name} on {device}: {str(e)}") from e
     except Exception as e:
         logger.error(f"Error receiving snapshot for {dataset_name} on {device}: {e}")
-        raise Exception(f"Failed to receive snapshot for {dataset_name} on {device}: {str(e)}")
+        raise Exception(f"Failed to receive snapshot for {dataset_name} on {device}: {str(e)}") from e
 
 
 async def diff_zfs_snapshots(
@@ -237,18 +216,17 @@ async def diff_zfs_snapshots(
     """Compare differences between two ZFS snapshots."""
     logger.info(f"Comparing ZFS snapshots {snapshot1} and {snapshot2} on device: {device}")
     try:
-        endpoint = f"/api/zfs/{device}/snapshots/{snapshot1}/diff?snapshot2={snapshot2}&timeout={timeout}"
-        result = await _make_api_request("GET", endpoint)
-        return {
-            "device": device,
-            "snapshot1": snapshot1,
-            "snapshot2": snapshot2,
-            "diff": result,
-            "success": True
-        }
+        from ..server import api_client
+        params = {"snapshot2": snapshot2, "timeout": str(timeout)}
+        response = await api_client.client.get(f"/zfs/{device}/snapshots/{snapshot1}/diff", params=params)
+        response.raise_for_status()
+        return cast(dict[str, Any], response.json())
+    except httpx.HTTPError as e:
+        logger.error(f"HTTP error diffing snapshots {snapshot1} and {snapshot2} on {device}: {e}")
+        raise Exception(f"Failed to diff snapshots {snapshot1} and {snapshot2} on {device}: {str(e)}") from e
     except Exception as e:
         logger.error(f"Error diffing snapshots {snapshot1} and {snapshot2} on {device}: {e}")
-        raise Exception(f"Failed to diff snapshots {snapshot1} and {snapshot2} on {device}: {str(e)}")
+        raise Exception(f"Failed to diff snapshots {snapshot1} and {snapshot2} on {device}: {str(e)}") from e
 
 
 # Health and Monitoring Tools
@@ -256,48 +234,51 @@ async def check_zfs_health(device: str, timeout: int = 60) -> dict[str, Any]:
     """Comprehensive ZFS health check."""
     logger.info(f"Checking ZFS health on device: {device}")
     try:
-        endpoint = f"/api/zfs/{device}/health?timeout={timeout}"
-        result = await _make_api_request("GET", endpoint)
-        return {
-            "device": device,
-            "health": result,
-            "success": True
-        }
+        from ..server import api_client
+        params = {"timeout": str(timeout)}
+        response = await api_client.client.get(f"/zfs/{device}/health", params=params)
+        response.raise_for_status()
+        return cast(dict[str, Any], response.json())
+    except httpx.HTTPError as e:
+        logger.error(f"HTTP error checking ZFS health on {device}: {e}")
+        raise Exception(f"Failed to check ZFS health on {device}: {str(e)}") from e
     except Exception as e:
         logger.error(f"Error checking ZFS health on {device}: {e}")
-        raise Exception(f"Failed to check ZFS health on {device}: {str(e)}")
+        raise Exception(f"Failed to check ZFS health on {device}: {str(e)}") from e
 
 
 async def get_zfs_arc_stats(device: str, timeout: int = 30) -> dict[str, Any]:
     """Get ZFS ARC (Adaptive Replacement Cache) statistics."""
     logger.info(f"Getting ZFS ARC stats on device: {device}")
     try:
-        endpoint = f"/api/zfs/{device}/arc-stats?timeout={timeout}"
-        result = await _make_api_request("GET", endpoint)
-        return {
-            "device": device,
-            "arc_stats": result,
-            "success": True
-        }
+        from ..server import api_client
+        params = {"timeout": str(timeout)}
+        response = await api_client.client.get(f"/zfs/{device}/arc-stats", params=params)
+        response.raise_for_status()
+        return cast(dict[str, Any], response.json())
+    except httpx.HTTPError as e:
+        logger.error(f"HTTP error getting ARC stats on {device}: {e}")
+        raise Exception(f"Failed to get ARC stats on {device}: {str(e)}") from e
     except Exception as e:
         logger.error(f"Error getting ARC stats on {device}: {e}")
-        raise Exception(f"Failed to get ARC stats on {device}: {str(e)}")
+        raise Exception(f"Failed to get ARC stats on {device}: {str(e)}") from e
 
 
 async def monitor_zfs_events(device: str, timeout: int = 30) -> dict[str, Any]:
     """Monitor ZFS events and error messages."""
     logger.info(f"Monitoring ZFS events on device: {device}")
     try:
-        endpoint = f"/api/zfs/{device}/events?timeout={timeout}"
-        result = await _make_api_request("GET", endpoint)
-        return {
-            "device": device,
-            "events": result,
-            "success": True
-        }
+        from ..server import api_client
+        params = {"timeout": str(timeout)}
+        response = await api_client.client.get(f"/zfs/{device}/events", params=params)
+        response.raise_for_status()
+        return cast(dict[str, Any], response.json())
+    except httpx.HTTPError as e:
+        logger.error(f"HTTP error monitoring ZFS events on {device}: {e}")
+        raise Exception(f"Failed to monitor ZFS events on {device}: {str(e)}") from e
     except Exception as e:
         logger.error(f"Error monitoring ZFS events on {device}: {e}")
-        raise Exception(f"Failed to monitor ZFS events on {device}: {str(e)}")
+        raise Exception(f"Failed to monitor ZFS events on {device}: {str(e)}") from e
 
 
 # Analysis and Reporting Tools
@@ -305,48 +286,51 @@ async def generate_zfs_report(device: str, timeout: int = 120) -> dict[str, Any]
     """Generate comprehensive ZFS report."""
     logger.info(f"Generating ZFS report for device: {device}")
     try:
-        endpoint = f"/api/zfs/{device}/report?timeout={timeout}"
-        result = await _make_api_request("GET", endpoint)
-        return {
-            "device": device,
-            "report": result,
-            "success": True
-        }
+        from ..server import api_client
+        params = {"timeout": str(timeout)}
+        response = await api_client.client.get(f"/zfs/{device}/report", params=params)
+        response.raise_for_status()
+        return cast(dict[str, Any], response.json())
+    except httpx.HTTPError as e:
+        logger.error(f"HTTP error generating ZFS report on {device}: {e}")
+        raise Exception(f"Failed to generate ZFS report on {device}: {str(e)}") from e
     except Exception as e:
         logger.error(f"Error generating ZFS report on {device}: {e}")
-        raise Exception(f"Failed to generate ZFS report on {device}: {str(e)}")
+        raise Exception(f"Failed to generate ZFS report on {device}: {str(e)}") from e
 
 
 async def analyze_snapshot_usage(device: str, timeout: int = 60) -> dict[str, Any]:
     """Analyze snapshot space usage and provide cleanup recommendations."""
     logger.info(f"Analyzing snapshot usage on device: {device}")
     try:
-        endpoint = f"/api/zfs/{device}/snapshots/usage?timeout={timeout}"
-        result = await _make_api_request("GET", endpoint)
-        return {
-            "device": device,
-            "analysis": result,
-            "success": True
-        }
+        from ..server import api_client
+        params = {"timeout": str(timeout)}
+        response = await api_client.client.get(f"/zfs/{device}/snapshots/usage", params=params)
+        response.raise_for_status()
+        return cast(dict[str, Any], response.json())
+    except httpx.HTTPError as e:
+        logger.error(f"HTTP error analyzing snapshot usage on {device}: {e}")
+        raise Exception(f"Failed to analyze snapshot usage on {device}: {str(e)}") from e
     except Exception as e:
         logger.error(f"Error analyzing snapshot usage on {device}: {e}")
-        raise Exception(f"Failed to analyze snapshot usage on {device}: {str(e)}")
+        raise Exception(f"Failed to analyze snapshot usage on {device}: {str(e)}") from e
 
 
 async def optimize_zfs_settings(device: str, timeout: int = 60) -> dict[str, Any]:
     """Analyze ZFS configuration and suggest optimizations."""
     logger.info(f"Optimizing ZFS settings for device: {device}")
     try:
-        endpoint = f"/api/zfs/{device}/optimize?timeout={timeout}"
-        result = await _make_api_request("GET", endpoint)
-        return {
-            "device": device,
-            "optimization": result,
-            "success": True
-        }
+        from ..server import api_client
+        params = {"timeout": str(timeout)}
+        response = await api_client.client.get(f"/zfs/{device}/optimize", params=params)
+        response.raise_for_status()
+        return cast(dict[str, Any], response.json())
+    except httpx.HTTPError as e:
+        logger.error(f"HTTP error optimizing ZFS settings on {device}: {e}")
+        raise Exception(f"Failed to optimize ZFS settings on {device}: {str(e)}") from e
     except Exception as e:
         logger.error(f"Error optimizing ZFS settings on {device}: {e}")
-        raise Exception(f"Failed to optimize ZFS settings on {device}: {str(e)}")
+        raise Exception(f"Failed to optimize ZFS settings on {device}: {str(e)}") from e
 
 
 # ZFS Tool Registration

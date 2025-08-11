@@ -1,7 +1,6 @@
 import { createBrowserRouter, Navigate } from 'react-router-dom';
 import { AppLayout } from './components/layouts/AppLayout';
 import { Dashboard } from './pages/Dashboard';
-import { InfrastructureDashboard } from './pages/InfrastructureDashboard';
 import { DeviceList } from './pages/devices/DeviceList';
 import { DeviceDetails } from './pages/devices/DeviceDetails';
 import { ContainerList } from './pages/containers/ContainerList';
@@ -25,6 +24,9 @@ import { Backups } from './pages/system/Backups';
 import { VMs } from './pages/system/VMs';
 import { Settings } from './pages/Settings';
 import { NotificationDemo } from './pages/notifications/NotificationDemo';
+import { DragDropDemo } from './pages/DragDropDemo';
+import { ModernDashboard } from './pages/ModernDashboard';
+import { UnifiedDashboard } from './pages/UnifiedDashboard';
 import { RealTimeDashboardPage } from './pages/RealTimeDashboard';
 import { ErrorBoundary } from './components/common/ErrorBoundary';
 
@@ -37,13 +39,13 @@ export const router = createBrowserRouter([
       // Default route - redirect to new dashboard
       {
         index: true,
-        element: <InfrastructureDashboard />,
+        element: <UnifiedDashboard />,
       },
       
       // Dashboard routes
       {
         path: 'dashboard',
-        element: <InfrastructureDashboard />,
+        element: <UnifiedDashboard />,
       },
       {
         path: 'dashboard-old',
@@ -262,6 +264,24 @@ export const router = createBrowserRouter([
       {
         path: 'notifications-demo',
         element: <NotificationDemo />,
+      },
+      
+      // Drag & Drop Demo (development only)
+      {
+        path: 'drag-drop-demo',
+        element: <DragDropDemo />,
+      },
+      
+      // Modern Dashboard (development only)
+      {
+        path: 'modern-dashboard',
+        element: <ModernDashboard />,
+      },
+      
+      // Unified Dashboard (development only)
+      {
+        path: 'unified-dashboard',
+        element: <UnifiedDashboard />,
       },
       
       // Catch all - redirect to dashboard

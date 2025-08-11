@@ -1,13 +1,21 @@
 import { createContext, useContext, useEffect, useState } from 'react';
+import { useAdvancedTheme, type ThemeMode, type ActualTheme } from '../hooks/useAdvancedTheme';
 
-type Theme = 'light' | 'dark' | 'system';
-type ResolvedTheme = 'light' | 'dark';
+type Theme = ThemeMode; // Extend to support 'auto' mode
+type ResolvedTheme = ActualTheme;
 
 interface ThemeContextType {
   theme: Theme;
   resolvedTheme: ResolvedTheme;
   setTheme: (theme: Theme) => void;
   toggleTheme: () => void;
+  // Advanced theme features
+  isAmbientLightSupported: boolean;
+  ambientLightLevel: number | null;
+  isReducedMotion: boolean;
+  isHighContrast: boolean;
+  timeBasedTheme: ActualTheme;
+  resetToSystem: () => void;
 }
 
 const ThemeContext = createContext<ThemeContextType | undefined>(undefined);
@@ -23,89 +31,46 @@ export function ThemeProvider({
   defaultTheme = 'system',
   storageKey = 'infrastructor-theme',
 }: ThemeProviderProps) {
-  const [theme, setTheme] = useState<Theme>(() => {
-    if (typeof window === 'undefined') return defaultTheme;
+  const advancedTheme = useAdvancedTheme();
+
+  // Initialize from localStorage if available
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
     
     try {
-      const stored = localStorage.getItem(storageKey);
-      return (stored as Theme) || defaultTheme;
-    } catch {
-      return defaultTheme;
-    }
-  });
-
-  const [resolvedTheme, setResolvedTheme] = useState<ResolvedTheme>(() => {
-    if (typeof window === 'undefined') return 'light';
-    
-    if (theme === 'system') {
-      return window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
-    }
-    return theme as ResolvedTheme;
-  });
-
-  useEffect(() => {
-    const root = window.document.documentElement;
-
-    // Remove previous theme classes
-    root.classList.remove('light', 'dark');
-
-    let systemTheme: ResolvedTheme = 'light';
-
-    if (theme === 'system') {
-      systemTheme = window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
-      setResolvedTheme(systemTheme);
-      root.classList.add(systemTheme);
-    } else {
-      setResolvedTheme(theme as ResolvedTheme);
-      root.classList.add(theme);
-    }
-  }, [theme]);
-
-  useEffect(() => {
-    // Listen for system theme changes when theme is set to 'system'
-    const mediaQuery = window.matchMedia('(prefers-color-scheme: dark)');
-    
-    const handleChange = (e: MediaQueryListEvent) => {
-      if (theme === 'system') {
-        const newSystemTheme = e.matches ? 'dark' : 'light';
-        setResolvedTheme(newSystemTheme);
-        
-        const root = window.document.documentElement;
-        root.classList.remove('light', 'dark');
-        root.classList.add(newSystemTheme);
+      const stored = localStorage.getItem(storageKey) as Theme;
+      if (stored && stored !== advancedTheme.mode) {
+        advancedTheme.setMode(stored);
       }
-    };
-
-    mediaQuery.addEventListener('change', handleChange);
-    return () => mediaQuery.removeEventListener('change', handleChange);
-  }, [theme]);
-
-  const handleSetTheme = (newTheme: Theme) => {
-    try {
-      localStorage.setItem(storageKey, newTheme);
     } catch {
       // Ignore localStorage errors
     }
-    setTheme(newTheme);
-  };
+  }, [storageKey, advancedTheme]);
 
-  const toggleTheme = () => {
-    if (theme === 'light') {
-      handleSetTheme('dark');
-    } else if (theme === 'dark') {
-      handleSetTheme('system');
-    } else {
-      handleSetTheme('light');
+  // Persist theme changes to localStorage
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    
+    try {
+      localStorage.setItem(storageKey, advancedTheme.mode);
+    } catch {
+      // Ignore localStorage errors
     }
-  };
+  }, [advancedTheme.mode, storageKey]);
 
   return (
     <ThemeContext.Provider
       value={{
-        theme,
-        resolvedTheme,
-        setTheme: handleSetTheme,
-        toggleTheme,
+        theme: advancedTheme.mode,
+        resolvedTheme: advancedTheme.actualTheme,
+        setTheme: advancedTheme.setMode,
+        toggleTheme: advancedTheme.toggleTheme,
+        isAmbientLightSupported: advancedTheme.isAmbientLightSupported,
+        ambientLightLevel: advancedTheme.ambientLightLevel,
+        isReducedMotion: advancedTheme.isReducedMotion,
+        isHighContrast: advancedTheme.isHighContrast,
+        timeBasedTheme: advancedTheme.timeBasedTheme,
+        resetToSystem: advancedTheme.resetToSystem,
       }}
     >
       {children}

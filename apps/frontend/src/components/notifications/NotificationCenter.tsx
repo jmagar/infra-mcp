@@ -1,9 +1,9 @@
 import { useState, useRef, useEffect } from 'react';
-import { useNotifications } from '@/contexts/NotificationContext';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
+import { useToast } from '@/components/ui/toast';
 import {
   Bell as BellIcon,
   X as XMarkIcon,
@@ -11,6 +11,7 @@ import {
   AlertTriangle as ExclamationTriangleIcon,
   Info as InformationCircleIcon,
   XCircle as XCircleIcon,
+  Plus as PlusIcon,
 } from 'lucide-react';
 
 interface NotificationItem {
@@ -28,6 +29,7 @@ export function NotificationCenter() {
   const [notifications, setNotifications] = useState<NotificationItem[]>([]);
   const [isOpen, setIsOpen] = useState(false);
   const notificationRef = useRef<HTMLDivElement>(null);
+  const { addToast } = useToast();
 
   // Mock notifications for demo purposes
   useEffect(() => {
@@ -137,6 +139,22 @@ export function NotificationCenter() {
     setNotifications([]);
   };
 
+  // Demo function to test toast notifications
+  const showDemoToast = (type: 'success' | 'error' | 'warning' | 'info') => {
+    const messages = {
+      success: 'Operation completed successfully!',
+      error: 'An error occurred during the operation.',
+      warning: 'Warning: Please check your settings.',
+      info: 'New system update available.',
+    };
+
+    addToast({
+      title: type.charAt(0).toUpperCase() + type.slice(1),
+      description: messages[type],
+      variant: type,
+    });
+  };
+
   return (
     <Popover open={isOpen} onOpenChange={setIsOpen}>
       <PopoverTrigger asChild>
@@ -195,6 +213,28 @@ export function NotificationCenter() {
               </div>
             </div>
           </CardHeader>
+
+          {/* Toast Demo Section */}
+          <div className="p-4 border-b border-gray-200 dark:border-gray-700 bg-gray-50/50 dark:bg-gray-800/50">
+            <div className="flex items-center justify-between mb-3">
+              <span className="text-xs font-medium text-gray-600 dark:text-gray-400 uppercase tracking-wider">Toast Demo</span>
+              <PlusIcon className="h-3 w-3 text-gray-400" />
+            </div>
+            <div className="grid grid-cols-4 gap-2">
+              {(['success', 'error', 'warning', 'info'] as const).map((type) => (
+                <Button
+                  key={type}
+                  onClick={() => showDemoToast(type)}
+                  size="sm"
+                  variant="outline"
+                  ripple={true}
+                  className="text-xs h-8 transition-all duration-200 hover:scale-105"
+                >
+                  {type}
+                </Button>
+              ))}
+            </div>
+          </div>
           
           <CardContent className="p-0">
             <div className="max-h-96 overflow-y-auto" ref={notificationRef}>

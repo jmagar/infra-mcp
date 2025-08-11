@@ -3,12 +3,12 @@
  * Handles deployment management and monitoring
  */
 
-import React, { useState, useEffect } from 'react';
+import React, { useState } from 'react';
 import { useParams } from 'react-router-dom';
 import { useCompose } from '@/hooks/useCompose';
 import { useContainers } from '@/hooks/useContainers';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { Badge } from '@/components/ui/badge';
+// import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { DataTable, StatusBadge, LoadingSpinner } from '@/components/common';
@@ -120,7 +120,7 @@ export function ComposeDeployment() {
     {
       key: 'actions',
       title: 'Actions',
-      render: (_, container) => (
+      render: () => (
         <Button variant="outline" size="sm">
           <EyeIcon className="h-3 w-3 mr-1" />
           Logs

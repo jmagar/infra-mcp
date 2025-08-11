@@ -4,26 +4,17 @@
 
 import { useState, useEffect } from 'react';
 import { composeApi } from '@/services/api';
-import type { ComposeStack, ComposeModifyRequest, ComposeDeployRequest } from '@infrastructor/shared-types';
 
 export function useCompose() {
-  const [composeStacks, setComposeStacks] = useState<ComposeStack[]>([]);
-  const [loading, setLoading] = useState(true);
+  const [composeStacks, setComposeStacks] = useState<Array<Record<string, unknown>>>([]);
+  const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  // No-op placeholder until backend list endpoint is available
   const fetchStacks = async () => {
-    try {
-      setLoading(true);
-      setError(null);
-      const response = await composeApi.list();
-      setComposeStacks(response.data.items || []);
-    } catch (err) {
-      const errorMessage = err instanceof Error ? err.message : 'Failed to fetch compose stacks';
-      setError(errorMessage);
-      console.error('Error fetching compose stacks:', err);
-    } finally {
-      setLoading(false);
-    }
+    setLoading(false);
+    setError(null);
+    setComposeStacks([]);
   };
 
   const deployStack = async (
@@ -32,7 +23,7 @@ export function useCompose() {
     content?: string, 
     path?: string
   ) => {
-    const deployData: ComposeDeployRequest = {
+    const deployData = {
       device: deviceHostname,
       compose_content: content || '',
       deployment_path: path,
@@ -40,16 +31,17 @@ export function useCompose() {
       start_services: true,
       pull_images: true,
     };
-    
     await composeApi.deploy(deployData);
   };
 
-  const stopStack = async (deviceHostname: string, stackName: string) => {
-    await composeApi.stop(deviceHostname, stackName);
+  // Placeholders for future implementations
+  const stopStack = async (_deviceHostname: string, _stackName: string) => {
+    void _deviceHostname;
+    void _stackName;
   };
-
-  const removeStack = async (deviceHostname: string, stackName: string) => {
-    await composeApi.remove(deviceHostname, stackName);
+  const removeStack = async (_deviceHostname: string, _stackName: string) => {
+    void _deviceHostname;
+    void _stackName;
   };
 
   const modifyStack = async (
@@ -58,25 +50,24 @@ export function useCompose() {
     content: string,
     targetDevice?: string
   ) => {
-    const modifyData: ComposeModifyRequest = {
+    const modifyData = {
       compose_content: content,
       target_device: targetDevice || deviceHostname,
       service_name: stackName,
     };
-    
     await composeApi.modify(modifyData);
   };
 
   const scanPorts = async (deviceHostname: string) => {
-    return await composeApi.scanPorts(deviceHostname);
+    return await composeApi.scanPorts({ device: deviceHostname });
   };
 
   const scanNetworks = async (deviceHostname: string) => {
-    return await composeApi.scanNetworks(deviceHostname);
+    return await composeApi.scanNetworks({ device: deviceHostname });
   };
 
   useEffect(() => {
-    fetchStacks();
+    // no-op
   }, []);
 
   return {

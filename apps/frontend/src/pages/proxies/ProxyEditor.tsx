@@ -3,7 +3,7 @@
  * Visual editor for SWAG reverse proxy configuration files
  */
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { useProxyConfig } from '@/hooks';
 import { useNotificationEvents } from '@/hooks/useNotificationEvents';
@@ -26,7 +26,6 @@ import {
   SettingsIcon,
   PlayIcon
 } from 'lucide-react';
-import type { ProxyConfigResponse } from '@infrastructor/shared-types';
 
 export function ProxyEditor() {
   const { deviceHostname, configId } = useParams<{
@@ -43,7 +42,6 @@ export function ProxyEditor() {
   const [targetPort, setTargetPort] = useState<number>(80);
   const [sslEnabled, setSslEnabled] = useState(false);
   const [authEnabled, setAuthEnabled] = useState(false);
-  const [configContent, setConfigContent] = useState('');
   const [customContent, setCustomContent] = useState('');
   
   const [isModified, setIsModified] = useState(false);
@@ -55,34 +53,21 @@ export function ProxyEditor() {
   useEffect(() => {
     if (config) {
       setServiceName(config.service_name);
-      setServerNames(config.server_names || []);
-      setTargetHost(config.target_host);
-      setTargetPort(config.target_port);
-      setSslEnabled(config.ssl_enabled || false);
-      setAuthEnabled(config.auth_enabled || false);
-      setConfigContent(config.config_content || '');
-      setCustomContent(config.custom_config || '');
+      // Map to local editable fields
+      const initialServers: string[] = [];
+      if (config.domain) initialServers.push(config.domain);
+      if (config.subdomain) initialServers.push(config.subdomain);
+      setServerNames(initialServers);
+      setTargetHost(config.upstream_host);
+      setTargetPort(config.upstream_port);
+      setSslEnabled(!!config.ssl_enabled);
+      setAuthEnabled(!!config.basic_auth_enabled);
+      setCustomContent(config.config_file_content || '');
     }
   }, [config]);
 
   // Mark as modified when content changes
-  useEffect(() => {
-    if (config) {
-      const hasChanges = 
-        serviceName !== config.service_name ||
-        JSON.stringify(serverNames) !== JSON.stringify(config.server_names || []) ||
-        targetHost !== config.target_host ||
-        targetPort !== config.target_port ||
-        sslEnabled !== (config.ssl_enabled || false) ||
-        authEnabled !== (config.auth_enabled || false) ||
-        customContent !== (config.custom_config || '');
-      
-      setIsModified(hasChanges);
-      validateConfig();
-    }
-  }, [serviceName, serverNames, targetHost, targetPort, sslEnabled, authEnabled, customContent, config]);
-
-  const validateConfig = () => {
+  const validateConfig = useCallback(() => {
     const errors: string[] = [];
     
     if (!serviceName.trim()) {
@@ -109,7 +94,23 @@ export function ProxyEditor() {
     });
     
     setValidationErrors(errors);
-  };
+  }, [serviceName, serverNames, targetHost, targetPort]);
+
+  useEffect(() => {
+    if (config) {
+      const hasChanges = 
+        serviceName !== config.service_name ||
+        JSON.stringify(serverNames) !== JSON.stringify([config.domain, config.subdomain].filter(Boolean)) ||
+        targetHost !== config.upstream_host ||
+        targetPort !== config.upstream_port ||
+        sslEnabled !== !!config.ssl_enabled ||
+        authEnabled !== !!config.basic_auth_enabled ||
+        customContent !== (config.config_file_content || '');
+      
+      setIsModified(hasChanges);
+      validateConfig();
+    }
+  }, [serviceName, serverNames, targetHost, targetPort, sslEnabled, authEnabled, customContent, config, validateConfig]);
 
   const handleServerNamesChange = (value: string) => {
     const names = value.split(',').map(name => name.trim()).filter(name => name);
@@ -128,8 +129,8 @@ export function ProxyEditor() {
         target_host: targetHost,
         target_port: targetPort,
         ssl_enabled: sslEnabled,
-        auth_enabled: authEnabled,
-        custom_config: customContent,
+        basic_auth_enabled: authEnabled,
+        config_file_content: customContent,
       };
       
       // TODO: Implement actual update call
@@ -404,11 +405,11 @@ export function ProxyEditor() {
         isOpen={confirmSave}
         title="Save Configuration"
         description={`Save changes to "${serviceName}" proxy configuration? The configuration will be applied to the SWAG proxy server.`}
-        confirmText="Save Changes"
-        cancelText="Cancel"
-        variant="default"
+        confirmLabel="Save Changes"
+        cancelLabel="Cancel"
+        variant="warning"
         onConfirm={handleSave}
-        onCancel={() => setConfirmSave(false)}
+        onClose={() => setConfirmSave(false)}
         isLoading={saving}
       />
     </div>

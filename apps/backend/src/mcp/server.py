@@ -60,6 +60,7 @@ from apps.backend.src.mcp.tools.proxy_management import (
     sync_proxy_config,
 )
 from apps.backend.src.mcp.tools.zfs_management import ZFS_TOOLS
+from apps.backend.src.mcp.tools.metrics_collection import get_system_info_glances
 
 # Configure structured logging
 from apps.backend.src.core.logging import setup_logging
@@ -348,31 +349,6 @@ async def get_drives_stats(
         raise Exception(f"Failed to get drives stats: {str(e)}") from e
 
 
-async def get_device_logs(
-    device: str,
-    service: str | None = None,
-    since: str | None = None,
-    lines: int = 100,
-    timeout: int = 60,
-) -> dict[str, Any]:
-    """Get system logs from journald or traditional syslog"""
-    try:
-        params = {"lines": str(lines), "timeout": str(timeout)}
-        if service:
-            params["service"] = service
-        if since:
-            params["since"] = since
-
-        response = await api_client.client.get(f"/devices/{device}/logs", params=params)
-        response.raise_for_status()
-        return cast(dict[str, Any], response.json())
-
-    except httpx.HTTPError as e:
-        logger.error(f"HTTP error getting device logs for {device}: {e}")
-        raise Exception(f"Failed to get device logs: {str(e)}") from e
-    except Exception as e:
-        logger.error(f"Error getting device logs for {device}: {e}")
-        raise Exception(f"Failed to get device logs: {str(e)}") from e
 
 
 # Device Management Tools
@@ -570,6 +546,11 @@ def create_mcp_server() -> FastMCP:
     # )(get_service_dependencies)
 
     # Register system monitoring tools
+    
+    server.tool(
+        name="get_system_info_glances",
+        description="Collect comprehensive system resource metrics from a device using Glances API - includes CPU, memory, disk, network, processes, GPU, and sensor data",
+    )(get_system_info_glances)
 
     server.tool(
         name="get_drive_health",
@@ -581,9 +562,6 @@ def create_mcp_server() -> FastMCP:
         description="Get drive usage statistics, I/O performance, and utilization metrics",
     )(get_drives_stats)
 
-    server.tool(
-        name="get_device_logs", description="Get system logs from journald or traditional syslog"
-    )(get_device_logs)
 
     # Register device management tools
     server.tool(
@@ -965,198 +943,6 @@ def create_mcp_server() -> FastMCP:
         except Exception as e:
             return json.dumps({"error": str(e), "hostname": hostname}, indent=2, ensure_ascii=False)
 
-    # Register Logs resources
-    @server.resource(
-        uri="logs://{hostname}",
-        name="System Logs",
-        description="Get system logs (syslog/journald) for a device",
-        mime_type="application/json",
-    )
-    async def logs_system(hostname: str) -> str:
-        """Get system logs for a device"""
-        try:
-            response = await api_client.client.get(f"/devices/{hostname}/logs")
-            response.raise_for_status()
-            data = response.json()
-
-            return json.dumps(
-                {
-                    "resource_type": "system_logs",
-                    "hostname": hostname,
-                    "logs": data,
-                    "uri": f"logs://{hostname}",
-                },
-                indent=2,
-                default=str,
-                ensure_ascii=False,
-            )
-        except httpx.HTTPError as e:
-            logger.error(f"HTTP error getting system logs for {hostname}: {e}")
-            return json.dumps(
-                {
-                    "error": f"Failed to get system logs: {str(e)}",
-                    "hostname": hostname,
-                    "uri": f"logs://{hostname}",
-                },
-                indent=2,
-                ensure_ascii=False,
-            )
-        except Exception as e:
-            logger.error(f"Error getting system logs for {hostname}: {e}")
-            return json.dumps(
-                {"error": str(e), "hostname": hostname, "uri": f"logs://{hostname}"},
-                indent=2,
-                ensure_ascii=False,
-            )
-
-    @server.resource(
-        uri="logs://{hostname}/{container_name}",
-        name="Container Logs",
-        description="Get Docker container logs for a specific container",
-        mime_type="application/json",
-    )
-    async def logs_container(hostname: str, container_name: str) -> str:
-        """Get container logs for a specific container"""
-        try:
-            response = await api_client.client.get(f"/containers/{hostname}/{container_name}/logs")
-            response.raise_for_status()
-            data = response.json()
-
-            return json.dumps(
-                {
-                    "resource_type": "container_logs",
-                    "hostname": hostname,
-                    "container_name": container_name,
-                    "logs": data,
-                    "uri": f"logs://{hostname}/{container_name}",
-                },
-                indent=2,
-                default=str,
-                ensure_ascii=False,
-            )
-        except httpx.HTTPError as e:
-            logger.error(
-                f"HTTP error getting container logs for {container_name} on {hostname}: {e}"
-            )
-            return json.dumps(
-                {
-                    "error": f"Failed to get container logs: {str(e)}",
-                    "hostname": hostname,
-                    "container_name": container_name,
-                    "uri": f"logs://{hostname}/{container_name}",
-                },
-                indent=2,
-                ensure_ascii=False,
-            )
-        except Exception as e:
-            logger.error(f"Error getting container logs for {container_name} on {hostname}: {e}")
-            return json.dumps(
-                {
-                    "error": str(e),
-                    "hostname": hostname,
-                    "container_name": container_name,
-                    "uri": f"logs://{hostname}/{container_name}",
-                },
-                indent=2,
-                ensure_ascii=False,
-            )
-
-    @server.resource(
-        uri="logs://{hostname}/vms",
-        name="VM Logs - All",
-        description="Get libvirtd daemon logs for VM management",
-        mime_type="application/json",
-    )
-    async def logs_vms_all(hostname: str) -> str:
-        """Get libvirtd daemon logs"""
-        try:
-            # Use HTTP endpoint for VM logs
-            response = await api_client.client.get(f"/vms/{hostname}/logs")
-            response.raise_for_status()
-            data = response.json()
-
-            return json.dumps(
-                {
-                    "resource_type": "libvirt_logs",
-                    "hostname": hostname,
-                    "log_source": data.get("log_source", "libvirtd.log or journalctl"),
-                    "logs": data.get("logs", ""),
-                    "uri": f"logs://{hostname}/vms",
-                },
-                indent=2,
-                default=str,
-                ensure_ascii=False,
-            )
-        except httpx.HTTPError as e:
-            logger.error(f"HTTP error getting VM logs for {hostname}: {e}")
-            return json.dumps(
-                {
-                    "error": f"Failed to get VM logs: {str(e)}",
-                    "hostname": hostname,
-                    "uri": f"logs://{hostname}/vms"
-                },
-                indent=2,
-                ensure_ascii=False
-            )
-        except Exception as e:
-            logger.error(f"Error getting VM logs for {hostname}: {e}")
-            return json.dumps(
-                {"error": str(e), "hostname": hostname, "uri": f"logs://{hostname}/vms"},
-                indent=2,
-                ensure_ascii=False,
-            )
-
-    @server.resource(
-        uri="logs://{hostname}/vms/{vm_name}",
-        name="VM Logs - Specific",
-        description="Get logs for a specific virtual machine",
-        mime_type="application/json",
-    )
-    async def logs_vm_specific(hostname: str, vm_name: str) -> str:
-        """Get logs for a specific VM"""
-        try:
-            # Use HTTP endpoint for specific VM logs
-            response = await api_client.client.get(f"/vms/{hostname}/logs/{vm_name}")
-            response.raise_for_status()
-            data = response.json()
-
-            return json.dumps(
-                {
-                    "resource_type": "vm_logs",
-                    "hostname": hostname,
-                    "vm_name": vm_name,
-                    "log_source": data.get("log_source", f"qemu/{vm_name}.log"),
-                    "logs": data.get("logs", ""),
-                    "uri": f"logs://{hostname}/vms/{vm_name}",
-                },
-                indent=2,
-                default=str,
-                ensure_ascii=False,
-            )
-        except httpx.HTTPError as e:
-            logger.error(f"HTTP error getting VM logs for {vm_name} on {hostname}: {e}")
-            return json.dumps(
-                {
-                    "error": f"Failed to get VM logs: {str(e)}",
-                    "hostname": hostname,
-                    "vm_name": vm_name,
-                    "uri": f"logs://{hostname}/vms/{vm_name}",
-                },
-                indent=2,
-                ensure_ascii=False,
-            )
-        except Exception as e:
-            logger.error(f"Error getting VM logs for {vm_name} on {hostname}: {e}")
-            return json.dumps(
-                {
-                    "error": str(e),
-                    "hostname": hostname,
-                    "vm_name": vm_name,
-                    "uri": f"logs://{hostname}/vms/{vm_name}",
-                },
-                indent=2,
-                ensure_ascii=False,
-            )
 
     # Ports Resources
     @server.resource(
@@ -1178,7 +964,7 @@ def create_mcp_server() -> FastMCP:
             }, indent=2, ensure_ascii=False)
 
     logger.info(
-        "MCP server created with 24 tools, 4 prompts, and infrastructure + compose + ZFS + logs + ports resources"
+        "MCP server created with 23 tools, 4 prompts, and infrastructure + compose + ZFS + ports resources"
     )
     return server
 

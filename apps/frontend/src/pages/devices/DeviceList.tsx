@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { DataTable, StatusBadge, FormModal, ConfirmDialog, EmptyState, ActionDropdown } from '@/components/common';
+import { DataTable, StatusBadge, FormModal, ConfirmDialog, ActionDropdown } from '@/components/common';
 import { useDevices } from '@/hooks/useDevices';
 import { useResponsive, useResponsiveTable } from '@/hooks/useResponsive';
 import { gridConfigs, spacing, typography, layout } from '@/lib/responsive';
@@ -8,15 +8,15 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-  DialogTrigger,
-} from '@/components/ui/dialog';
+// import {
+//   Dialog,
+//   DialogContent,
+//   DialogDescription,
+//   DialogFooter,
+//   DialogHeader,
+//   DialogTitle,
+//   DialogTrigger,
+// } from '@/components/ui/dialog';
 import { Label } from '@/components/ui/label';
 import { 
   PlusIcon, 
@@ -34,7 +34,7 @@ import type { Column } from '@/components/common/DataTable';
 export function DeviceList() {
   const navigate = useNavigate();
   const { devices, loading, createDevice, deleteDevice, refetch } = useDevices();
-  const { isMobile, isTablet } = useResponsive();
+  const { isMobile } = useResponsive();
   const [isAddDialogOpen, setIsAddDialogOpen] = useState(false);
   const [isDeleteDialogOpen, setIsDeleteDialogOpen] = useState(false);
   const [deviceToDelete, setDeviceToDelete] = useState<string | null>(null);

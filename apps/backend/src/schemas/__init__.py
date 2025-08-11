@@ -61,20 +61,6 @@ from .device import (
     DeviceUpdate,
 )
 from .drive_health import DriveHealthCreate, DriveHealthList, DriveHealthResponse
-from .logs import (
-    LogAggregation,
-    LogAlert,
-    LogAlertTrigger,
-    LogAnalytics,
-    LogExport,
-    LogHealthMetrics,
-    LogPattern,
-    LogRetentionPolicy,
-    LogSearch,
-    SystemLogCreate,
-    SystemLogList,
-    SystemLogResponse,
-)
 from .network import (
     DockerNetworkCreate,
     DockerNetworkList,
@@ -224,19 +210,6 @@ __all__ = [
     "VMSnapshot",
     "VMFilter",
     "VMBackup",
-    # Log schemas
-    "SystemLogCreate",
-    "SystemLogResponse",
-    "SystemLogList",
-    "LogAnalytics",
-    "LogPattern",
-    "LogAlert",
-    "LogAlertTrigger",
-    "LogSearch",
-    "LogExport",
-    "LogRetentionPolicy",
-    "LogAggregation",
-    "LogHealthMetrics",
     # Backup schemas
     "BackupStatusCreate",
     "BackupStatusUpdate",

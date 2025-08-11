@@ -10,7 +10,6 @@ import { DynamicFormModal } from '@/components/common/DynamicFormModal';
 import { useProxyConfigs } from '@/hooks';
 import { useDevices } from '@/hooks/useDevices';
 import { useResponsive, useResponsiveTable } from '@/hooks/useResponsive';
-import { useNotificationEvents } from '@/hooks/useNotificationEvents';
 import { gridConfigs, spacing, typography, layout } from '@/lib/responsive';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -24,7 +23,6 @@ import {
   TrashIcon,
   PlusIcon,
   RefreshCwIcon,
-  SearchIcon,
   ServerIcon,
   LinkIcon,
   CheckCircleIcon,
@@ -35,12 +33,13 @@ import {
 import type { Column } from '@/components/common/DataTable';
 import type { ProxyConfigResponse } from '@infrastructor/shared-types';
 
+type ProxyRow = ProxyConfigResponse & Record<string, unknown>;
+
 export function ProxyList() {
   const navigate = useNavigate();
-  const { configs: proxyConfigs, loading, createConfig, updateConfig, deleteConfig, refetch } = useProxyConfigs();
+  const { configs: proxyConfigs, loading, createConfig, deleteConfig, refetch } = useProxyConfigs();
   const { devices } = useDevices();
-  const { isMobile, isTablet } = useResponsive();
-  const { notifySuccess, notifyError } = useNotificationEvents();
+  const { isMobile } = useResponsive();
   
   const [statusFilter, setStatusFilter] = useState<string>('all');
   const [deviceFilter, setDeviceFilter] = useState<string>('all');
@@ -66,17 +65,17 @@ export function ProxyList() {
   });
 
   // Filter configs based on selected filters and search
-  const filteredConfigs = proxyConfigs?.filter(config => {
-    if (statusFilter !== 'all' && config.status !== statusFilter) return false;
-    if (deviceFilter !== 'all' && config.device !== deviceFilter) return false;
-    if (searchTerm && !config.service_name.toLowerCase().includes(searchTerm.toLowerCase()) && 
-        !config.server_names?.some(name => name.toLowerCase().includes(searchTerm.toLowerCase()))) return false;
+  const filteredConfigs: ProxyRow[] = (proxyConfigs?.filter(config => {
+    const statusStr = String(config.status);
+    if (statusFilter !== 'all' && statusStr !== statusFilter) return false;
+    if (deviceFilter !== 'all' && config.device_id !== deviceFilter) return false;
+    if (searchTerm && !config.service_name.toLowerCase().includes(searchTerm.toLowerCase())) return false;
     return true;
-  }) || [];
+  }) as ProxyRow[]) || [];
 
   // Get unique device hostnames and config statuses for filter options
-  const deviceHostnames = [...new Set(proxyConfigs?.map(c => c.device) || [])];
-  const configStatuses = [...new Set(proxyConfigs?.map(c => c.status) || [])];
+  const deviceHostnames = [...new Set(proxyConfigs?.map(c => c.device_id) || [])];
+  const configStatuses = [...new Set(proxyConfigs?.map(c => String(c.status)) || [])];
 
   const handleDeleteConfig = (configId: number, configName: string) => {
     setConfirmDialog({
@@ -145,20 +144,22 @@ export function ProxyList() {
     }
   };
 
-  const allColumns: Column<ProxyConfigResponse>[] = [
+  const allColumns: Column<ProxyRow>[] = [
     {
       key: 'service_name',
       title: 'Configuration',
       sortable: true,
-      render: (value, config) => (
+      render: (_value, config) => (
         <div className="flex items-center space-x-2">
           <FileTextIcon className="h-4 w-4 text-gray-400" />
           <div>
             <div className="font-medium text-gray-900">{config.service_name}</div>
-            <div className="text-sm text-gray-500 flex items-center">
-              <LinkIcon className="h-3 w-3 mr-1" />
-              {config.server_names?.[0] || 'No domain'}
-            </div>
+            {config.domain && (
+              <div className="text-sm text-gray-500 flex items-center">
+                <LinkIcon className="h-3 w-3 mr-1" />
+                {config.domain}
+              </div>
+            )}
           </div>
         </div>
       ),
@@ -170,19 +171,19 @@ export function ProxyList() {
       hideOnMobile: true,
       render: (_, config) => (
         <div className="text-sm font-mono">
-          {config.target_host}:{config.target_port}
+          {config.upstream_host}:{config.upstream_port}
         </div>
       ),
     },
     {
-      key: 'device',
+      key: 'device_id',
       title: 'Device',
       sortable: true,
       hideOnMobile: true,
       render: (value) => (
         <div className="flex items-center space-x-1">
           <ServerIcon className="h-3 w-3 text-gray-400" />
-          <span className="text-sm font-medium">{value}</span>
+          <span className="text-sm font-medium">{String(value)}</span>
         </div>
       ),
     },
@@ -190,10 +191,10 @@ export function ProxyList() {
       key: 'status',
       title: 'Status',
       sortable: true,
-      render: (value, config) => (
+      render: (value) => (
         <div className="flex items-center space-x-2">
-          {getStatusIcon(value)}
-          <StatusBadge status={value} />
+          {getStatusIcon(String(value))}
+          <StatusBadge status={String(value)} />
         </div>
       ),
     },
@@ -210,11 +211,6 @@ export function ProxyList() {
               SSL
             </Badge>
           )}
-          {config.auth_enabled && (
-            <Badge variant="outline" className="text-xs">
-              Auth
-            </Badge>
-          )}
         </div>
       ),
     },
@@ -224,7 +220,7 @@ export function ProxyList() {
       sortable: true,
       hideOnTablet: true,
       render: (value) => {
-        const date = new Date(value);
+        const date = new Date(String(value));
         return (
           <div>
             <div className="text-sm">{date.toLocaleDateString()}</div>
@@ -241,12 +237,12 @@ export function ProxyList() {
           {
             label: 'Edit Configuration',
             icon: EditIcon,
-            onClick: () => navigate(`/proxies/${config.device}/${config.id}/edit`),
+            onClick: () => navigate(`/proxies/${config.device_id}/${config.id}/edit`),
           },
           {
             label: 'View Details',
             icon: GlobeIcon,
-            onClick: () => navigate(`/proxies/${config.device}/${config.id}`),
+            onClick: () => navigate(`/proxies/${config.device_id}/${config.id}`),
             separator: true,
           },
           {
@@ -267,9 +263,8 @@ export function ProxyList() {
 
   // Calculate stats
   const totalConfigs = proxyConfigs?.length || 0;
-  const activeConfigs = proxyConfigs?.filter(c => c.status === 'active')?.length || 0;
+  const activeConfigs = proxyConfigs?.filter(c => String(c.status) === 'active')?.length || 0;
   const sslConfigs = proxyConfigs?.filter(c => c.ssl_enabled)?.length || 0;
-  const authConfigs = proxyConfigs?.filter(c => c.auth_enabled)?.length || 0;
 
   return (
     <div className={`${spacing.padding.page} ${layout.sectionWrapper}`}>
@@ -334,7 +329,7 @@ export function ProxyList() {
             <GlobeIcon className="h-4 w-4 text-muted-foreground" />
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold">{authConfigs}</div>
+            <div className="text-2xl font-bold">0</div>
           </CardContent>
         </Card>
       </div>
@@ -415,7 +410,7 @@ export function ProxyList() {
         loading={loading}
         searchable={false} // We have custom search
         pagination={{ pageSize: 15 }}
-        onRowClick={(config) => navigate(`/proxies/${config.device}/${config.id}`)}
+        onRowClick={(config) => navigate(`/proxies/${(config as ProxyRow).device_id}/${(config as ProxyRow).id}`)}
         emptyMessage="No proxy configurations found. Create your first configuration to get started."
       />
 
@@ -444,7 +439,7 @@ export function ProxyList() {
             required: true,
           },
           {
-            name: 'device',
+            name: 'device_id',
             label: 'Target Device',
             type: 'select',
             options: devices?.map(device => ({
@@ -454,14 +449,14 @@ export function ProxyList() {
             required: true,
           },
           {
-            name: 'target_host',
+            name: 'upstream_host',
             label: 'Target Host',
             type: 'text',
             placeholder: '192.168.1.100',
             required: true,
           },
           {
-            name: 'target_port',
+            name: 'upstream_port',
             label: 'Target Port',
             type: 'text',
             placeholder: '3000',
@@ -477,16 +472,6 @@ export function ProxyList() {
             ],
             required: true,
           },
-          {
-            name: 'auth_enabled',
-            label: 'Enable Authentication',
-            type: 'select',
-            options: [
-              { value: 'false', label: 'Disabled' },
-              { value: 'true', label: 'Enabled' },
-            ],
-            required: true,
-          },
         ]}
       />
 
@@ -495,9 +480,9 @@ export function ProxyList() {
         isOpen={confirmDialog.isOpen}
         title="Delete Proxy Configuration"
         description={`Are you sure you want to delete the proxy configuration "${confirmDialog.configName}"? This action cannot be undone and will remove the configuration from the proxy server.`}
-        confirmText="Delete Configuration"
-        cancelText="Cancel"
-        variant="destructive"
+        confirmLabel="Delete Configuration"
+        cancelLabel="Cancel"
+        variant="danger"
         onConfirm={confirmDeleteConfig}
         onCancel={() => setConfirmDialog({
           isOpen: false,

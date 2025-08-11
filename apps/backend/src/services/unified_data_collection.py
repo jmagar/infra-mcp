@@ -23,6 +23,9 @@ from apps.backend.src.core.exceptions import (
 from apps.backend.src.utils.cache_manager import CacheManager, get_cache_manager
 from apps.backend.src.utils.command_registry import get_unified_command_registry
 from apps.backend.src.utils.ssh_client import SSHClient
+from apps.backend.src.services.glances_service import GlancesService
+from apps.backend.src.models.device import Device
+from sqlalchemy import select
 
 logger = logging.getLogger(__name__)
 
@@ -373,14 +376,453 @@ class UnifiedDataCollectionService:
         Returns:
             Dictionary containing the collected data
         """
-        # This will be implemented in subsequent tasks
-        # For now, return placeholder data
-        return {
-            "data_type": data_type,
-            "device_id": str(device_id),
-            "collected_at": datetime.now(UTC).isoformat(),
-            "status": "placeholder"
-        }
+        self.logger.debug(f"Collecting fresh {data_type} data for device {device_id}")
+        
+        # Get device from database
+        async with self.db_session_factory() as session:
+            result = await session.execute(select(Device).where(Device.id == device_id))
+            device = result.scalar_one_or_none()
+            
+            if not device:
+                raise DataCollectionError(f"Device {device_id} not found in database")
+        
+        # Route to appropriate collection method based on data type
+        if data_type == "system_metrics":
+            return await self._collect_system_metrics_glances(device, **kwargs)
+        elif data_type == "network_stats":
+            return await self._collect_network_stats_glances(device, **kwargs)
+        elif data_type == "process_list":
+            return await self._collect_process_list_glances(device, **kwargs)
+        elif data_type == "filesystem_usage":
+            return await self._collect_filesystem_usage_glances(device, **kwargs)
+        elif data_type == "disk_io_stats":
+            return await self._collect_disk_io_stats_glances(device, **kwargs)
+        elif data_type == "gpu_stats":
+            return await self._collect_gpu_stats_glances(device, **kwargs)
+        elif data_type == "sensor_data":
+            return await self._collect_sensor_data_glances(device, **kwargs)
+        elif data_type == "all_system_data":
+            return await self._collect_all_system_data_glances(device, **kwargs)
+        else:
+            # For non-Glances data types, return placeholder for now
+            # These will be implemented for SSH-based collections (containers, drives, etc.)
+            self.logger.warning(f"Data type {data_type} not yet implemented, returning placeholder")
+            return {
+                "data_type": data_type,
+                "device_id": str(device_id),
+                "collected_at": datetime.now(UTC).isoformat(),
+                "status": "placeholder"
+            }
+
+    async def _collect_system_metrics_glances(self, device: Device, **kwargs: Any) -> dict[str, Any]:
+        """Collect system metrics using Glances API"""
+        glances_service = GlancesService(device)
+        
+        try:
+            # Test connectivity first
+            if not await glances_service.test_connectivity():
+                raise DataCollectionError(f"Glances API not accessible on {device.hostname}")
+            
+            # Get system metrics from Glances
+            metrics = await glances_service.get_system_metrics()
+            
+            # Convert to dictionary format for unified data collection
+            return {
+                "device_hostname": metrics.device_hostname,
+                "timestamp": metrics.timestamp.isoformat(),
+                "cpu": {
+                    "total": metrics.cpu.total,
+                    "user": metrics.cpu.user,
+                    "system": metrics.cpu.system,
+                    "idle": metrics.cpu.idle,
+                    "iowait": metrics.cpu.iowait,
+                    "steal": metrics.cpu.steal,
+                },
+                "memory": {
+                    "total": metrics.memory.total,
+                    "available": metrics.memory.available,
+                    "percent": metrics.memory.percent,
+                    "used": metrics.memory.used,
+                    "free": metrics.memory.free,
+                    "active": metrics.memory.active,
+                    "inactive": metrics.memory.inactive,
+                    "buffers": metrics.memory.buffers,
+                    "cached": metrics.memory.cached,
+                },
+                "load": {
+                    "min1": metrics.load.min1,
+                    "min5": metrics.load.min5,
+                    "min15": metrics.load.min15,
+                    "cpucore": metrics.load.cpucore,
+                },
+                "uptime": metrics.uptime.uptime,
+                "process_count": metrics.process_count,
+                "collection_method": "glances_api",
+                "status": "success"
+            }
+            
+        except Exception as e:
+            self.logger.error(f"Failed to collect system metrics via Glances for {device.hostname}: {e}")
+            raise DataCollectionError(f"Glances system metrics collection failed: {str(e)}")
+        finally:
+            await glances_service.close()
+
+    async def _collect_network_stats_glances(self, device: Device, **kwargs: Any) -> dict[str, Any]:
+        """Collect network statistics using Glances API"""
+        glances_service = GlancesService(device)
+        
+        try:
+            if not await glances_service.test_connectivity():
+                raise DataCollectionError(f"Glances API not accessible on {device.hostname}")
+            
+            network_stats = await glances_service.get_network_stats()
+            
+            return {
+                "device_hostname": device.hostname,
+                "timestamp": datetime.now(UTC).isoformat(),
+                "interfaces": [
+                    {
+                        "interface_name": iface.interface_name,
+                        "rx": iface.rx,
+                        "tx": iface.tx,
+                        "rx_per_sec": iface.rx_per_sec,
+                        "tx_per_sec": iface.tx_per_sec,
+                        "cumulative_rx": iface.cumulative_rx,
+                        "cumulative_tx": iface.cumulative_tx,
+                        "speed": iface.speed,
+                        "is_up": iface.is_up,
+                    }
+                    for iface in network_stats
+                ],
+                "collection_method": "glances_api",
+                "status": "success"
+            }
+            
+        except Exception as e:
+            self.logger.error(f"Failed to collect network stats via Glances for {device.hostname}: {e}")
+            raise DataCollectionError(f"Glances network stats collection failed: {str(e)}")
+        finally:
+            await glances_service.close()
+
+    async def _collect_process_list_glances(self, device: Device, **kwargs: Any) -> dict[str, Any]:
+        """Collect process list using Glances API"""
+        glances_service = GlancesService(device)
+        
+        try:
+            if not await glances_service.test_connectivity():
+                raise DataCollectionError(f"Glances API not accessible on {device.hostname}")
+            
+            sort_by = kwargs.get("sort_by", "cpu_percent")
+            limit = kwargs.get("limit", 50)  # Default to top 50 processes
+            
+            processes = await glances_service.get_process_list(sort_by=sort_by)
+            
+            return {
+                "device_hostname": device.hostname,
+                "timestamp": datetime.now(UTC).isoformat(),
+                "processes": [
+                    {
+                        "pid": proc.pid,
+                        "name": proc.name,
+                        "username": proc.username,
+                        "cpu_percent": proc.cpu_percent,
+                        "memory_percent": proc.memory_percent,
+                        "memory_info": proc.memory_info,
+                        "status": proc.status,
+                        "cmdline": proc.cmdline,
+                    }
+                    for proc in processes[:limit]
+                ],
+                "total_processes": len(processes),
+                "sort_by": sort_by,
+                "collection_method": "glances_api",
+                "status": "success"
+            }
+            
+        except Exception as e:
+            self.logger.error(f"Failed to collect process list via Glances for {device.hostname}: {e}")
+            raise DataCollectionError(f"Glances process list collection failed: {str(e)}")
+        finally:
+            await glances_service.close()
+
+    async def _collect_filesystem_usage_glances(self, device: Device, **kwargs: Any) -> dict[str, Any]:
+        """Collect filesystem usage using Glances API"""
+        glances_service = GlancesService(device)
+        
+        try:
+            if not await glances_service.test_connectivity():
+                raise DataCollectionError(f"Glances API not accessible on {device.hostname}")
+            
+            filesystems = await glances_service.get_file_system_usage()
+            
+            return {
+                "device_hostname": device.hostname,
+                "timestamp": datetime.now(UTC).isoformat(),
+                "filesystems": [
+                    {
+                        "device_name": fs.device_name,
+                        "mount_point": fs.mnt_point,
+                        "fs_type": fs.fs_type,
+                        "size": fs.size,
+                        "used": fs.used,
+                        "free": fs.free,
+                        "percent": fs.percent,
+                    }
+                    for fs in filesystems
+                ],
+                "collection_method": "glances_api",
+                "status": "success"
+            }
+            
+        except Exception as e:
+            self.logger.error(f"Failed to collect filesystem usage via Glances for {device.hostname}: {e}")
+            raise DataCollectionError(f"Glances filesystem usage collection failed: {str(e)}")
+        finally:
+            await glances_service.close()
+
+    async def _collect_disk_io_stats_glances(self, device: Device, **kwargs: Any) -> dict[str, Any]:
+        """Collect disk I/O statistics using Glances API"""
+        glances_service = GlancesService(device)
+        
+        try:
+            if not await glances_service.test_connectivity():
+                raise DataCollectionError(f"Glances API not accessible on {device.hostname}")
+            
+            disk_stats = await glances_service.get_disk_io_stats()
+            
+            return {
+                "device_hostname": device.hostname,
+                "timestamp": datetime.now(UTC).isoformat(),
+                "disks": [
+                    {
+                        "disk_name": disk.disk_name,
+                        "read_count": disk.read_count,
+                        "write_count": disk.write_count,
+                        "read_bytes": disk.read_bytes,
+                        "write_bytes": disk.write_bytes,
+                        "time_since_update": disk.time_since_update,
+                    }
+                    for disk in disk_stats
+                ],
+                "collection_method": "glances_api",
+                "status": "success"
+            }
+            
+        except Exception as e:
+            self.logger.error(f"Failed to collect disk I/O stats via Glances for {device.hostname}: {e}")
+            raise DataCollectionError(f"Glances disk I/O stats collection failed: {str(e)}")
+        finally:
+            await glances_service.close()
+
+    async def _collect_gpu_stats_glances(self, device: Device, **kwargs: Any) -> dict[str, Any]:
+        """Collect GPU statistics using Glances API"""
+        glances_service = GlancesService(device)
+        
+        try:
+            if not await glances_service.test_connectivity():
+                raise DataCollectionError(f"Glances API not accessible on {device.hostname}")
+            
+            gpu_stats = await glances_service.get_gpu_stats()
+            
+            return {
+                "device_hostname": device.hostname,
+                "timestamp": datetime.now(UTC).isoformat(),
+                "gpus": [
+                    {
+                        "gpu_id": gpu.gpu_id,
+                        "name": gpu.name,
+                        "memory_percent": gpu.mem,
+                        "processor_percent": gpu.proc,
+                        "temperature": gpu.temperature,
+                        "fan_speed": gpu.fan_speed,
+                    }
+                    for gpu in gpu_stats
+                ],
+                "collection_method": "glances_api",
+                "status": "success"
+            }
+            
+        except Exception as e:
+            self.logger.error(f"Failed to collect GPU stats via Glances for {device.hostname}: {e}")
+            raise DataCollectionError(f"Glances GPU stats collection failed: {str(e)}")
+        finally:
+            await glances_service.close()
+
+    async def _collect_sensor_data_glances(self, device: Device, **kwargs: Any) -> dict[str, Any]:
+        """Collect sensor data using Glances API"""
+        glances_service = GlancesService(device)
+        
+        try:
+            if not await glances_service.test_connectivity():
+                raise DataCollectionError(f"Glances API not accessible on {device.hostname}")
+            
+            sensors = await glances_service.get_sensor_data()
+            
+            return {
+                "device_hostname": device.hostname,
+                "timestamp": datetime.now(UTC).isoformat(),
+                "sensors": [
+                    {
+                        "label": sensor.label,
+                        "value": sensor.value,
+                        "warning": sensor.warning,
+                        "critical": sensor.critical,
+                        "unit": sensor.unit,
+                        "type": sensor.type,
+                    }
+                    for sensor in sensors
+                ],
+                "collection_method": "glances_api",
+                "status": "success"
+            }
+            
+        except Exception as e:
+            self.logger.error(f"Failed to collect sensor data via Glances for {device.hostname}: {e}")
+            raise DataCollectionError(f"Glances sensor data collection failed: {str(e)}")
+        finally:
+            await glances_service.close()
+
+    async def _collect_all_system_data_glances(self, device: Device, **kwargs: Any) -> dict[str, Any]:
+        """Collect all available system data using Glances API in a single optimized call"""
+        glances_service = GlancesService(device)
+        
+        try:
+            if not await glances_service.test_connectivity():
+                raise DataCollectionError(f"Glances API not accessible on {device.hostname}")
+            
+            # Get all system data in one optimized call
+            all_data = await glances_service.get_all_system_data()
+            
+            # Structure the response
+            result = {
+                "device_hostname": device.hostname,
+                "timestamp": datetime.now(UTC).isoformat(),
+                "collection_method": "glances_api",
+                "status": "success"
+            }
+            
+            # Add system metrics if available
+            if all_data.get("system_metrics"):
+                metrics = all_data["system_metrics"]
+                result["system_metrics"] = {
+                    "cpu": {
+                        "total": metrics.cpu.total,
+                        "user": metrics.cpu.user,
+                        "system": metrics.cpu.system,
+                        "idle": metrics.cpu.idle,
+                        "iowait": metrics.cpu.iowait,
+                        "steal": metrics.cpu.steal,
+                    },
+                    "memory": {
+                        "total": metrics.memory.total,
+                        "available": metrics.memory.available,
+                        "percent": metrics.memory.percent,
+                        "used": metrics.memory.used,
+                        "free": metrics.memory.free,
+                        "active": metrics.memory.active,
+                        "inactive": metrics.memory.inactive,
+                        "buffers": metrics.memory.buffers,
+                        "cached": metrics.memory.cached,
+                    },
+                    "load": {
+                        "min1": metrics.load.min1,
+                        "min5": metrics.load.min5,
+                        "min15": metrics.load.min15,
+                        "cpucore": metrics.load.cpucore,
+                    },
+                    "uptime": metrics.uptime.uptime,
+                    "process_count": metrics.process_count,
+                }
+            
+            # Add other data types if available
+            if all_data.get("network_stats"):
+                result["network_stats"] = [
+                    {
+                        "interface_name": iface.interface_name,
+                        "rx": iface.rx,
+                        "tx": iface.tx,
+                        "rx_per_sec": iface.rx_per_sec,
+                        "tx_per_sec": iface.tx_per_sec,
+                        "is_up": iface.is_up,
+                        "speed": iface.speed,
+                    }
+                    for iface in all_data["network_stats"]
+                ]
+            
+            if all_data.get("filesystem_usage"):
+                result["filesystem_usage"] = [
+                    {
+                        "device_name": fs.device_name,
+                        "mount_point": fs.mnt_point,
+                        "fs_type": fs.fs_type,
+                        "size": fs.size,
+                        "used": fs.used,
+                        "free": fs.free,
+                        "percent": fs.percent,
+                    }
+                    for fs in all_data["filesystem_usage"]
+                ]
+            
+            if all_data.get("process_list"):
+                # Limit to top 20 processes for comprehensive data
+                processes = all_data["process_list"][:20]
+                result["top_processes"] = [
+                    {
+                        "pid": proc.pid,
+                        "name": proc.name,
+                        "username": proc.username,
+                        "cpu_percent": proc.cpu_percent,
+                        "memory_percent": proc.memory_percent,
+                        "status": proc.status,
+                    }
+                    for proc in processes
+                ]
+            
+            if all_data.get("disk_io_stats"):
+                result["disk_io_stats"] = [
+                    {
+                        "disk_name": disk.disk_name,
+                        "read_count": disk.read_count,
+                        "write_count": disk.write_count,
+                        "read_bytes": disk.read_bytes,
+                        "write_bytes": disk.write_bytes,
+                    }
+                    for disk in all_data["disk_io_stats"]
+                ]
+            
+            if all_data.get("gpu_stats"):
+                result["gpu_stats"] = [
+                    {
+                        "gpu_id": gpu.gpu_id,
+                        "name": gpu.name,
+                        "memory_percent": gpu.mem,
+                        "processor_percent": gpu.proc,
+                        "temperature": gpu.temperature,
+                        "fan_speed": gpu.fan_speed,
+                    }
+                    for gpu in all_data["gpu_stats"]
+                ]
+            
+            if all_data.get("sensor_data"):
+                result["sensor_data"] = [
+                    {
+                        "label": sensor.label,
+                        "value": sensor.value,
+                        "unit": sensor.unit,
+                        "type": sensor.type,
+                        "warning": sensor.warning,
+                        "critical": sensor.critical,
+                    }
+                    for sensor in all_data["sensor_data"]
+                ]
+            
+            return result
+            
+        except Exception as e:
+            self.logger.error(f"Failed to collect all system data via Glances for {device.hostname}: {e}")
+            raise DataCollectionError(f"Glances all system data collection failed: {str(e)}")
+        finally:
+            await glances_service.close()
 
     async def _cache_data(
         self, data_type: str, device_id: UUID, data: dict[str, Any]

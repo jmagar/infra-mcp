@@ -45,6 +45,11 @@ class Device(Base):
         String(20), default="unknown", index=True
     )  # online, offline, unknown, maintenance
 
+    # Glances API configuration
+    glances_enabled = Column(Boolean, default=True, nullable=False)
+    glances_port = Column(Integer, default=61208, nullable=False)
+    glances_url = Column(String(512), nullable=True)  # Optional custom URL override
+
     # Timestamps
     created_at = Column(DateTime(timezone=True), default=func.now())
     updated_at = Column(DateTime(timezone=True), default=func.now(), onupdate=func.now())
@@ -70,3 +75,10 @@ class Device(Base):
         "ProxyConfig", back_populates="device", cascade="all, delete-orphan"
     )
     # Additional relationships defined in original models.py will be added here
+
+    @property
+    def glances_endpoint(self) -> str:
+        """Get Glances API endpoint URL"""
+        if self.glances_url:
+            return self.glances_url
+        return f"http://{self.hostname}:{self.glances_port}"

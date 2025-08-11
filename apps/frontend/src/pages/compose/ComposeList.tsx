@@ -15,9 +15,7 @@ import { gridConfigs, spacing, typography, layout } from '@/lib/responsive';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { Badge } from '@/components/ui/badge';
 import { Label } from '@/components/ui/label';
-import { Textarea } from '@/components/ui/textarea';
 import { 
   FileTextIcon,
   PlayIcon,
@@ -27,10 +25,8 @@ import {
   EditIcon,
   UploadIcon,
   RefreshCwIcon,
-  FilterIcon,
   ServerIcon,
-  PackageIcon,
-  ZapIcon
+  PackageIcon
 } from 'lucide-react';
 import type { Column } from '@/components/common/DataTable';
 
@@ -49,8 +45,8 @@ interface ComposeStack {
 export function ComposeList() {
   const navigate = useNavigate();
   const { composeStacks, loading, deployStack, stopStack, removeStack, refetch } = useCompose();
+  const { isMobile } = useResponsive();
   const { devices } = useDevices();
-  const { isMobile, isTablet } = useResponsive();
   const { notifyComposeAction } = useNotificationEvents();
   
   const [statusFilter, setStatusFilter] = useState<string>('all');
@@ -197,7 +193,7 @@ export function ComposeList() {
       key: 'status',
       title: 'Status',
       sortable: true,
-      render: (value) => <StatusBadge status={value} />,
+      render: (value) => <StatusBadge status={String(value)} />,
     },
     {
       key: 'services_count',
@@ -481,7 +477,7 @@ export function ComposeList() {
         }
         confirmText={confirmDialog.action === 'remove' ? "Remove Stack" : "Stop Stack"}
         cancelText="Cancel"
-        variant={confirmDialog.action === 'remove' ? "destructive" : "default"}
+        variant={confirmDialog.action === 'remove' ? 'danger' : 'warning'}
         onConfirm={confirmRemoveStack}
         onCancel={() => setConfirmDialog({
           isOpen: false,

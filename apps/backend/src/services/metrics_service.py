@@ -25,10 +25,10 @@ from apps.backend.src.schemas.drive_health import (
     DriveHealthResponse,
     DriveInventory,
 )
-from apps.backend.src.schemas.logs import SystemLogResponse
 from apps.backend.src.schemas.network import NetworkInterfaceResponse
 from apps.backend.src.schemas.system_metrics import SystemMetricResponse, SystemMetricsList
 from apps.backend.src.schemas.updates import UpdateSummary
+from apps.backend.src.services.unified_data_collection import UnifiedDataCollectionService
 from apps.backend.src.schemas.vm import VMStatusList, VMStatusResponse
 from apps.backend.src.schemas.zfs import ZFSSnapshotList, ZFSSnapshotResponse, ZFSStatusResponse
 from apps.backend.src.utils.ssh_client import SSHConnectionInfo, get_ssh_client
@@ -37,9 +37,10 @@ logger = logging.getLogger(__name__)
 
 
 class MetricsService:
-    def __init__(self, db_session: AsyncSession):
+    def __init__(self, db_session: AsyncSession, unified_data_service: UnifiedDataCollectionService | None = None):
         self.db = db_session
         self.ssh_client = get_ssh_client()
+        self.unified_data_service = unified_data_service
 
     async def get_device_by_id(self, device_id: UUID) -> Device:
         result = await self.db.execute(select(Device).where(Device.id == device_id))
@@ -55,6 +56,7 @@ class MetricsService:
             username=str(device.ssh_username or "root")
         )
 
+
     async def get_device_metrics(
         self,
         device_id: UUID,
@@ -62,52 +64,68 @@ class MetricsService:
         time_range: str | None = None,
         pagination: PaginationParams | None = None,
     ) -> SystemMetricResponse | SystemMetricsList:
-        """Get system metrics for a device"""
+        """Get system metrics for a device using unified data collection service with Glances"""
         device = await self.get_device_by_id(device_id)
 
         if live:
-            # Get live metrics via SSH
-            ssh_info = self.create_ssh_connection_info(device)
-
-            try:
-                # Get CPU, memory, disk usage via SSH
-                cpu_cmd = "top -bn1 | grep 'Cpu(s)' | awk '{print $2}' | sed 's/%us,//'"
-                memory_cmd = "free | grep Mem | awk '{printf \"%.2f\", ($3/$2) * 100.0}'"
-                disk_cmd = "df -h / | awk 'NR==2{print $5}' | sed 's/%//'"
-                load_cmd = "cat /proc/loadavg | awk '{print $1, $2, $3}'"
-                uptime_cmd = "uptime -s"
-
-                cpu_result = await self.ssh_client.execute_command(ssh_info, cpu_cmd)
-                memory_result = await self.ssh_client.execute_command(ssh_info, memory_cmd)
-                disk_result = await self.ssh_client.execute_command(ssh_info, disk_cmd)
-                load_result = await self.ssh_client.execute_command(ssh_info, load_cmd)
-                uptime_result = await self.ssh_client.execute_command(ssh_info, uptime_cmd)
-
-                # Parse results
-                cpu_usage = float(cpu_result.stdout.strip()) if cpu_result.stdout.strip() else 0.0
-                memory_usage = (
-                    float(memory_result.stdout.strip()) if memory_result.stdout.strip() else 0.0
-                )
-                disk_usage = (
-                    float(disk_result.stdout.strip()) if disk_result.stdout.strip() else 0.0
-                )
-                load_avg = load_result.stdout.strip().split()
-
-                return SystemMetricResponse(
-                    device_id=device_id,
-                    cpu_usage_percent=cpu_usage,
-                    memory_usage_percent=memory_usage,
-                    disk_usage_percent=disk_usage,
-                    load_average_1m=float(load_avg[0]) if len(load_avg) > 0 else 0.0,
-                    load_average_5m=float(load_avg[1]) if len(load_avg) > 1 else 0.0,
-                    load_average_15m=float(load_avg[2]) if len(load_avg) > 2 else 0.0,
-                    uptime_seconds=0,  # Could parse uptime_result for actual value
-                    time=datetime.now(UTC),
-                )
-
-            except Exception as e:
-                logger.error(f"Error getting live metrics for device {device_id}: {e}")
-                raise SSHCommandError("ssh", f"Failed to get live metrics: {str(e)}")
+            # Use unified data collection service if available
+            if self.unified_data_service:
+                try:
+                    # Get system metrics via unified data collection service
+                    metrics_data = await self.unified_data_service.get_fresh_data(
+                        data_type="system_metrics",
+                        device_id=device_id,
+                        force_refresh=True  # Live data should always be fresh
+                    )
+                    
+                    # Convert to our response format
+                    cpu_data = metrics_data.get("cpu", {})
+                    memory_data = metrics_data.get("memory", {})
+                    load_data = metrics_data.get("load", {})
+                    
+                    return SystemMetricResponse(
+                        device_id=device_id,
+                        cpu_usage_percent=cpu_data.get("total", 0.0),
+                        memory_usage_percent=memory_data.get("percent", 0.0),
+                        disk_usage_percent=0.0,  # Will be calculated from filesystem data
+                        load_average_1m=load_data.get("min1", 0.0),
+                        load_average_5m=load_data.get("min5", 0.0),
+                        load_average_15m=load_data.get("min15", 0.0),
+                        uptime_seconds=0,  # Could parse uptime string for actual value
+                        time=datetime.fromisoformat(metrics_data.get("timestamp", datetime.now(UTC).isoformat())),
+                    )
+                    
+                except Exception as e:
+                    logger.error(f"Error getting metrics via unified data collection for device {device_id}: {e}")
+                    raise SSHCommandError("unified_data_collection", f"Failed to get system metrics: {str(e)}")
+            else:
+                # Fallback to direct Glances service if unified service not available
+                from apps.backend.src.services.glances_service import GlancesService
+                glances_service = GlancesService(device)
+                
+                try:
+                    if not await glances_service.test_connectivity():
+                        raise DeviceNotFoundError(f"Glances API not accessible on {device.hostname}")
+                    
+                    metrics = await glances_service.get_system_metrics()
+                    
+                    return SystemMetricResponse(
+                        device_id=device_id,
+                        cpu_usage_percent=metrics.cpu.total,
+                        memory_usage_percent=metrics.memory.percent,
+                        disk_usage_percent=0.0,
+                        load_average_1m=metrics.load.min1,
+                        load_average_5m=metrics.load.min5,
+                        load_average_15m=metrics.load.min15,
+                        uptime_seconds=0,
+                        time=metrics.timestamp,
+                    )
+                    
+                except Exception as e:
+                    logger.error(f"Error getting Glances metrics for device {device_id}: {e}")
+                    raise SSHCommandError("glances", f"Failed to get Glances metrics: {str(e)}")
+                finally:
+                    await glances_service.close()
 
         else:
             # Get historical metrics from database
@@ -222,43 +240,87 @@ class MetricsService:
         device_id: UUID,
         interface_name: str | None = None,
     ) -> list[NetworkInterfaceResponse]:
-        """Get network interfaces and statistics"""
+        """Get network interfaces and statistics using unified data collection service with Glances"""
         device = await self.get_device_by_id(device_id)
-        ssh_info = self.create_ssh_connection_info(device)
 
-        try:
-            # Get network interface info
-            if interface_name:
-                cmd = f"ip -j addr show {interface_name}"
-            else:
-                cmd = "ip -j addr show"
-
-            result = await self.ssh_client.execute_command(ssh_info, cmd)
-            interfaces_data = json.loads(result.stdout) if result.stdout else []
-
-            interfaces = []
-            for iface in interfaces_data:
-                interfaces.append(
-                    NetworkInterfaceResponse(
-                        device_id=device_id,
-                        interface_name=iface.get("ifname", "unknown"),
-                        state=iface.get("operstate", "unknown"),
-                        mtu=iface.get("mtu", 0),
-                        mac_address=iface.get("address", ""),
-                        ip_addresses=[addr.get("local", "") for addr in iface.get("addr_info", [])],
-                        rx_bytes=0,  # Would need additional parsing from /proc/net/dev
-                        tx_bytes=0,
-                        rx_packets=0,
-                        tx_packets=0,
-                        time=datetime.now(UTC),
-                    )
+        # Use unified data collection service if available
+        if self.unified_data_service:
+            try:
+                # Get network stats via unified data collection service
+                network_data = await self.unified_data_service.get_fresh_data(
+                    data_type="network_stats",
+                    device_id=device_id,
+                    force_refresh=True
                 )
+                
+                # Convert to our response format
+                interfaces = []
+                for iface_data in network_data.get("interfaces", []):
+                    # Filter by interface name if specified
+                    if interface_name and iface_data.get("interface_name") != interface_name:
+                        continue
+                        
+                    interfaces.append(
+                        NetworkInterfaceResponse(
+                            device_id=device_id,
+                            interface_name=iface_data.get("interface_name", "unknown"),
+                            state="up" if iface_data.get("is_up", False) else "down",
+                            mtu=0,  # Not available in Glances network stats
+                            mac_address="",  # Not available in Glances network stats
+                            ip_addresses=[],  # Not available in Glances network stats
+                            rx_bytes=iface_data.get("rx", 0),
+                            tx_bytes=iface_data.get("tx", 0),
+                            rx_packets=0,  # Not available in basic Glances network stats
+                            tx_packets=0,  # Not available in basic Glances network stats
+                            time=datetime.now(UTC),
+                        )
+                    )
 
-            return interfaces
+                return interfaces
 
-        except Exception as e:
-            logger.error(f"Error getting network interfaces for device {device_id}: {e}")
-            raise SSHCommandError("ssh", f"Failed to get network interfaces: {str(e)}")
+            except Exception as e:
+                logger.error(f"Error getting network stats via unified data collection for device {device_id}: {e}")
+                raise SSHCommandError("unified_data_collection", f"Failed to get network statistics: {str(e)}")
+        else:
+            # Fallback to direct Glances service if unified service not available
+            from apps.backend.src.services.glances_service import GlancesService
+            glances_service = GlancesService(device)
+
+            try:
+                if not await glances_service.test_connectivity():
+                    raise DeviceNotFoundError(f"Glances API not accessible on {device.hostname}")
+                
+                network_stats = await glances_service.get_network_stats()
+                
+                # Filter by interface name if specified
+                if interface_name:
+                    network_stats = [iface for iface in network_stats if iface.interface_name == interface_name]
+                
+                interfaces = []
+                for iface in network_stats:
+                    interfaces.append(
+                        NetworkInterfaceResponse(
+                            device_id=device_id,
+                            interface_name=iface.interface_name,
+                            state="up" if iface.is_up else "down",
+                            mtu=0,
+                            mac_address="",
+                            ip_addresses=[],
+                            rx_bytes=iface.rx,
+                            tx_bytes=iface.tx,
+                            rx_packets=0,
+                            tx_packets=0,
+                            time=datetime.now(UTC),
+                        )
+                    )
+
+                return interfaces
+
+            except Exception as e:
+                logger.error(f"Error getting Glances network stats for device {device_id}: {e}")
+                raise SSHCommandError("glances", f"Failed to get network statistics: {str(e)}")
+            finally:
+                await glances_service.close()
 
     async def get_device_zfs_status(
         self,
@@ -422,65 +484,6 @@ class MetricsService:
             logger.error(f"Error getting VMs for device {device_id}: {e}")
             raise SSHCommandError("ssh", f"Failed to get VMs: {str(e)}")
 
-    async def get_device_logs(
-        self,
-        device_id: UUID,
-        service: str | None = None,
-        severity: str | None = None,
-        since: str | None = "1h",
-        lines: int = 100,
-    ) -> list[SystemLogResponse]:
-        """Get system logs"""
-        device = await self.get_device_by_id(device_id)
-        ssh_info = self.create_ssh_connection_info(device)
-
-        try:
-            cmd_parts = ["journalctl", "--no-pager", f"--lines={lines}"]
-
-            if since:
-                cmd_parts.extend(["--since", f"'{since}'"])
-
-            if service:
-                cmd_parts.extend(["-u", service])
-
-            if severity:
-                priority_map = {
-                    "emergency": "0",
-                    "alert": "1",
-                    "critical": "2",
-                    "error": "3",
-                    "warning": "4",
-                    "notice": "5",
-                    "info": "6",
-                    "debug": "7",
-                }
-                if severity.lower() in priority_map:
-                    cmd_parts.extend(["-p", priority_map[severity.lower()]])
-
-            cmd = " ".join(cmd_parts)
-            result = await self.ssh_client.execute_command(ssh_info, cmd)
-
-            logs = []
-            if result.stdout:
-                log_lines: list[str] = result.stdout.strip().split("\n")
-                for line in log_lines:
-                    if line.strip():
-                        logs.append(
-                            SystemLogResponse(
-                                device_id=device_id,
-                                time=datetime.now(
-                                    UTC
-                                ),  # Would parse actual timestamp
-                                message=line.strip(),
-                                hostname=str(device.hostname),
-                            )
-                        )
-
-            return logs
-
-        except Exception as e:
-            logger.error(f"Error getting logs for device {device_id}: {e}")
-            raise SSHCommandError("ssh", f"Failed to get logs: {str(e)}")
 
     async def get_device_backups(
         self,

@@ -253,6 +253,19 @@ class SWAGSettings(BaseSettings):
     model_config = SettingsConfigDict(env_file=".env", case_sensitive=False, extra="ignore")
 
 
+class GlancesSettings(BaseSettings):
+    """Glances integration settings"""
+    
+    default_port: int = Field(default=61208, description="Default Glances API port")
+    connection_timeout: int = Field(default=30, description="Connection timeout in seconds")
+    request_timeout: int = Field(default=60, description="Request timeout in seconds")
+    max_connections_per_device: int = Field(default=5, description="Max concurrent connections")
+    retry_attempts: int = Field(default=3, description="Number of retry attempts")
+    retry_delay: float = Field(default=1.0, description="Delay between retries in seconds")
+
+    model_config = SettingsConfigDict(env_file=".env", case_sensitive=False, extra="ignore")
+
+
 class ExternalIntegrationSettings(BaseSettings):
     """External service integration settings"""
 
@@ -283,6 +296,7 @@ class ApplicationSettings(BaseSettings):
     logging: LoggingSettings = Field(default_factory=LoggingSettings)
     api: APISettings = Field(default_factory=APISettings)
     swag: SWAGSettings = Field(default_factory=SWAGSettings)
+    glances: GlancesSettings = Field(default_factory=GlancesSettings)
     external: ExternalIntegrationSettings = Field(default_factory=ExternalIntegrationSettings)
 
     @property

@@ -6,22 +6,26 @@ import {
   Minus,
   AlertTriangle,
   CheckCircle,
-  Activity
+  Activity,
+  MoreVertical
 } from 'lucide-react';
 import { cn, componentStyles, semanticColors } from '@/lib/design-system';
 import { Card } from '@/components/ui/card';
+import { Sparkline, type SparklineDataPoint } from './Sparkline';
 
 const metricCardVariants = cva(
   [
     "relative overflow-hidden transition-all duration-300",
+    "hover-lift group cursor-pointer",
   ],
   {
     variants: {
       variant: {
-        default: "hover:shadow-md",
-        elevated: "shadow-lg hover:shadow-xl",
-        gradient: "bg-gradient-to-br from-background to-muted/50",
-        outlined: "border-2",
+        default: "hover:shadow-md hover:bg-accent/50",
+        elevated: "shadow-lg hover:shadow-xl hover:shadow-primary/10",
+        gradient: "bg-gradient-to-br from-background to-muted/50 hover:from-primary/5 hover:to-muted/30",
+        outlined: "border-2 hover:border-primary/50",
+        glass: "glass hover:glass-tinted",
       },
       status: {
         normal: "",
@@ -61,6 +65,12 @@ export interface MetricCardProps
   unit?: string;
   description?: string;
   actions?: React.ReactNode;
+  // Enhanced features
+  sparklineData?: SparklineDataPoint[];
+  showSparkline?: boolean;
+  sparklineColor?: string;
+  onClick?: () => void;
+  onHover?: (hovered: boolean) => void;
   // Legacy props for backwards compatibility
   change?: number;
   changeType?: 'increase' | 'decrease' | 'neutral';
@@ -81,11 +91,18 @@ export function MetricCard({
   variant,
   status,
   size,
+  // Enhanced features
+  sparklineData,
+  showSparkline = false,
+  sparklineColor,
+  onClick,
+  onHover,
   // Legacy props
   change,
   changeType,
   ...props
 }: MetricCardProps) {
+  const [isHovered, setIsHovered] = React.useState(false);
   // Convert legacy props to new format
   const normalizedTrend = trend || (change !== undefined ? {
     value: changeType === 'increase' ? Math.abs(change) : changeType === 'decrease' ? -Math.abs(change) : 0,
@@ -115,13 +132,39 @@ export function MetricCard({
   const StatusIcon = getStatusIcon();
   const TrendIcon = getTrendIcon();
 
+  // Handle hover events
+  const handleMouseEnter = () => {
+    setIsHovered(true);
+    onHover?.(true);
+  };
+
+  const handleMouseLeave = () => {
+    setIsHovered(false);
+    onHover?.(false);
+  };
+
+  const handleClick = () => {
+    onClick?.();
+  };
+
+  const getSparklineColor = () => {
+    if (sparklineColor) return sparklineColor;
+    if (normalizedTrend?.value && normalizedTrend.value > 0) return '#10b981';
+    if (normalizedTrend?.value && normalizedTrend.value < 0) return '#ef4444';
+    return 'currentColor';
+  };
+
   return (
     <Card
       className={cn(
         metricCardVariants({ variant, status, size }),
-        "animate-scale-in",
+        "animate-fade-in-up",
+        onClick && "cursor-pointer",
         className
       )}
+      onMouseEnter={handleMouseEnter}
+      onMouseLeave={handleMouseLeave}
+      onClick={handleClick}
       {...props}
     >
       <div className="space-y-3">
@@ -165,24 +208,49 @@ export function MetricCard({
           )}
         </div>
 
-        {/* Main value */}
+        {/* Main value and sparkline */}
         <div className="space-y-1">
-          {loading ? (
-            <div className="animate-pulse">
-              <div className="h-8 bg-muted rounded-md w-24" />
-            </div>
-          ) : (
-            <div className="flex items-baseline gap-2">
-              <span className={componentStyles.typography.heading.section + " tabular-nums"}>
-                {error ? '—' : value}
-              </span>
-              {unit && !error && (
-                <span className={componentStyles.typography.body.small}>
-                  {unit}
-                </span>
+          <div className="flex items-center justify-between">
+            <div className="flex-1">
+              {loading ? (
+                <div className="animate-pulse">
+                  <div className="h-8 bg-muted rounded-md w-24" />
+                </div>
+              ) : (
+                <div className="flex items-baseline gap-2">
+                  <span className={cn(
+                    componentStyles.typography.heading.section + " tabular-nums",
+                    "group-hover:text-primary transition-colors"
+                  )}>
+                    {error ? '—' : value}
+                  </span>
+                  {unit && !error && (
+                    <span className={componentStyles.typography.body.small}>
+                      {unit}
+                    </span>
+                  )}
+                </div>
               )}
             </div>
-          )}
+            
+            {/* Sparkline */}
+            {showSparkline && sparklineData && sparklineData.length > 0 && !loading && !error && (
+              <div className={cn(
+                "flex-shrink-0 transition-all duration-300",
+                isHovered ? "opacity-100 scale-110" : "opacity-75"
+              )}>
+                <Sparkline
+                  data={sparklineData}
+                  width={64}
+                  height={24}
+                  color={getSparklineColor()}
+                  strokeWidth={2}
+                  animate={isHovered}
+                  showArea={true}
+                />
+              </div>
+            )}
+          </div>
           
           {subtitle && (
             <p className={componentStyles.typography.body.small}>
@@ -193,23 +261,43 @@ export function MetricCard({
 
         {/* Trend indicator */}
         {normalizedTrend && !loading && !error && (
-          <div className="flex items-center gap-2">
-            <div className={cn(
-              "flex items-center gap-1 px-2 py-1 rounded-full text-xs font-medium transition-colors",
-              normalizedTrend.value > 0 && "bg-green-100 dark:bg-green-900/20 text-green-800 dark:text-green-300",
-              normalizedTrend.value < 0 && "bg-red-100 dark:bg-red-900/20 text-red-800 dark:text-red-300",
-              normalizedTrend.value === 0 && "bg-gray-100 dark:bg-gray-900/20 text-gray-800 dark:text-gray-300"
-            )}>
-              <TrendIcon className="h-3 w-3" />
-              <span className="tabular-nums">
-                {normalizedTrend.value > 0 ? '+' : ''}{normalizedTrend.value}%
-              </span>
+          <div className="flex items-center justify-between gap-2">
+            <div className="flex items-center gap-2">
+              <div className={cn(
+                "flex items-center gap-1 px-3 py-1.5 rounded-full text-xs font-medium transition-all duration-200",
+                "group-hover:scale-105",
+                normalizedTrend.value > 0 && "bg-green-100 dark:bg-green-900/20 text-green-800 dark:text-green-300 group-hover:shadow-glow",
+                normalizedTrend.value < 0 && "bg-red-100 dark:bg-red-900/20 text-red-800 dark:text-red-300 group-hover:shadow-glow",
+                normalizedTrend.value === 0 && "bg-gray-100 dark:bg-gray-900/20 text-gray-800 dark:text-gray-300"
+              )}>
+                <TrendIcon className={cn(
+                  "h-3 w-3 transition-transform duration-200",
+                  isHovered && "scale-110"
+                )} />
+                <span className="tabular-nums">
+                  {normalizedTrend.value > 0 ? '+' : ''}{normalizedTrend.value}%
+                </span>
+              </div>
+              {normalizedTrend.label && (
+                <span className={cn(
+                  componentStyles.typography.body.xs,
+                  "transition-opacity duration-200",
+                  isHovered ? "opacity-100" : "opacity-75"
+                )}>
+                  {normalizedTrend.label}
+                  {normalizedTrend.period && ` ${normalizedTrend.period}`}
+                </span>
+              )}
             </div>
-            {normalizedTrend.label && (
-              <span className={componentStyles.typography.body.xs}>
-                {normalizedTrend.label}
-                {normalizedTrend.period && ` ${normalizedTrend.period}`}
-              </span>
+            
+            {/* Interactive indicator */}
+            {(onClick || isHovered) && (
+              <div className={cn(
+                "flex items-center gap-1 text-xs text-muted-foreground transition-all duration-200",
+                isHovered ? "opacity-100 translate-x-0" : "opacity-0 translate-x-2"
+              )}>
+                <MoreVertical className="h-3 w-3" />
+              </div>
             )}
           </div>
         )}

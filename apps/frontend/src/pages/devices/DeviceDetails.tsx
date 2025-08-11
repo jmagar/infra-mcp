@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { MetricCard, StatusBadge, DataTable, ActionDropdown, EmptyState } from '@/components/common';
+import { MetricCard, StatusBadge, DataTable, ActionDropdown } from '@/components/common';
 import { useDevice } from '@/hooks/useDevices';
 import { useContainers } from '@/hooks/useContainers';
 import { useSystemMetrics } from '@/hooks/useSystemMetrics';

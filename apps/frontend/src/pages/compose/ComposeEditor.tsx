@@ -17,17 +17,14 @@ import { Badge } from '@/components/ui/badge';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { LoadingSpinner, ConfirmDialog } from '@/components/common';
 import {
-  FileTextIcon,
   SaveIcon,
   PlayIcon,
-  EyeIcon,
   NetworkIcon,
   ZapIcon,
   AlertTriangleIcon,
   CheckCircleIcon,
   ArrowLeftIcon,
-  SettingsIcon,
-  ServerIcon
+  SettingsIcon
 } from 'lucide-react';
 
 export function ComposeEditor() {
@@ -56,17 +53,20 @@ export function ComposeEditor() {
   // Load current stack data
   useEffect(() => {
     if (stackName && composeStacks.length > 0) {
-      const currentStack = composeStacks.find(
-        s => s.name === stackName && s.device_hostname === deviceHostname
+      // composeStacks is currently untyped; narrow at usage without 'any'
+      type StackLite = { name?: string; device_hostname?: string; compose_content?: string; path?: string };
+      const list = composeStacks as unknown as StackLite[];
+      const currentStack = list.find(
+        (s) => s.name === stackName && s.device_hostname === deviceHostname
       );
       
       if (currentStack) {
-        setContent(currentStack.compose_content || '');
-        setDeployPath(currentStack.path || '');
-        setTargetDevice(currentStack.device_hostname);
+        setContent(currentStack.compose_content ?? '');
+        setDeployPath(currentStack.path ?? '');
+        setTargetDevice(currentStack.device_hostname ?? targetDevice);
       }
     }
-  }, [stackName, deviceHostname, composeStacks]);
+  }, [stackName, deviceHostname, composeStacks, targetDevice]);
 
   // Mark as modified when content changes
   useEffect(() => {
@@ -100,7 +100,7 @@ export function ComposeEditor() {
         errors.push('Service image appears to be empty');
       }
       
-    } catch (error) {
+    } catch {
       errors.push('Invalid YAML syntax');
     }
     
@@ -152,8 +152,15 @@ export function ComposeEditor() {
         scanNetworks(targetDevice)
       ]);
       
-      setAvailablePorts(portsResponse.data.available_ports || []);
-      setAvailableNetworks(networksResponse.data.networks || []);
+      type PortsResp = { available_ports?: number[] } | undefined;
+      type NetworksResp = { networks?: Array<string | { name: string }> } | undefined;
+      const portsData = portsResponse.data as PortsResp;
+      const netsData = networksResponse.data as NetworksResp;
+      const ports = portsData?.available_ports ?? [];
+      const networksRaw = netsData?.networks ?? [];
+      const networks = networksRaw.map((n) => (typeof n === 'string' ? n : n.name)).filter(Boolean) as string[];
+      setAvailablePorts(ports);
+      setAvailableNetworks(networks);
     } catch (error) {
       console.error('Failed to scan resources:', error);
     } finally {
@@ -397,11 +404,11 @@ services:
         isOpen={confirmDeploy}
         title="Deploy Compose Stack"
         description={`Deploy "${stackName}" to ${targetDevice}? This will stop existing containers and start the updated configuration.`}
-        confirmText="Deploy Stack"
-        cancelText="Cancel"
-        variant="default"
+        confirmLabel="Deploy Stack"
+        cancelLabel="Cancel"
+        variant="warning"
         onConfirm={handleDeploy}
-        onCancel={() => setConfirmDeploy(false)}
+        onClose={() => setConfirmDeploy(false)}
         isLoading={deploying}
       />
     </div>

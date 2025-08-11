@@ -48,7 +48,7 @@ interface UIStore {
 export const useUIStore = create<UIStore>()(
   devtools(
     persist(
-      (set, get) => ({
+      (set) => ({
         // Initial state
         theme: 'system',
         sidebarOpen: false,

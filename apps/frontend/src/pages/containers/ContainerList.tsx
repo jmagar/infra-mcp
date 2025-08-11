@@ -1,15 +1,13 @@
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { DataTable, StatusBadge, MetricCard, ActionDropdown, ConfirmDialog } from '@/components/common';
+import { DataTable, StatusBadge, ActionDropdown, ConfirmDialog } from '@/components/common';
 import { useContainers } from '@/hooks/useContainers';
-import { useDevices } from '@/hooks/useDevices';
 import { useResponsive, useResponsiveTable } from '@/hooks/useResponsive';
 import { useNotificationEvents } from '@/hooks/useNotificationEvents';
 import { gridConfigs, spacing, typography, layout } from '@/lib/responsive';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { Badge } from '@/components/ui/badge';
 import { Label } from '@/components/ui/label';
 import { 
   Box as CubeTransparentIcon,
@@ -19,17 +17,20 @@ import {
   Trash2 as TrashIcon,
   Eye as EyeIcon,
   RefreshCw as RefreshCwIcon,
-  Filter as FilterIcon,
   Server as ServerIcon
 } from 'lucide-react';
-import type { ContainerResponse } from '@infrastructor/shared-types';
+import type { ContainerResponse, ContainerPort } from '@infrastructor/shared-types';
 import type { Column } from '@/components/common/DataTable';
+
+// Row type for DataTable that satisfies Record constraint and includes derived fields
+type ContainerRow = ContainerResponse & Record<string, unknown> & {
+  device_hostname?: string;
+};
 
 export function ContainerList() {
   const navigate = useNavigate();
   const { containers, totalCount, loading, startContainer, stopContainer, restartContainer, removeContainer, refetch } = useContainers();
-  const { devices } = useDevices();
-  const { isMobile, isTablet } = useResponsive();
+  const { isMobile } = useResponsive();
   const { notifyContainerAction } = useNotificationEvents();
   
   const [statusFilter, setStatusFilter] = useState<string>('all');
@@ -49,17 +50,23 @@ export function ContainerList() {
     isLoading: false,
   });
 
+  // Normalize device identifier from either optional device_hostname (when present)
+  // or the required device_id from shared types
+  const getDeviceKey = (c: ContainerResponse | ContainerRow): string => {
+    return (c as Partial<ContainerRow>).device_hostname ?? (c as ContainerResponse).device_id;
+  };
+
   // Filter containers based on selected filters and search
   const filteredContainers = containers?.filter(container => {
     if (statusFilter !== 'all' && container.status !== statusFilter) return false;
-    if (deviceFilter !== 'all' && container.device_hostname !== deviceFilter) return false;
+    if (deviceFilter !== 'all' && getDeviceKey(container) !== deviceFilter) return false;
     if (searchTerm && !container.name.toLowerCase().includes(searchTerm.toLowerCase()) && 
         !container.image.toLowerCase().includes(searchTerm.toLowerCase())) return false;
     return true;
   }) || [];
 
   // Get unique device hostnames and container statuses for filter options
-  const deviceHostnames = [...new Set(containers?.map(c => c.device_hostname) || [])];
+  const deviceHostnames = [...new Set(containers?.map(c => getDeviceKey(c)) || [])];
   const containerStatuses = [...new Set(containers?.map(c => c.status) || [])];
 
   const handleContainerAction = async (action: 'start' | 'stop' | 'restart', deviceHostname: string, containerName: string) => {
@@ -118,7 +125,7 @@ export function ContainerList() {
     }
   };
 
-  const allColumns: Column<ContainerResponse>[] = [
+  const allColumns: Column<ContainerRow>[] = [
     {
       key: 'name',
       title: 'Container',
@@ -143,7 +150,7 @@ export function ContainerList() {
       render: (value) => (
         <div className="flex items-center space-x-1">
           <ServerIcon className="h-3 w-3 text-gray-400" />
-          <span className="text-sm font-medium">{value}</span>
+          <span className="text-sm font-medium">{String(value)}</span>
         </div>
       ),
     },
@@ -151,7 +158,7 @@ export function ContainerList() {
       key: 'status',
       title: 'Status',
       sortable: true,
-      render: (value) => <StatusBadge status={value} />,
+      render: (value) => <StatusBadge status={String(value)} />,
     },
     {
       key: 'ports',
@@ -159,8 +166,9 @@ export function ContainerList() {
       hideOnMobile: true,
       hideOnTablet: true,
       render: (value) => {
-        if (!value || value.length === 0) return <span className="text-gray-400">None</span>;
-        const portStrings = value.map(port => `${port.host_port}:${port.container_port}`);
+        const ports = Array.isArray(value) ? (value as ContainerPort[]) : [];
+        if (ports.length === 0) return <span className="text-gray-400">None</span>;
+        const portStrings = ports.map(port => `${port.host_port ?? ''}:${port.container_port}`);
         return (
           <div className="text-sm">
             {portStrings.length > 2 ? (
@@ -216,18 +224,19 @@ export function ContainerList() {
     {
       key: 'created_at',
       title: 'Created',
-      sortable: true,
-      hideOnTablet: true,
+      hideOnMobile: true,
       render: (value) => {
-        if (!value) return <span className="text-gray-400">Unknown</span>;
-        const date = new Date(value);
+        if (typeof value !== 'string' && typeof value !== 'number') {
+          return <span className="text-gray-400">Unknown</span>;
+        }
+        const date = new Date(value as string | number);
         return (
           <div>
             <div className="text-sm">{date.toLocaleDateString()}</div>
             <div className="text-xs text-gray-500">{date.toLocaleTimeString()}</div>
           </div>
         );
-      },
+      }
     },
     {
       key: 'actions',
@@ -237,31 +246,31 @@ export function ContainerList() {
           {
             label: 'View Details',
             icon: EyeIcon,
-            onClick: () => navigate(`/containers/${container.device_hostname}/${container.name}`),
+            onClick: () => navigate(`/containers/${(container.device_hostname || container.device_id)}/${container.name}`),
           },
           ...(container.status === 'running' ? [
             {
               label: 'Stop Container',
               icon: PauseIcon,
-              onClick: () => handleContainerAction('stop', container.device_hostname, container.name),
+              onClick: () => handleContainerAction('stop', String(container.device_hostname || container.device_id), container.name),
             }
           ] : [
             {
               label: 'Start Container',
               icon: PlayIcon,
-              onClick: () => handleContainerAction('start', container.device_hostname, container.name),
+              onClick: () => handleContainerAction('start', String(container.device_hostname || container.device_id), container.name),
             }
           ]),
           {
             label: 'Restart Container',
             icon: ArrowPathIcon,
-            onClick: () => handleContainerAction('restart', container.device_hostname, container.name),
+            onClick: () => handleContainerAction('restart', String(container.device_hostname || container.device_id), container.name),
             separator: true,
           },
           {
             label: 'Remove Container',
             icon: TrashIcon,
-            onClick: () => handleRemoveContainer(container.device_hostname, container.name),
+            onClick: () => handleRemoveContainer(String(container.device_hostname || container.device_id), container.name),
             variant: 'destructive' as const,
           },
         ];
@@ -411,13 +420,13 @@ export function ContainerList() {
       </Card>
 
       {/* Container Table */}
-      <DataTable
-        data={filteredContainers}
+      <DataTable<ContainerRow>
+        data={filteredContainers as unknown as ContainerRow[]}
         columns={columns}
         loading={loading}
         searchable={false} // We have custom search
         pagination={{ pageSize: 15 }}
-        onRowClick={(container) => navigate(`/containers/${container.device_hostname}/${container.name}`)}
+        onRowClick={(container) => navigate(`/containers/${String((container as ContainerRow).device_hostname || (container as ContainerRow).device_id)}/${(container as ContainerRow).name}`)}
         emptyMessage="No containers found. Deploy your first container to get started."
       />
 
@@ -426,11 +435,11 @@ export function ContainerList() {
         isOpen={confirmDialog.isOpen}
         title="Remove Container"
         description={`Are you sure you want to remove container "${confirmDialog.containerName}" from ${confirmDialog.deviceHostname}? This action cannot be undone and will permanently delete the container.`}
-        confirmText="Remove Container"
-        cancelText="Cancel"
-        variant="destructive"
+        confirmLabel="Remove Container"
+        cancelLabel="Cancel"
+        variant="danger"
         onConfirm={confirmRemoveContainer}
-        onCancel={() => setConfirmDialog({
+        onClose={() => setConfirmDialog({
           isOpen: false,
           action: null,
           containerName: '',

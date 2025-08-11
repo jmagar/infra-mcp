@@ -1,6 +1,6 @@
 import { create } from 'zustand';
 import { devtools } from 'zustand/middleware';
-import type { DeviceResponse, DeviceList, DeviceCreate, DeviceUpdate } from '@infrastructor/shared-types';
+import type { DeviceResponse } from '@infrastructor/shared-types';
 
 interface DeviceStore {
   // State

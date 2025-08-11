@@ -1,7 +1,6 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { useContainer, useContainers } from '@/hooks/useContainers';
-import { useWebSocket } from '@/hooks/useWebSocket';
 import { useResponsive } from '@/hooks/useResponsive';
 import { useNotificationEvents } from '@/hooks/useNotificationEvents';
 import { StatusBadge, MetricCard, LoadingSpinner } from '@/components/common';
@@ -24,16 +23,15 @@ import {
   RefreshCw as RefreshCwIcon,
   Copy as CopyIcon,
 } from 'lucide-react';
-import type { ContainerResponse } from '@infrastructor/shared-types';
+// import type { ContainerResponse } from '@infrastructor/shared-types';
 
 export function ContainerDetails() {
   const { device, containerName } = useParams<{ device: string; containerName: string }>();
   const navigate = useNavigate();
-  const { isMobile, isTablet } = useResponsive();
-  const { container, loading, error } = useContainer(device, containerName);
-  const { startContainer, stopContainer, restartContainer, removeContainer, getContainerLogs } = useContainers(device);
-  const { data: liveMetrics } = useWebSocket(`ws://localhost:9101/ws/container-metrics/${device}/${containerName}`);
-  const { notifyContainerAction, notifyError } = useNotificationEvents({ device, container: containerName });
+  const { isMobile } = useResponsive();
+  const { container, loading, error, fetchContainerLogs } = useContainer(device, containerName);
+  const { startContainer, stopContainer, restartContainer, removeContainer } = useContainers(device);
+  const { notifyContainerAction } = useNotificationEvents({ device, container: containerName });
   
   const [activeTab, setActiveTab] = useState('overview');
   const [logs, setLogs] = useState<string[]>([]);
@@ -43,32 +41,32 @@ export function ContainerDetails() {
   const [following, setFollowing] = useState(false);
   const logsEndRef = useRef<HTMLDivElement>(null);
 
+  const fetchLogs = useCallback(async (tail = 100) => {
+    if (!device || !containerName || !fetchContainerLogs) return;
+    setLogsLoading(true);
+    try {
+      const containerLogs = await fetchContainerLogs(device, containerName, { tail });
+      setLogs(containerLogs.split('\n').filter(line => line.trim()));
+    } catch (error) {
+      console.error('Failed to fetch logs:', error);
+      const msg = error instanceof Error ? error.message : 'Unknown error';
+      setLogs(['Error fetching logs: ' + msg]);
+    } finally {
+      setLogsLoading(false);
+    }
+  }, [device, containerName, fetchContainerLogs]);
+
   useEffect(() => {
     if (activeTab === 'logs' && device && containerName) {
       fetchLogs();
     }
-  }, [activeTab, device, containerName]);
+  }, [activeTab, device, containerName, fetchLogs]);
 
   useEffect(() => {
     if (following && logsEndRef.current) {
       logsEndRef.current.scrollIntoView({ behavior: 'smooth' });
     }
   }, [logs, following]);
-
-  const fetchLogs = async (tail = 100) => {
-    if (!device || !containerName) return;
-    
-    setLogsLoading(true);
-    try {
-      const containerLogs = await getContainerLogs(device, containerName, { tail });
-      setLogs(containerLogs.split('\n').filter(line => line.trim()));
-    } catch (error) {
-      console.error('Failed to fetch logs:', error);
-      setLogs(['Error fetching logs: ' + error.message]);
-    } finally {
-      setLogsLoading(false);
-    }
-  };
 
   const handleContainerAction = async (action: 'start' | 'stop' | 'restart' | 'remove') => {
     if (!device || !containerName) return;

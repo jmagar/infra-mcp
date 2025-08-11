@@ -23,14 +23,10 @@ import {
   HardDrive,
   Cpu,
   MemoryStick,
-  Network,
   AlertTriangle,
   CheckCircle,
   RefreshCw,
-  TrendingUp,
-  TrendingDown,
   Eye,
-  Settings,
   BarChart3,
 } from 'lucide-react';
 import type { DeviceResponse, ContainerResponse } from '@infrastructor/shared-types';

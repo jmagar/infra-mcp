@@ -14,14 +14,10 @@ import {
   RealTimeLogsViewer,
 } from '@/components/dashboard';
 import {
-  Activity,
-  BarChart3,
-  FileText,
   Settings,
-  Maximize2,
   Layout,
 } from 'lucide-react';
-import { useDevices, useResponsive } from '@/hooks';
+import { useDevices } from '@/hooks';
 
 type DashboardLayout = 'default' | 'metrics-focused' | 'logs-focused' | 'custom';
 
@@ -31,7 +27,6 @@ export function RealTimeDashboardPage() {
   const [refreshInterval, setRefreshInterval] = useState<number>(5000);
   
   const { devices } = useDevices();
-  const { isMobile, isTablet } = useResponsive();
 
   // Filter devices for real-time monitoring
   const monitoringDevices = devices?.filter(d => d.status === 'online') || [];

@@ -191,16 +191,41 @@ async def get_device_summary_by_hostname(
 async def get_device_metrics_by_hostname(
     hostname: str = Path(..., description="Device hostname"),
     include_processes: bool = Query(False, description="Include process information"),
-    timeout: int = Query(60, description="SSH timeout in seconds"),
+    timeout: int = Query(60, description="Request timeout in seconds"),
     current_user: dict = Depends(get_current_user),
+    db_session: AsyncSession = Depends(get_db_session),
 ) -> dict:
-    """Get comprehensive system performance metrics from a device"""
-    # TODO: This endpoint needs to be updated to use the new granular monitoring functions
-    # or removed if deprecated. The get_device_info function is no longer available.
-    raise HTTPException(
-        status_code=501,
-        detail="This endpoint is temporarily unavailable during refactoring. Use specific endpoints like /drives, /logs, etc.",
-    )
+    """Get comprehensive system performance metrics from a device via Glances API"""
+    try:
+        # Get device first
+        device = await get_device_by_hostname_or_error(hostname, db_session)
+
+        # Use the unified data collection service directly
+        from apps.backend.src.core.database import get_async_session_factory
+        from apps.backend.src.services.unified_data_collection import get_unified_data_collection_service
+        from apps.backend.src.utils.ssh_client import get_ssh_client
+
+        session_factory = get_async_session_factory()
+        ssh_client = get_ssh_client()
+        unified_service = await get_unified_data_collection_service(
+            db_session_factory=session_factory,
+            ssh_client=ssh_client
+        )
+
+        # Collect comprehensive system data via Glances
+        system_data = await unified_service._collect_all_system_data_glances(
+            device, timeout=timeout
+        )
+
+        return system_data
+
+    except SSHCommandError as e:
+        raise HTTPException(status_code=500, detail=str(e)) from e
+    except SSHConnectionError as e:
+        raise HTTPException(status_code=503, detail=str(e)) from e
+    except Exception as e:
+        logger.error(f"Error getting system metrics for {hostname}: {e}")
+        raise HTTPException(status_code=500, detail="Failed to get system metrics.") from e
 
 
 @router.get("/{hostname}/drives")
@@ -269,39 +294,6 @@ async def get_device_drives_stats_by_hostname(
         raise HTTPException(status_code=500, detail="Failed to get drive stats.") from e
 
 
-@router.get("/{hostname}/logs")
-async def get_device_logs_by_hostname(
-    hostname: str = Path(..., description="Device hostname"),
-    service: str | None = Query(None, description="Filter by service name"),
-    since: str | None = Query("1h", description="Time range (1h, 6h, 24h, 7d)"),
-    lines: int = Query(100, ge=1, le=1000, description="Number of log lines to return"),
-    timeout: int = Query(60, description="SSH timeout in seconds"),
-    current_user: dict = Depends(get_current_user),
-    db_session: AsyncSession = Depends(get_db_session),
-) -> dict:
-    """Get system logs from journald or traditional syslog"""
-    try:
-        # Get device first
-        device = await get_device_by_hostname_or_error(hostname, db_session)
-
-        # Use polling service unified method directly (eliminates SSH duplication)
-        from apps.backend.src.core.database import get_async_session_factory
-
-        polling_service = PollingService()
-        polling_service.session_factory = get_async_session_factory()
-
-        # Use the unified collection method that properly uses SSH command manager
-        result = await polling_service._collect_system_logs_unified(device, service, since, lines)
-
-        return result
-
-    except SSHCommandError as e:
-        raise HTTPException(status_code=500, detail=str(e)) from e
-    except SSHConnectionError as e:
-        raise HTTPException(status_code=503, detail=str(e)) from e
-    except Exception as e:
-        logger.error(f"Error getting system logs for {hostname}: {e}")
-        raise HTTPException(status_code=500, detail="Failed to get system logs.") from e
 
 
 @router.get("/{hostname}/ports")

@@ -1,218 +1,223 @@
 /**
  * ZFS Service
- * API methods for ZFS filesystem management
+ * API methods for ZFS management
  */
 
-import { api } from './api';
-import type {
-  ZFSPoolResponse,
-  ZFSDatasetResponse,
-  ZFSSnapshotResponse,
-  ZFSHealthCheck,
-  PaginationParams,
-} from '@infrastructor/shared-types';
+import { zfsApi } from './api';
 
 export const zfsService = {
-  // Pool Management
-  pools: {
-    // List all ZFS pools on a device
-    async list(deviceId: string): Promise<ZFSPoolResponse[]> {
-      const response = await api.get<ZFSPoolResponse[]>(`/zfs/${deviceId}/pools`);
-      return response.data || [];
-    },
-
-    // Get detailed status for a specific pool
-    async getStatus(deviceId: string, poolName: string): Promise<ZFSPoolResponse | null> {
-      const response = await api.get<ZFSPoolResponse>(`/zfs/${deviceId}/pools/${poolName}/status`);
-      return response.data || null;
-    },
+  // List ZFS pools
+  async listPools(hostname: string): Promise<any[] | null> {
+    try {
+      const response = await zfsApi.listPools(hostname);
+      if (response.success && response.data) {
+        return response.data as any[];
+      }
+      return null;
+    } catch (error) {
+      console.error(`Failed to get ZFS pools for ${hostname}:`, error);
+      return null;
+    }
   },
 
-  // Dataset Management
-  datasets: {
-    // List ZFS datasets, optionally filtered by pool
-    async list(deviceId: string, poolName?: string): Promise<ZFSDatasetResponse[]> {
-      const url = poolName 
-        ? `/zfs/${deviceId}/datasets?pool_name=${poolName}`
-        : `/zfs/${deviceId}/datasets`;
-      const response = await api.get<ZFSDatasetResponse[]>(url);
-      return response.data || [];
-    },
-
-    // Get properties for a specific dataset
-    async getProperties(deviceId: string, datasetName: string): Promise<Record<string, any> | null> {
-      const response = await api.get<Record<string, any>>(
-        `/zfs/${deviceId}/datasets/${datasetName}/properties`
-      );
-      return response.data || null;
-    },
+  // Get pool status
+  async getPoolStatus(hostname: string, poolName: string): Promise<any | null> {
+    try {
+      const response = await zfsApi.getPoolStatus(hostname, poolName);
+      if (response.success && response.data) {
+        return response.data;
+      }
+      return null;
+    } catch (error) {
+      console.error(`Failed to get ZFS pool status for ${hostname}/${poolName}:`, error);
+      return null;
+    }
   },
 
-  // Snapshot Management
-  snapshots: {
-    // List ZFS snapshots, optionally filtered by dataset
-    async list(deviceId: string, datasetName?: string): Promise<ZFSSnapshotResponse[]> {
-      const url = datasetName 
-        ? `/zfs/${deviceId}/snapshots?dataset_name=${datasetName}`
-        : `/zfs/${deviceId}/snapshots`;
-      const response = await api.get<ZFSSnapshotResponse[]>(url);
-      return response.data || [];
-    },
-
-    // Create a new snapshot
-    async create(
-      deviceId: string,
-      datasetName: string,
-      snapshotName: string,
-      recursive?: boolean
-    ): Promise<{ success: boolean; message?: string }> {
-      const response = await api.post<{ success: boolean; message?: string }>(
-        `/zfs/${deviceId}/snapshots`,
-        { dataset_name: datasetName, snapshot_name: snapshotName, recursive }
-      );
-      return response.data || { success: false, message: 'Snapshot creation failed' };
-    },
-
-    // Clone a snapshot
-    async clone(
-      deviceId: string,
-      snapshotName: string,
-      cloneName: string
-    ): Promise<{ success: boolean; message?: string }> {
-      const response = await api.post<{ success: boolean; message?: string }>(
-        `/zfs/${deviceId}/snapshots/${snapshotName}/clone`,
-        { clone_name: cloneName }
-      );
-      return response.data || { success: false, message: 'Snapshot clone failed' };
-    },
-
-    // Send snapshot for replication
-    async send(
-      deviceId: string,
-      snapshotName: string,
-      params?: { destination?: string; incremental?: boolean }
-    ): Promise<{ success: boolean; message?: string; size?: number }> {
-      const response = await api.post<{ 
-        success: boolean; 
-        message?: string; 
-        size?: number;
-      }>(`/zfs/${deviceId}/snapshots/${snapshotName}/send`, params);
-      return response.data || { success: false, message: 'Snapshot send failed' };
-    },
-
-    // Receive snapshot stream
-    async receive(
-      deviceId: string,
-      datasetName: string
-    ): Promise<{ success: boolean; message?: string }> {
-      const response = await api.post<{ success: boolean; message?: string }>(
-        `/zfs/${deviceId}/snapshots/receive`,
-        { dataset_name: datasetName }
-      );
-      return response.data || { success: false, message: 'Snapshot receive failed' };
-    },
-
-    // Compare differences between snapshots
-    async diff(
-      deviceId: string,
-      snapshot1: string,
-      snapshot2: string
-    ): Promise<{ changes: Array<{ type: string; path: string }>; summary: any } | null> {
-      const response = await api.get<{ 
-        changes: Array<{ type: string; path: string }>; 
-        summary: any;
-      }>(`/zfs/${deviceId}/snapshots/diff`, {
-        params: { snapshot1, snapshot2 }
-      });
-      return response.data || null;
-    },
+  // List datasets
+  async listDatasets(hostname: string): Promise<any[] | null> {
+    try {
+      const response = await zfsApi.listDatasets(hostname);
+      if (response.success && response.data) {
+        return response.data as any[];
+      }
+      return null;
+    } catch (error) {
+      console.error(`Failed to get ZFS datasets for ${hostname}:`, error);
+      return null;
+    }
   },
 
-  // Health and Monitoring
-  health: {
-    // Comprehensive ZFS health check
-    async check(deviceId: string): Promise<ZFSHealthCheck | null> {
-      const response = await api.get<ZFSHealthCheck>(`/zfs/${deviceId}/health`);
-      return response.data || null;
-    },
-
-    // Get ZFS ARC statistics
-    async getArcStats(deviceId: string): Promise<Record<string, any> | null> {
-      const response = await api.get<Record<string, any>>(`/zfs/${deviceId}/arc-stats`);
-      return response.data || null;
-    },
-
-    // Monitor ZFS events
-    async getEvents(deviceId: string): Promise<Array<{ 
-      time: string; 
-      class: string; 
-      subclass: string; 
-      details: Record<string, any>;
-    }>> {
-      const response = await api.get<Array<{
-        time: string;
-        class: string;
-        subclass: string;
-        details: Record<string, any>;
-      }>>(`/zfs/${deviceId}/events`);
-      return response.data || [];
-    },
+  // Get dataset properties
+  async getDatasetProperties(hostname: string, datasetName: string): Promise<any | null> {
+    try {
+      const response = await zfsApi.getDatasetProperties(hostname, datasetName);
+      if (response.success && response.data) {
+        return response.data;
+      }
+      return null;
+    } catch (error) {
+      console.error(`Failed to get ZFS dataset properties for ${hostname}/${datasetName}:`, error);
+      return null;
+    }
   },
 
-  // Analysis and Optimization
-  analysis: {
-    // Generate comprehensive ZFS report
-    async generateReport(deviceId: string): Promise<{
-      pools: any[];
-      datasets: any[];
-      snapshots: any[];
-      health: any;
-      recommendations: string[];
-    } | null> {
-      const response = await api.get<{
-        pools: any[];
-        datasets: any[];
-        snapshots: any[];
-        health: any;
-        recommendations: string[];
-      }>(`/zfs/${deviceId}/report`);
-      return response.data || null;
-    },
+  // List snapshots
+  async listSnapshots(hostname: string): Promise<any[] | null> {
+    try {
+      const response = await zfsApi.listSnapshots(hostname);
+      if (response.success && response.data) {
+        return response.data as any[];
+      }
+      return null;
+    } catch (error) {
+      console.error(`Failed to get ZFS snapshots for ${hostname}:`, error);
+      return null;
+    }
+  },
 
-    // Analyze snapshot space usage
-    async analyzeSnapshots(deviceId: string): Promise<{
-      total_size: number;
-      snapshots_by_dataset: Record<string, any>;
-      cleanup_recommendations: Array<{ dataset: string; snapshots: string[]; space_saved: number }>;
-    } | null> {
-      const response = await api.get<{
-        total_size: number;
-        snapshots_by_dataset: Record<string, any>;
-        cleanup_recommendations: Array<{ dataset: string; snapshots: string[]; space_saved: number }>;
-      }>(`/zfs/${deviceId}/analyze/snapshots`);
-      return response.data || null;
-    },
+  // Create snapshot
+  async createSnapshot(hostname: string, data: { dataset_name: string; snapshot_name: string; recursive?: boolean }): Promise<boolean> {
+    try {
+      const response = await zfsApi.createSnapshot(hostname, data);
+      return response.success;
+    } catch (error) {
+      console.error(`Failed to create ZFS snapshot for ${hostname}:`, error);
+      throw error;
+    }
+  },
 
-    // Get ZFS optimization recommendations
-    async getOptimizations(deviceId: string): Promise<{
-      recommendations: Array<{
-        category: string;
-        priority: string;
-        description: string;
-        command?: string;
-      }>;
-      current_settings: Record<string, any>;
-    } | null> {
-      const response = await api.get<{
-        recommendations: Array<{
-          category: string;
-          priority: string;
-          description: string;
-          command?: string;
-        }>;
-        current_settings: Record<string, any>;
-      }>(`/zfs/${deviceId}/optimize`);
-      return response.data || null;
-    },
+  // Clone snapshot
+  async cloneSnapshot(hostname: string, snapshotName: string, data: { clone_name: string }): Promise<boolean> {
+    try {
+      const response = await zfsApi.cloneSnapshot(hostname, snapshotName, data);
+      return response.success;
+    } catch (error) {
+      console.error(`Failed to clone ZFS snapshot ${snapshotName} for ${hostname}:`, error);
+      throw error;
+    }
+  },
+
+  // Send snapshot
+  async sendSnapshot(hostname: string, snapshotName: string, data: { destination?: string; incremental?: boolean }): Promise<any> {
+    try {
+      const response = await zfsApi.sendSnapshot(hostname, snapshotName, data);
+      if (response.success && response.data) {
+        return response.data;
+      }
+      return null;
+    } catch (error) {
+      console.error(`Failed to send ZFS snapshot ${snapshotName} for ${hostname}:`, error);
+      throw error;
+    }
+  },
+
+  // Receive snapshot
+  async receiveSnapshot(hostname: string, data: { dataset_name: string }): Promise<boolean> {
+    try {
+      const response = await zfsApi.receiveSnapshot(hostname, data);
+      return response.success;
+    } catch (error) {
+      console.error(`Failed to receive ZFS snapshot for ${hostname}:`, error);
+      throw error;
+    }
+  },
+
+  // Diff snapshots
+  async diffSnapshots(hostname: string, snapshotName: string, data: { snapshot2: string }): Promise<any> {
+    try {
+      const response = await zfsApi.diffSnapshots(hostname, snapshotName, data);
+      if (response.success && response.data) {
+        return response.data;
+      }
+      return null;
+    } catch (error) {
+      console.error(`Failed to diff ZFS snapshots for ${hostname}:`, error);
+      return null;
+    }
+  },
+
+  // Get ZFS health
+  async getHealth(hostname: string): Promise<any | null> {
+    try {
+      const response = await zfsApi.getHealth(hostname);
+      if (response.success && response.data) {
+        return response.data;
+      }
+      return null;
+    } catch (error) {
+      console.error(`Failed to get ZFS health for ${hostname}:`, error);
+      return null;
+    }
+  },
+
+  // Get ARC stats
+  async getARCStats(hostname: string): Promise<any | null> {
+    try {
+      const response = await zfsApi.getARCStats(hostname);
+      if (response.success && response.data) {
+        return response.data;
+      }
+      return null;
+    } catch (error) {
+      console.error(`Failed to get ZFS ARC stats for ${hostname}:`, error);
+      return null;
+    }
+  },
+
+  // Get ZFS events
+  async getEvents(hostname: string): Promise<any | null> {
+    try {
+      const response = await zfsApi.getEvents(hostname);
+      if (response.success && response.data) {
+        return response.data;
+      }
+      return null;
+    } catch (error) {
+      console.error(`Failed to get ZFS events for ${hostname}:`, error);
+      return null;
+    }
+  },
+
+  // Get ZFS report
+  async getReport(hostname: string): Promise<any | null> {
+    try {
+      const response = await zfsApi.getReport(hostname);
+      if (response.success && response.data) {
+        return response.data;
+      }
+      return null;
+    } catch (error) {
+      console.error(`Failed to get ZFS report for ${hostname}:`, error);
+      return null;
+    }
+  },
+
+  // Get snapshot usage
+  async getSnapshotUsage(hostname: string): Promise<any | null> {
+    try {
+      const response = await zfsApi.getSnapshotUsage(hostname);
+      if (response.success && response.data) {
+        return response.data;
+      }
+      return null;
+    } catch (error) {
+      console.error(`Failed to get ZFS snapshot usage for ${hostname}:`, error);
+      return null;
+    }
+  },
+
+  // Optimize ZFS settings
+  async optimize(hostname: string): Promise<any | null> {
+    try {
+      const response = await zfsApi.optimize(hostname);
+      if (response.success && response.data) {
+        return response.data;
+      }
+      return null;
+    } catch (error) {
+      console.error(`Failed to optimize ZFS settings for ${hostname}:`, error);
+      throw error;
+    }
   },
 };
